@@ -59,22 +59,6 @@ export async function sendLauncherPrompt(chatId: number, logger?: any, options: 
   );
 }
 
-export async function sendLauncherMessage(chatId: number, logger?: any, options: LauncherMessageOptions = {}) {
-  const replyMarkup = await buildLauncherReplyMarkup(chatId, logger);
-
-  return sendTelegramMessage(
-    {
-      chatId,
-      text: options.text ?? buildLauncherText(),
-      replyToMessageId: options.replyToMessageId,
-      allowSendingWithoutReply: options.allowSendingWithoutReply,
-      disableNotification: options.disableNotification ?? true,
-      replyMarkup,
-    },
-    logger,
-  );
-}
-
 export async function refreshGroupLauncher(chatId: number, logger?: any) {
   await withChatLauncherLock(chatId, async () => {
     const existing = await getLauncherByChatId(chatId);
@@ -93,7 +77,7 @@ export async function refreshGroupLauncher(chatId: number, logger?: any) {
       }
     }
 
-    const launcher = await sendLauncherMessage(chatId, logger);
+    const launcher = await sendLauncherPrompt(chatId, logger);
     await saveLauncherMessage(chatId, launcher.message_id);
   });
 }

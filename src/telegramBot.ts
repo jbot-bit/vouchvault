@@ -54,7 +54,6 @@ import {
   withReviewerDraftLock,
 } from "./mastra/archiveStore.ts";
 import {
-  buildReplyKeyboardRemove,
   buildTargetRequestReplyMarkup,
   buildThreadedGroupReplyOptions,
   shouldSendThreadedLauncherReply,

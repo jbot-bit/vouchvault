@@ -14,6 +14,10 @@ import {
   serializeSelectedTags,
 } from "./archive.ts";
 
+// Postgres advisory-lock keys are 64-bit; this offset shifts reviewer
+// Telegram user IDs into a region that can't collide with raw chat IDs
+// used by other locks. -9e15 sits safely below any Telegram ID and within
+// JavaScript's Number.MIN_SAFE_INTEGER so arithmetic stays exact.
 const REVIEWER_DRAFT_LOCK_OFFSET = -9_000_000_000_000_000;
 
 export async function getBusinessProfileByUsername(username: string) {
