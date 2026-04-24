@@ -24,7 +24,7 @@ expertMode = true
 [userenv]
 
 [userenv.shared]
-PUBLIC_BASE_URL = "https://0865f41c-56c1-4afc-ac21-7fb787f26516-00-2am5keg47k2pf.picard.replit.dev"
+PUBLIC_BASE_URL = " https://vouchvault.replit.app"
 
 [workflows]
 runButton = "Project"
