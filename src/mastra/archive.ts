@@ -153,8 +153,35 @@ export function formatTagList(tags: EntryTag[]): string {
   return tags.map((tag) => TAG_LABELS[tag]).join(", ");
 }
 
-function formatLabeledLine(label: string, value: string): string {
-  return `${label}: ${value}`;
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function fmtUser(username: string): string {
+  return `<b>${escapeHtml(formatUsername(username))}</b>`;
+}
+
+function fmtResult(result: EntryResult): string {
+  return `<b>${escapeHtml(RESULT_LABELS[result])}</b>`;
+}
+
+function fmtTags(tags: EntryTag[]): string {
+  return escapeHtml(formatTagList(tags));
+}
+
+function fmtDate(date: Date): string {
+  return escapeHtml(date.toISOString().slice(0, 10));
+}
+
+function rulesLine(): string {
+  return "Follow Telegram's Terms of Service. No illegal activity, no scams.";
+}
+
+function aboutLine(): string {
+  return "A business hub for local businesses to share and verify service experiences.";
 }
 
 export function buildArchiveEntryText(input: {
@@ -168,18 +195,23 @@ export function buildArchiveEntryText(input: {
   source?: EntrySource;
   legacySourceTimestamp?: Date | null;
 }): string {
-  return [
-    input.source === "legacy_import"
-      ? `🧾 Legacy Entry #${input.entryId}`
-      : `🧾 Entry #${input.entryId}`,
+  const heading = input.source === "legacy_import"
+    ? `🧾 <b>Legacy Entry #${input.entryId}</b>`
+    : `🧾 <b>Entry #${input.entryId}</b>`;
+
+  const lines = [
+    heading,
     "",
-    formatLabeledLine("OP", formatUsername(input.reviewerUsername)),
-    formatLabeledLine("Target", formatUsername(input.targetUsername)),
-    formatLabeledLine("Result", RESULT_LABELS[input.result]),
-    ...(input.source === "legacy_import" && input.legacySourceTimestamp
-      ? [formatLabeledLine("Original", input.legacySourceTimestamp.toISOString().slice(0, 10))]
-      : []),
-  ].join("\n");
+    `OP: ${fmtUser(input.reviewerUsername)}`,
+    `Target: ${fmtUser(input.targetUsername)}`,
+    `Result: ${fmtResult(input.result)}`,
+  ];
+
+  if (input.source === "legacy_import" && input.legacySourceTimestamp) {
+    lines.push(`Original: ${fmtDate(input.legacySourceTimestamp)}`);
+  }
+
+  return lines.join("\n");
 }
 
 export function buildPreviewText(input: {
@@ -189,39 +221,45 @@ export function buildPreviewText(input: {
   tags: EntryTag[];
 }): string {
   return [
-    "Preview",
+    "<b><u>Preview</u></b>",
     "",
-    formatLabeledLine("OP", formatUsername(input.reviewerUsername)),
-    formatLabeledLine("Target", formatUsername(input.targetUsername)),
-    formatLabeledLine("Result", RESULT_LABELS[input.result]),
-    formatLabeledLine("Tags", formatTagList(input.tags)),
+    `OP: ${fmtUser(input.reviewerUsername)}`,
+    `Target: ${fmtUser(input.targetUsername)}`,
+    `Result: ${fmtResult(input.result)}`,
+    `Tags: ${fmtTags(input.tags)}`,
   ].join("\n");
 }
 
 export function buildWelcomeText(): string {
   return [
-    "How it works",
+    "<b>Welcome to the Vouch Hub</b>",
     "",
-    "1. Open the launcher in the group.",
+    aboutLine(),
+    "",
+    "<b><u>How to Vouch</u></b>",
+    "",
+    "1. Tap <b>Submit Vouch</b> in the group.",
     "2. Send only the target @username here.",
     "3. Choose the result and tags.",
     "4. I post the final entry back to the group.",
     "",
-    "For lawful marketplace use only. Do not use this bot for illicit activity or anything against Telegram ToS.",
+    "<b>Rules</b>",
+    rulesLine(),
   ].join("\n");
 }
 
 export function buildTargetPromptText(): string {
   return [
-    "Send the target @username.",
+    "<b>Step 1 of 3 — Choose target</b>",
     "",
-    "You can also tap Choose Target below.",
+    "Send the target @username here.",
+    "You can also tap <b>Choose Target</b> below.",
   ].join("\n");
 }
 
 export function buildTypePromptText(targetUsername: string): string {
   return [
-    `Target saved: ${formatUsername(targetUsername)}`,
+    `Target saved: ${fmtUser(targetUsername)}`,
     "",
     "What are you vouching for?",
   ].join("\n");
@@ -229,7 +267,9 @@ export function buildTypePromptText(targetUsername: string): string {
 
 export function buildResultPromptText(targetUsername: string): string {
   return [
-    formatLabeledLine("Target", formatUsername(targetUsername)),
+    "<b>Step 2 of 3 — Result</b>",
+    "",
+    `Target: ${fmtUser(targetUsername)}`,
     "",
     "Choose the result.",
   ].join("\n");
@@ -237,11 +277,13 @@ export function buildResultPromptText(targetUsername: string): string {
 
 export function buildTagPromptText(targetUsername: string, result: EntryResult, tags: EntryTag[]): string {
   return [
-    formatLabeledLine("Target", formatUsername(targetUsername)),
-    formatLabeledLine("Result", RESULT_LABELS[result]),
-    formatLabeledLine("Tags", formatTagList(tags)),
+    "<b>Step 3 of 3 — Tags</b>",
     "",
-    "Choose one or more tags, then tap Done.",
+    `Target: ${fmtUser(targetUsername)}`,
+    `Result: ${fmtResult(result)}`,
+    `Tags: ${fmtTags(tags)}`,
+    "",
+    "Choose one or more tags, then tap <b>Done</b>.",
   ].join("\n");
 }
 
@@ -257,17 +299,15 @@ export function buildLookupText(input: {
   }>;
 }): string {
   if (input.entries.length === 0) {
-    return `No entries for ${formatUsername(input.targetUsername)}.`;
+    return `No entries for ${fmtUser(input.targetUsername)}.`;
   }
 
-  const lines = [formatUsername(input.targetUsername), ""];
+  const lines = [`<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`, ""];
   for (const entry of input.entries) {
-    const sourcePrefix = entry.source === "legacy_import" ? " [Legacy]" : "";
-    lines.push(
-      `#${entry.id}${sourcePrefix} ${RESULT_LABELS[entry.result]}`,
-    );
-    lines.push(`By ${formatUsername(entry.reviewerUsername)} • ${entry.createdAt.toISOString().slice(0, 10)}`);
-    lines.push(`Tags: ${formatTagList(entry.tags)}`);
+    const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
+    lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
+    lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
+    lines.push(`Tags: ${fmtTags(entry.tags)}`);
     lines.push("");
   }
 
@@ -287,13 +327,11 @@ export function buildRecentEntriesText(entries: Array<{
     return "No entries yet.";
   }
 
-  const lines = ["Recent entries", ""];
+  const lines = ["<b><u>Recent entries</u></b>", ""];
   for (const entry of entries) {
-    const sourcePrefix = entry.source === "legacy_import" ? " [Legacy]" : "";
-    lines.push(
-      `#${entry.id}${sourcePrefix} ${RESULT_LABELS[entry.result]}`,
-    );
-    lines.push(`${formatUsername(entry.reviewerUsername)} -> ${formatUsername(entry.targetUsername)} • ${entry.createdAt.toISOString().slice(0, 10)}`);
+    const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
+    lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
+    lines.push(`${fmtUser(entry.reviewerUsername)} → ${fmtUser(entry.targetUsername)} • ${fmtDate(entry.createdAt)}`);
     lines.push("");
   }
 
@@ -302,42 +340,47 @@ export function buildRecentEntriesText(entries: Array<{
 
 export function buildLauncherText(): string {
   return [
-    "Need to post a vouch?",
-    "Open the short DM form below.",
+    "<b>Submit a vouch</b>",
+    "Tap below to open the short DM form.",
   ].join("\n");
 }
 
 export function buildPinnedGuideText(): string {
   return [
-    "How to use this group",
+    "<b>Welcome to the Vouch Hub</b>",
     "",
-    "1. Tap Open Vouch Flow.",
-    "2. Send only the target @username in DM, then use the buttons.",
+    aboutLine(),
+    "",
+    "<b><u>How to Vouch</u></b>",
+    "",
+    "1. Tap <b>Submit Vouch</b> below.",
+    "2. In DM, send only the target @username, then use the buttons.",
     "3. I post the final entry back here.",
     "",
-    "This is a legal marketplace. Do not use it for illicit activity or anything against Telegram ToS.",
+    "<b>Rules</b>",
+    rulesLine(),
   ].join("\n");
 }
 
 export function buildGroupLauncherReplyText(): string {
-  return "Tap below to open the DM form.";
+  return "Tap below to submit your vouch in DM.";
 }
 
 export function buildPublishedDraftText(targetUsername: string, result: EntryResult): string {
   return [
-    "Posted to the group.",
+    "<b>✓ Posted to the group</b>",
     "",
-    formatLabeledLine("Target", formatUsername(targetUsername)),
-    formatLabeledLine("Result", RESULT_LABELS[result]),
+    `Target: ${fmtUser(targetUsername)}`,
+    `Result: ${fmtResult(result)}`,
   ].join("\n");
 }
 
 export function buildBotDescriptionText(): string {
-  return "Open from the group launcher, complete the short DM form, and I post a clean archive entry back to the group. For lawful marketplace use only and never for activity against Telegram ToS.";
+  return "The vouch hub for our business community — a place where local businesses log and verify service experiences. Open from the group launcher, complete the short DM form, and I post a clean entry back to the group. Lawful use only — follow Telegram's Terms of Service. No illegal activity.";
 }
 
 export function buildBotShortDescription(): string {
-  return "Open from the group launcher. Submit in DM. For lawful marketplace use only.";
+  return "Vouch hub for local businesses. Submit in DM from the group launcher. Lawful use only.";
 }
 
 export function buildAdminOnlyText(): string {

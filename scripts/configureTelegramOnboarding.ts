@@ -215,10 +215,11 @@ async function main() {
     const sentGuide = await callTelegramAPI("sendMessage", {
       chat_id: options.guideChatId,
       text: buildPinnedGuideText(),
+      parse_mode: "HTML",
       disable_notification: true,
       reply_markup: {
         inline_keyboard: [
-          [{ text: "Open Vouch Flow", url: buildLauncherUrl(botUsername, options.guideChatId) }],
+          [{ text: "Submit Vouch", url: buildLauncherUrl(botUsername, options.guideChatId) }],
         ],
       },
     });

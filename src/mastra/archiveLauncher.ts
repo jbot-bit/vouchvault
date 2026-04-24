@@ -38,7 +38,7 @@ async function buildLauncherReplyMarkup(chatId: number, logger?: any) {
   }
 
   return buildUrlInlineKeyboard(
-    "Open Vouch Flow",
+    "Submit Vouch",
     `https://t.me/${botUsername}?start=${buildLauncherPayload(chatId)}`,
   );
 }

@@ -385,7 +385,7 @@ async function handleAdminCommand(input: {
       await sendTelegramMessage(
         {
           chatId: input.chatId,
-          text: "Send /remove_entry <id>",
+          text: "Send /remove_entry &lt;id&gt;",
           ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
         },
         input.logger,

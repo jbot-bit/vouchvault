@@ -37,7 +37,7 @@ export function buildTelegramSendMessageParams(input: {
   return {
     chat_id: input.chatId,
     text: input.text,
-    parse_mode: input.parseMode,
+    parse_mode: input.parseMode ?? "HTML",
     disable_notification: input.disableNotification,
     reply_parameters: input.replyToMessageId == null
       ? undefined
@@ -74,7 +74,7 @@ export async function editTelegramMessage(input: {
       chat_id: input.chatId,
       message_id: input.messageId,
       text: input.text,
-      parse_mode: input.parseMode,
+      parse_mode: input.parseMode ?? "HTML",
       reply_markup: input.replyMarkup,
     },
     logger,

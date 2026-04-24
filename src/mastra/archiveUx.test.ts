@@ -18,7 +18,7 @@ import {
   TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
-test("buildArchiveEntryText renders compact live entries", () => {
+test("buildArchiveEntryText renders compact live entries with HTML formatting", () => {
   const text = buildArchiveEntryText({
     entryId: 42,
     reviewerUsername: "alice",
@@ -31,15 +31,15 @@ test("buildArchiveEntryText renders compact live entries", () => {
   });
 
   assert.equal(text, [
-    "🧾 Entry #42",
+    "🧾 <b>Entry #42</b>",
     "",
-    "OP: @alice",
-    "Target: @bobbiz",
-    "Result: Positive",
+    "OP: <b>@alice</b>",
+    "Target: <b>@bobbiz</b>",
+    "Result: <b>Positive</b>",
   ].join("\n"));
 });
 
-test("buildArchiveEntryText renders compact legacy entries", () => {
+test("buildArchiveEntryText renders compact legacy entries with HTML formatting", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -53,16 +53,16 @@ test("buildArchiveEntryText renders compact legacy entries", () => {
   });
 
   assert.equal(text, [
-    "🧾 Legacy Entry #7",
+    "🧾 <b>Legacy Entry #7</b>",
     "",
-    "OP: @legacyop",
-    "Target: @oldvendor",
-    "Result: Negative",
+    "OP: <b>@legacyop</b>",
+    "Target: <b>@oldvendor</b>",
+    "Result: <b>Negative</b>",
     "Original: 2025-11-02",
   ].join("\n"));
 });
 
-test("buildPreviewText keeps the DM review screen readable", () => {
+test("buildPreviewText renders the DM review screen with a bold heading", () => {
   const text = buildPreviewText({
     reviewerUsername: "alice",
     targetUsername: "bobbiz",
@@ -71,26 +71,44 @@ test("buildPreviewText keeps the DM review screen readable", () => {
   });
 
   assert.equal(text, [
-    "Preview",
+    "<b><u>Preview</u></b>",
     "",
-    "OP: @alice",
-    "Target: @bobbiz",
-    "Result: Positive",
+    "OP: <b>@alice</b>",
+    "Target: <b>@bobbiz</b>",
+    "Result: <b>Positive</b>",
     "Tags: Good Comms, On Time",
   ].join("\n"));
 });
 
-test("group onboarding copy stays short and launcher-first", () => {
-  assert.equal(buildGroupLauncherReplyText(), "Tap below to open the DM form.");
-  assert.match(buildWelcomeText(), /How it works/);
-  assert.match(buildWelcomeText(), /Send only the target @username here/);
-  assert.match(buildPinnedGuideText(), /1\. Tap Open Vouch Flow\./);
-  assert.match(buildPinnedGuideText(), /legal marketplace/);
+test("welcome and pinned guide use the business-hub framing and How to Vouch walkthrough", () => {
+  assert.equal(buildGroupLauncherReplyText(), "Tap below to submit your vouch in DM.");
+
+  const welcome = buildWelcomeText();
+  assert.match(welcome, /<b>Welcome to the Vouch Hub<\/b>/);
+  assert.match(welcome, /business hub for local businesses/);
+  assert.match(welcome, /<b><u>How to Vouch<\/u><\/b>/);
+  assert.match(welcome, /1\. Tap <b>Submit Vouch<\/b> in the group\./);
+  assert.match(welcome, /Telegram's Terms of Service/);
+  assert.match(welcome, /No illegal activity/);
+
+  const guide = buildPinnedGuideText();
+  assert.match(guide, /<b>Welcome to the Vouch Hub<\/b>/);
+  assert.match(guide, /business hub for local businesses/);
+  assert.match(guide, /<b><u>How to Vouch<\/u><\/b>/);
+  assert.match(guide, /1\. Tap <b>Submit Vouch<\/b> below\./);
+  assert.match(guide, /Telegram's Terms of Service/);
+  assert.match(guide, /No illegal activity/);
 });
 
-test("bot profile text matches the launcher-first model", () => {
-  assert.match(buildBotDescriptionText(), /group launcher/);
-  assert.match(buildBotShortDescription(), /Submit in DM/);
+test("bot profile text matches the business-hub model and lawful-use note", () => {
+  const description = buildBotDescriptionText();
+  assert.match(description, /vouch hub for our business community/);
+  assert.match(description, /local businesses/);
+  assert.match(description, /Telegram's Terms of Service/);
+
+  const short = buildBotShortDescription();
+  assert.match(short, /Vouch hub for local businesses/);
+  assert.match(short, /Lawful use only/);
 });
 
 test("telegram UX helpers favor threaded quiet replies", () => {
