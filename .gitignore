@@ -11,6 +11,8 @@ node_modules/
 # Local environment files
 .env
 .env.*
+# ...but DO track the template.
+!.env.example
 
 # OS/editor noise
 Thumbs.db
