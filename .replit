@@ -1,5 +1,5 @@
 entrypoint = "src/server.ts"
-modules = ["nodejs-20"]
+modules = ["nodejs-22"]
 hidden = [".git", ".git.placeholder", ".git.broken-20260424-152221", ".mastra/output", ".local", ".config", "node_modules", "attached_assets"]
 onBoot = "npm install"
 
@@ -17,3 +17,35 @@ externalPort = 80
 
 [nix]
 channel = "stable-25_05"
+
+[agent]
+expertMode = true
+
+[userenv]
+
+[userenv.shared]
+PUBLIC_BASE_URL = "https://0865f41c-56c1-4afc-ac21-7fb787f26516-00-2am5keg47k2pf.picard.replit.dev"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run dev"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
