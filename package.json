@@ -17,8 +17,8 @@
     "replay:legacy": "node --experimental-strip-types scripts/replayLegacyTelegramExport.ts"
   },
   "dependencies": {
-    "drizzle-orm": "latest",
-    "pg": "latest"
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "latest",
