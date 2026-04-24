@@ -384,5 +384,5 @@ export function buildBotShortDescription(): string {
 }
 
 export function buildAdminOnlyText(): string {
-  return "Admin only.";
+  return "<b>Admin only.</b>";
 }
