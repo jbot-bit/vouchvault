@@ -8,6 +8,7 @@ import { NonRetriableError } from "inngest";
 import { z } from "zod";
 
 import { sharedPostgresStorage } from "./storage";
+import { ensureDatabaseSchema } from "./storage/bootstrap";
 import { inngest, inngestServe } from "./inngest";
 import { reputationWorkflow } from "./workflows/reputationWorkflow";
 import { reputationAgent } from "./agents/reputationAgent";
@@ -15,15 +16,28 @@ import { getAllowedTelegramChatIdSet } from "./telegramChatConfig";
 import { registerTelegramTrigger, type TriggerInfoTelegramOnNewMessage } from "../triggers/telegramTriggers";
 
 // Import all tools for MCP registration
-import {
-  createOrUpdateUserTool,
-  getUserByTelegramIdTool,
-  updateUserVotesTool,
-} from "./tools/userTools";
+import { createOrUpdateUserTool, getUserByTelegramIdTool, updateUserVotesTool } from "./tools/userTools";
 import {
   sendTelegramMessageTool,
   editTelegramMessageTool,
 } from "./tools/telegramTools";
+
+function requireRuntimeEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+
+  return value;
+}
+
+requireRuntimeEnv("DATABASE_URL");
+requireRuntimeEnv("TELEGRAM_BOT_TOKEN");
+if (getAllowedTelegramChatIdSet().size === 0) {
+  throw new Error("TELEGRAM_ALLOWED_CHAT_IDS is required.");
+}
+
+await ensureDatabaseSchema();
 
 const allowedTelegramChatIds = getAllowedTelegramChatIdSet();
 

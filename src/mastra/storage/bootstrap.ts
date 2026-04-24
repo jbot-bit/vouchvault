@@ -1,3 +1,6 @@
+import { pool } from "./db.ts";
+
+const BOOTSTRAP_SQL = `
 CREATE TABLE IF NOT EXISTS users (
   id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   telegram_id bigint NOT NULL UNIQUE,
@@ -129,3 +132,14 @@ ALTER TABLE IF EXISTS vouch_entries
 
 CREATE UNIQUE INDEX IF NOT EXISTS vouch_entries_legacy_source_unique
   ON vouch_entries (legacy_source_chat_id, legacy_source_message_id);
+`;
+
+let bootstrapPromise: Promise<void> | null = null;
+
+export async function ensureDatabaseSchema(): Promise<void> {
+  if (!bootstrapPromise) {
+    bootstrapPromise = pool.query(BOOTSTRAP_SQL).then(() => undefined);
+  }
+
+  return bootstrapPromise;
+}

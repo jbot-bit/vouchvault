@@ -3,7 +3,7 @@ import {
   type EntryResult,
   type EntryTag,
   type EntryType,
-} from "./archive";
+} from "./archive.ts";
 
 export type LegacyImportResult = Extract<EntryResult, "positive" | "negative">;
 export type LegacyImportEntryType = Extract<EntryType, "service">;

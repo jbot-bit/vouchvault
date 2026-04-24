@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 
-import { db } from "./storage/db";
-import { businessProfiles, chatLaunchers, processedTelegramUpdates, vouchDrafts, vouchEntries } from "./storage/schema";
+import { db } from "./storage/db.ts";
+import { businessProfiles, chatLaunchers, processedTelegramUpdates, vouchDrafts, vouchEntries } from "./storage/schema.ts";
 import {
   DEFAULT_DRAFT_TIMEOUT_HOURS,
   PROCESSED_UPDATE_RETENTION_DAYS,
@@ -12,7 +12,7 @@ import {
   type EntryTag,
   type EntryType,
   serializeSelectedTags,
-} from "./archive";
+} from "./archive.ts";
 
 const REVIEWER_DRAFT_LOCK_OFFSET = -9_000_000_000_000_000;
 

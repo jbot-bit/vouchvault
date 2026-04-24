@@ -1,0 +1,16 @@
+entrypoint = "src/server.ts"
+modules = ["nodejs-20"]
+hidden = [".git", ".git.placeholder", ".git.broken-20260424-152221", ".mastra/output", ".local", ".config", "node_modules", "attached_assets"]
+onBoot = "npm install"
+
+[run]
+args = ["bash", "-lc", "npm run start"]
+
+[deployment]
+build = "npm run build"
+run = "npm run start"
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 5000
+externalPort = 80

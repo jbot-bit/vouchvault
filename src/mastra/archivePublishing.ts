@@ -7,14 +7,14 @@ import {
   type EntryResult,
   type EntrySource,
   type EntryType,
-} from "./archive";
+} from "./archive.ts";
 import {
   getArchiveEntryById,
   markArchiveEntryPublishing,
   setArchiveEntryPublishedMessageId,
   setArchiveEntryStatus,
-} from "./archiveStore";
-import { sendTelegramMessage } from "./tools/telegramTools";
+} from "./archiveStore.ts";
+import { sendTelegramMessage } from "./tools/telegramTools.ts";
 
 type PublishableArchiveEntry = {
   id: number;

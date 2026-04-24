@@ -11,9 +11,11 @@ import {
   buildWelcomeText,
 } from "./archive.ts";
 import {
-  buildTargetForceReplyMarkup,
+  buildReplyKeyboardRemove,
+  buildTargetRequestReplyMarkup,
   buildThreadedGroupReplyOptions,
   shouldSendThreadedLauncherReply,
+  TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
 test("buildArchiveEntryText renders compact live entries", () => {
@@ -29,11 +31,11 @@ test("buildArchiveEntryText renders compact live entries", () => {
   });
 
   assert.equal(text, [
-    "#42",
+    "🧾 Entry #42",
     "",
-    "OP      @alice",
-    "Target  @bobbiz",
-    "Result  Positive",
+    "OP: @alice",
+    "Target: @bobbiz",
+    "Result: Positive",
   ].join("\n"));
 });
 
@@ -51,11 +53,12 @@ test("buildArchiveEntryText renders compact legacy entries", () => {
   });
 
   assert.equal(text, [
-    "#7 [Legacy]",
+    "🧾 Legacy Entry #7",
     "",
-    "OP      @legacyop",
-    "Target  @oldvendor",
-    "Result  Negative",
+    "OP: @legacyop",
+    "Target: @oldvendor",
+    "Result: Negative",
+    "Original: 2025-11-02",
   ].join("\n"));
 });
 
@@ -63,27 +66,26 @@ test("buildPreviewText keeps the DM review screen readable", () => {
   const text = buildPreviewText({
     reviewerUsername: "alice",
     targetUsername: "bobbiz",
-    entryType: "service",
     result: "positive",
     tags: ["good_comms", "on_time"],
   });
 
   assert.equal(text, [
-    "Ready to post",
+    "Preview",
     "",
-    "OP      @alice",
-    "Target  @bobbiz",
-    "Type    Service",
-    "Result  Positive",
-    "Tags    Good Comms, On Time",
+    "OP: @alice",
+    "Target: @bobbiz",
+    "Result: Positive",
+    "Tags: Good Comms, On Time",
   ].join("\n"));
 });
 
 test("group onboarding copy stays short and launcher-first", () => {
-  assert.equal(buildGroupLauncherReplyText(), "Use the button below. The form opens in DM.");
-  assert.match(buildWelcomeText(), /Start from the group launcher\./);
+  assert.equal(buildGroupLauncherReplyText(), "Tap below to open the DM form.");
+  assert.match(buildWelcomeText(), /How it works/);
+  assert.match(buildWelcomeText(), /Send only the target @username here/);
   assert.match(buildPinnedGuideText(), /1\. Tap Open Vouch Flow\./);
-  assert.match(buildPinnedGuideText(), /\/lookup @username/);
+  assert.match(buildPinnedGuideText(), /legal marketplace/);
 });
 
 test("bot profile text matches the launcher-first model", () => {
@@ -99,8 +101,20 @@ test("telegram UX helpers favor threaded quiet replies", () => {
     allowSendingWithoutReply: true,
     disableNotification: true,
   });
-  assert.deepEqual(buildTargetForceReplyMarkup(), {
-    force_reply: true,
-    input_field_placeholder: "@businessname",
+  assert.deepEqual(buildTargetRequestReplyMarkup(), {
+    keyboard: [[{
+      text: "Choose Target",
+      request_users: {
+        request_id: TARGET_USER_REQUEST_ID,
+        user_is_bot: false,
+        max_quantity: 1,
+        request_name: true,
+        request_username: true,
+      },
+    }]],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+    input_field_placeholder: "Choose a target",
   });
+  assert.deepEqual(buildReplyKeyboardRemove(), { remove_keyboard: true });
 });

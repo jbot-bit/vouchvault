@@ -1,12 +1,12 @@
-import { buildLauncherText } from "./archive";
-import { getLauncherByChatId, saveLauncherMessage, withChatLauncherLock } from "./archiveStore";
-import { getAllowedTelegramChatIds, getPrimaryAllowedTelegramChatId } from "./telegramChatConfig";
+import { buildLauncherText } from "./archive.ts";
+import { getLauncherByChatId, saveLauncherMessage, withChatLauncherLock } from "./archiveStore.ts";
+import { getAllowedTelegramChatIds, getPrimaryAllowedTelegramChatId } from "./telegramChatConfig.ts";
 import {
   buildUrlInlineKeyboard,
   deleteTelegramMessage,
   getTelegramBotUsername,
   sendTelegramMessage,
-} from "./tools/telegramTools";
+} from "./tools/telegramTools.ts";
 
 type LauncherMessageOptions = {
   text?: string;
@@ -31,16 +31,36 @@ function buildLauncherPayload(chatId: number): string {
   return `vouch_${chatId}`;
 }
 
-export async function sendLauncherMessage(chatId: number, logger?: any, options: LauncherMessageOptions = {}) {
+async function buildLauncherReplyMarkup(chatId: number, logger?: any) {
   const botUsername = await getTelegramBotUsername(logger);
   if (!botUsername) {
     throw new Error("Telegram bot username unavailable for launcher deep link");
   }
 
-  const replyMarkup = buildUrlInlineKeyboard(
+  return buildUrlInlineKeyboard(
     "Open Vouch Flow",
     `https://t.me/${botUsername}?start=${buildLauncherPayload(chatId)}`,
   );
+}
+
+export async function sendLauncherPrompt(chatId: number, logger?: any, options: LauncherMessageOptions = {}) {
+  const replyMarkup = await buildLauncherReplyMarkup(chatId, logger);
+
+  return sendTelegramMessage(
+    {
+      chatId,
+      text: options.text ?? buildLauncherText(),
+      replyToMessageId: options.replyToMessageId,
+      allowSendingWithoutReply: options.allowSendingWithoutReply,
+      disableNotification: options.disableNotification ?? true,
+      replyMarkup,
+    },
+    logger,
+  );
+}
+
+export async function sendLauncherMessage(chatId: number, logger?: any, options: LauncherMessageOptions = {}) {
+  const replyMarkup = await buildLauncherReplyMarkup(chatId, logger);
 
   return sendTelegramMessage(
     {

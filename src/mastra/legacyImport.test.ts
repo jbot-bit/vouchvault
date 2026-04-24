@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { parseLegacyExportMessage } from "./legacyImportParser";
+import { parseLegacyExportMessage } from "./legacyImportParser.ts";
 
 const SOURCE_CHAT_ID = -1001234567890;
 

@@ -1,14 +1,14 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { parseSelectedTags } from "./archive";
-import { publishArchiveEntryRecord } from "./archivePublishing";
-import { getPrimaryGroupChatId, isAllowedGroupChatId, refreshGroupLauncher } from "./archiveLauncher";
+import { parseSelectedTags } from "./archive.ts";
+import { publishArchiveEntryRecord } from "./archivePublishing.ts";
+import { getPrimaryGroupChatId, isAllowedGroupChatId, refreshGroupLauncher } from "./archiveLauncher.ts";
 import {
   createArchiveEntry,
   getArchiveEntryByLegacySource,
   getOrCreateBusinessProfile,
-} from "./archiveStore";
+} from "./archiveStore.ts";
 import {
   getLegacyExportMessages,
   parseLegacyExportMessage,
@@ -17,7 +17,7 @@ import {
   type LegacyImportCandidate,
   type LegacyReviewItem,
   type LegacySummaryBucket,
-} from "./legacyImportParser";
+} from "./legacyImportParser.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 

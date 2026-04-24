@@ -20,7 +20,6 @@ type CliOptions = {
 
 const DEFAULT_COMMANDS: BotCommand[] = [
   { command: "help", description: "How the archive works" },
-  { command: "lookup", description: "Check entries for @username" },
   { command: "recent", description: "Show recent entries" },
 ];
 

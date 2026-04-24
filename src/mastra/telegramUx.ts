@@ -1,4 +1,4 @@
-export const TARGET_USERNAME_PLACEHOLDER = "@businessname";
+export const TARGET_USER_REQUEST_ID = 1001;
 
 const THREADED_LAUNCHER_COMMANDS = new Set([
   "/start",
@@ -19,9 +19,26 @@ export function buildThreadedGroupReplyOptions(replyToMessageId: number) {
   };
 }
 
-export function buildTargetForceReplyMarkup() {
+export function buildTargetRequestReplyMarkup() {
   return {
-    force_reply: true,
-    input_field_placeholder: TARGET_USERNAME_PLACEHOLDER,
+    keyboard: [[{
+      text: "Choose Target",
+      request_users: {
+        request_id: TARGET_USER_REQUEST_ID,
+        user_is_bot: false,
+        max_quantity: 1,
+        request_name: true,
+        request_username: true,
+      },
+    }]],
+    resize_keyboard: true,
+    one_time_keyboard: true,
+    input_field_placeholder: "Choose a target",
+  };
+}
+
+export function buildReplyKeyboardRemove() {
+  return {
+    remove_keyboard: true,
   };
 }

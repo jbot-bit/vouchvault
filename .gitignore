@@ -2,9 +2,11 @@
 .config/
 .local/
 .git.broken*/
+.git.placeholder
 .mastra/.build/
 .mastra/output/
 attached_assets/
+node_modules/
 
 # Local environment files
 .env
