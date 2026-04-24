@@ -1,0 +1,15 @@
+.codex
+.config/
+.local/
+.git.broken*/
+.mastra/.build/
+.mastra/output/
+attached_assets/
+
+# Local environment files
+.env
+.env.*
+
+# OS/editor noise
+Thumbs.db
+.DS_Store
