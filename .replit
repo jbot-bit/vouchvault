@@ -9,7 +9,7 @@ args = ["bash", "-lc", "npm run start"]
 [deployment]
 build = "npm run build"
 run = "npm run start"
-deploymentTarget = "gce"
+deploymentTarget = "cloudrun"
 
 [[ports]]
 localPort = 5000
