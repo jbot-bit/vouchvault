@@ -1054,6 +1054,16 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
 }
 
 async function handleGroupMessage(message: any, logger?: LoggerLike) {
+  if (message?.migrate_to_chat_id != null) {
+    const oldId = Number(message.chat?.id);
+    const newId = Number(message.migrate_to_chat_id);
+    if (Number.isSafeInteger(oldId) && Number.isSafeInteger(newId)) {
+      await setChatMigrated(oldId, newId);
+      logger?.info?.("[Group] Chat migrated to supergroup", { oldId, newId });
+    }
+    return;
+  }
+
   const text = typeof message.text === "string" ? message.text.trim() : "";
   if (!text.startsWith("/")) {
     return;
