@@ -65,6 +65,8 @@ export type ReplayLegacyExportInput = {
   sourceChatId?: number | null;
   targetGroupChatId?: number | null;
   dryRun?: boolean;
+  maxImports?: number;
+  throttleMs?: number;
   logger?: LoggerLike;
 };
 export type LegacyReplayCheckpoint = {

@@ -7,6 +7,8 @@ type CliOptions = {
   sourceChatId?: number;
   targetGroupChatId?: number;
   dryRun: boolean;
+  maxImports?: number;
+  throttleMs: number;
 };
 
 function readStringFlag(value: string | undefined, flagName: string): string {
@@ -35,6 +37,8 @@ function printUsage() {
     [
       "Usage:",
       "  replayLegacyTelegramExport <export-json-path> [--target-chat-id <id>] [--source-chat-id <id>] [--review-report <path>] [--checkpoint <path>] [--dry-run]",
+      "  [--max-imports <N>]      Stop after N successful imports",
+      "  [--throttle-ms <N>]      Sleep N ms before each live send (default 3100)",
       "",
       "Notes:",
       "  --target-chat-id defaults to the first TELEGRAM_ALLOWED_CHAT_IDS entry.",
@@ -55,6 +59,8 @@ function parseCliArguments(argv: string[]): CliOptions {
   let sourceChatId: number | undefined;
   let targetGroupChatId: number | undefined;
   let dryRun = false;
+  let maxImports: number | undefined;
+  let throttleMs = 3100;
 
   for (let index = 0; index < argv.length; index += 1) {
     // index < argv.length guarantees element is defined
@@ -62,6 +68,18 @@ function parseCliArguments(argv: string[]): CliOptions {
 
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+
+    if (arg === "--max-imports") {
+      maxImports = readNumberFlag(argv[index + 1], "--max-imports");
+      index += 1;
+      continue;
+    }
+
+    if (arg === "--throttle-ms") {
+      throttleMs = readNumberFlag(argv[index + 1], "--throttle-ms");
+      index += 1;
       continue;
     }
 
@@ -111,6 +129,8 @@ function parseCliArguments(argv: string[]): CliOptions {
     sourceChatId,
     targetGroupChatId,
     dryRun,
+    maxImports,
+    throttleMs,
   };
 }
 
@@ -124,6 +144,8 @@ async function main() {
     sourceChatId: options.sourceChatId,
     targetGroupChatId: options.targetGroupChatId,
     dryRun: options.dryRun,
+    maxImports: options.maxImports,
+    throttleMs: options.throttleMs,
     logger: console,
   });
 
