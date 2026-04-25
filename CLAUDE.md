@@ -40,19 +40,20 @@ These functions render copy locked by spec V3. Updating their bodies requires up
 
 Tests `welcome text uses locked v3 wording` / `pinned guide text uses locked v3 wording` / `bot profile text uses the locked v3 copy` in `src/core/archiveUx.test.ts` will fail loudly if you drift.
 
-## Group post format (after the format port)
+## Group post format
 
-Live + legacy entries share one shape, with bold field labels:
+Live + legacy entries share one shape. The verdict (positive/mixed/negative) is encoded inline in the heading as a `POS` / `MIX` / `NEG` prefix — there is no separate `Vouch:` line.
 
 ```
+<b>POS Vouch &gt; @target</b>     ← whole line bold; PREFIX = POS / MIX / NEG
 <b>From:</b> <b>@reviewer</b>
-<b>For:</b> <b>@target</b>
-<b>Vouch:</b> <b>Positive</b>
 <b>Tags:</b> Good Comms, On Time
-<b>Date:</b> 02/11/2025          ← legacy only
-
-<i>(repost)</i>                    ← legacy only
+<b>Date:</b> 02/11/2025           ← legacy only — original post date, not the repost date
 ```
+
+Built by `fmtVouchHeading(result, targetUsername)` + literal `From:` / `Tags:` lines + optional `Date:` line in `buildArchiveEntryText`. `buildPreviewText` adds a `<b><u>Preview</u></b>` heading line above this block. `buildPublishedDraftText` (the in-DM "Posted to the group" confirmation) shows the same heading line beneath the checkmark.
+
+There is no `(repost)` footer — the `Date:` line alone signals an archive entry. Do not reintroduce it without spec approval.
 
 Date format is `dd/mm/yyyy` for **rendered** dates only (`fmtDate` in `archive.ts`). JSON checkpoints, review-skip records, and `lastProcessedOriginalDate` keep ISO `yyyy-mm-dd` — do not unify the two.
 

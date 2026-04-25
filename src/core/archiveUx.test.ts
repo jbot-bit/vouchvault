@@ -21,7 +21,7 @@ import {
   TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
-test("buildArchiveEntryText renders live entries with bold labels and no heading", () => {
+test("buildArchiveEntryText renders live entries with a POS/MIX/NEG Vouch heading", () => {
   const text = buildArchiveEntryText({
     entryId: 42,
     reviewerUsername: "alice",
@@ -36,15 +36,14 @@ test("buildArchiveEntryText renders live entries with bold labels and no heading
   assert.equal(
     text,
     [
+      "<b>POS Vouch &gt; @bobbiz</b>",
       "<b>From:</b> <b>@alice</b>",
-      "<b>For:</b> <b>@bobbiz</b>",
-      "<b>Vouch:</b> <b>Positive</b>",
       "<b>Tags:</b> Good Comms, On Time",
     ].join("\n"),
   );
 });
 
-test("buildArchiveEntryText renders legacy entries with bold labels, dd/mm/yyyy Date, and an italic '(repost)' footer", () => {
+test("buildArchiveEntryText renders legacy entries with a NEG heading and original Date, no repost footer", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -60,18 +59,30 @@ test("buildArchiveEntryText renders legacy entries with bold labels, dd/mm/yyyy 
   assert.equal(
     text,
     [
+      "<b>NEG Vouch &gt; @oldvendor</b>",
       "<b>From:</b> <b>@legacyop</b>",
-      "<b>For:</b> <b>@oldvendor</b>",
-      "<b>Vouch:</b> <b>Negative</b>",
       "<b>Tags:</b> Poor Comms",
       "<b>Date:</b> 02/11/2025",
-      "",
-      "<i>(repost)</i>",
     ].join("\n"),
   );
 });
 
-test("buildPreviewText mirrors the posted format with a bold underlined heading", () => {
+test("buildArchiveEntryText uses MIX prefix for mixed-result entries", () => {
+  const text = buildArchiveEntryText({
+    entryId: 99,
+    reviewerUsername: "alice",
+    targetUsername: "bobbiz",
+    entryType: "service",
+    result: "mixed",
+    tags: ["mixed_comms", "some_delays"],
+    createdAt: new Date("2026-04-24T10:00:00.000Z"),
+    source: "live",
+  });
+
+  assert.match(text, /^<b>MIX Vouch &gt; @bobbiz<\/b>/);
+});
+
+test("buildPreviewText mirrors the posted format under a Preview heading", () => {
   const text = buildPreviewText({
     reviewerUsername: "alice",
     targetUsername: "bobbiz",
@@ -84,9 +95,8 @@ test("buildPreviewText mirrors the posted format with a bold underlined heading"
     [
       "<b><u>Preview</u></b>",
       "",
+      "<b>POS Vouch &gt; @bobbiz</b>",
       "<b>From:</b> <b>@alice</b>",
-      "<b>For:</b> <b>@bobbiz</b>",
-      "<b>Vouch:</b> <b>Positive</b>",
       "<b>Tags:</b> Good Comms, On Time",
     ].join("\n"),
   );

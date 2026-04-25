@@ -150,6 +150,16 @@ function fmtResult(result: EntryResult): string {
   return `<b>${escapeHtml(RESULT_LABELS[result])}</b>`;
 }
 
+const RESULT_PREFIX: Record<EntryResult, string> = {
+  positive: "POS",
+  mixed: "MIX",
+  negative: "NEG",
+};
+
+function fmtVouchHeading(result: EntryResult, targetUsername: string): string {
+  return `<b>${RESULT_PREFIX[result]} Vouch &gt; ${escapeHtml(formatUsername(targetUsername))}</b>`;
+}
+
 function fmtTags(tags: EntryTag[]): string {
   return escapeHtml(formatTagList(tags));
 }
@@ -183,18 +193,13 @@ export function buildArchiveEntryText(input: {
   const isLegacy = input.source === "legacy_import";
 
   const lines: string[] = [
+    fmtVouchHeading(input.result, input.targetUsername),
     `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
-    `<b>For:</b> ${fmtUser(input.targetUsername)}`,
-    `<b>Vouch:</b> ${fmtResult(input.result)}`,
     `<b>Tags:</b> ${fmtTags(input.tags)}`,
   ];
 
   if (isLegacy && input.legacySourceTimestamp) {
     lines.push(`<b>Date:</b> ${fmtDate(input.legacySourceTimestamp)}`);
-  }
-
-  if (isLegacy) {
-    lines.push("", "<i>(repost)</i>");
   }
 
   return lines.join("\n");
@@ -209,9 +214,8 @@ export function buildPreviewText(input: {
   return [
     "<b><u>Preview</u></b>",
     "",
+    fmtVouchHeading(input.result, input.targetUsername),
     `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
-    `<b>For:</b> ${fmtUser(input.targetUsername)}`,
-    `<b>Vouch:</b> ${fmtResult(input.result)}`,
     `<b>Tags:</b> ${fmtTags(input.tags)}`,
   ].join("\n");
 }
@@ -373,8 +377,7 @@ export function buildPublishedDraftText(targetUsername: string, result: EntryRes
   return [
     "<b>✓ Posted to the group</b>",
     "",
-    `<b>For:</b> ${fmtUser(targetUsername)}`,
-    `<b>Vouch:</b> ${fmtResult(result)}`,
+    fmtVouchHeading(result, targetUsername),
   ].join("\n");
 }
 
