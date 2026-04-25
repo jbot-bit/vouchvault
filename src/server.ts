@@ -2,7 +2,10 @@ import { createServer } from "node:http";
 
 import { validateBootEnv } from "./core/bootValidation.ts";
 import { installGracefulShutdown } from "./core/gracefulShutdown.ts";
+import { createLogger } from "./core/logger.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
+
+const logger = createLogger();
 
 function jsonResponse(body: unknown, statusCode = 200) {
   return {
@@ -107,14 +110,14 @@ async function main() {
         const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
           setTimeout(() => resolve({ timeout: true }), TIMEOUT_MS).unref?.(),
         );
-        const work = processTelegramUpdate(payload, console).then(() => ({
+        const work = processTelegramUpdate(payload, logger).then(() => ({
           timeout: false as const,
         }));
         const outcome = await Promise.race([work, timeoutPromise]);
         if (outcome.timeout) {
-          console.error(
-            "Telegram update processing exceeded 25s; returning 200 to avoid retry loop",
+          logger.error(
             { update_id: payload.update_id },
+            "Telegram update processing exceeded 25s; returning 200 to avoid retry loop",
           );
         }
 
@@ -128,7 +131,7 @@ async function main() {
       res.writeHead(response.statusCode, response.headers);
       res.end(response.body);
     } catch (error) {
-      console.error("Request handling failed", error);
+      logger.error({ err: error }, "Request handling failed");
       const response = textResponse("Internal Server Error", 500);
       res.writeHead(response.statusCode, response.headers);
       res.end(response.body);
@@ -136,15 +139,15 @@ async function main() {
   });
 
   server.listen(port, host, () => {
-    console.info(
-      JSON.stringify({
-        ok: true,
+    logger.info(
+      {
         port,
         host,
         webhookPath: "/webhooks/telegram/action",
         healthPath: "/healthz",
         readyzPath: "/readyz",
-      }),
+      },
+      "server listening",
     );
   });
 
@@ -153,11 +156,11 @@ async function main() {
     dbPool: pool,
     drainMs: 5_000,
     hardCeilingMs: 8_000,
-    logger: console,
+    logger,
   });
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  logger.error({ err: error }, error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });
