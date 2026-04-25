@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parseSelectedTags } from "./archive.ts";
+import { getLegacyBotSenders } from "./legacyBotSenders.ts";
 import { publishArchiveEntryRecord } from "./archivePublishing.ts";
 import {
   getPrimaryGroupChatId,
@@ -266,6 +267,7 @@ export async function replayLegacyExport(
   const sourceChatId = resolveLegacySourceChatId(exportData, input.sourceChatId ?? null);
   const targetGroupChatId = resolveReplayTargetChatId(input.targetGroupChatId ?? null);
   const sortedMessages = sortLegacyMessages(getLegacyExportMessages(exportData));
+  const botSenders = getLegacyBotSenders();
 
   const summary = createInitialSummary();
   const skipped: LegacyReviewItem[] = [];
@@ -304,7 +306,7 @@ export async function replayLegacyExport(
   for (const message of sortedMessages) {
     summary.totalScanned += 1;
 
-    const decision = parseLegacyExportMessage({ message, sourceChatId });
+    const decision = parseLegacyExportMessage({ message, sourceChatId, botSenders });
     if (decision.kind === "skip") {
       incrementSummary(summary, decision.bucket);
       skipped.push(decision.reviewItem);
