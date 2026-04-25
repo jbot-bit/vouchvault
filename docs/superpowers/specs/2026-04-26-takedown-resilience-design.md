@@ -79,11 +79,14 @@ Affects three V3-locked functions in `src/core/archive.ts`:
 
 ### 3.2 `/readyz` `getMe` probe
 
-**Problem.** `/readyz` currently checks DB connectivity only. A Telegram-side problem (bot token revoked, account-level ban, hard rate limit) returns 200 because the DB is fine.
+**Problem.** `/readyz` currently checks DB connectivity only. A Telegram-side problem (bot token revoked, account-level ban) returns 200 because the DB is fine.
 
-**Change.** Add a Telegram `getMe` call to `/readyz`. If it succeeds, return 200 as today. If it fails for any reason, return 503 with `{ ok: false, error: <message> }`. Honour the existing 5-second connection budget; `getMe` should not introduce its own timeout beyond a guard against hung sockets.
+**Change.** Add a Telegram `getMe` call to `/readyz`. The probe runs after the existing DB probe and is gated behind a `process.env.TELEGRAM_BOT_TOKEN?.trim()` check so local environments without the token don't break.
 
-The probe runs after the existing DB probe and is gated behind a `process.env.TELEGRAM_BOT_TOKEN?.trim()` check so local environments without the token don't break.
+- **Success → 200** as today.
+- **`TelegramRateLimitError` (HTTP 429) → 200.** A throttled `getMe` response means the bot account is healthy, just busy. Treat as healthy for readiness purposes.
+- **Any other Telegram error → 503** with `{ ok: false, error: <message> }`.
+- **Hung-socket guard:** explicit 3-second timeout on the `getMe` `fetch`. If the timeout wins, return 503 with `error: 'getMe timed out'`. Prevents `/readyz` itself from stalling Railway's health-check polling.
 
 ### 3.3 `TelegramChatGoneError` → admin DM
 
@@ -112,11 +115,17 @@ The new helper `handleChatGone(chatId, logger)` (in a new small module `src/core
 
 The "newly transitioned" check makes the DM idempotent — repeated `chat not found` errors from queued webhook updates do not page admins twice.
 
-**Identifying the offending chat.** `TelegramChatGoneError` carries the API-level error description but not the `chat_id` we attempted to post to. The catch site needs to know it. Two options at implementation time:
-- Pass the `chatId` through the error (extend the typed error class with an optional `chatId` field, populated by the `withTelegramRetry`-wrapped sends).
-- Inspect the originating update payload and use `payload.message?.chat?.id` etc.
+**Identifying the offending chat.** `TelegramChatGoneError` doesn't carry the `chat_id` we attempted to post to. Extend `TelegramApiError` (the base class) with an optional `chatId?: number`, populated from the `chat_id` in the input by the four public sends in `telegramTools.ts` (`sendTelegramMessage`, `editTelegramMessage`, `deleteTelegramMessage`, `answerTelegramCallbackQuery`). Existing call-sites of `callTelegramAPI` outside those wrappers pass no `chatId` and the field stays `undefined`; the handler treats that case as a no-op (logs + skips).
 
-The first option is cleaner and is the chosen approach. This is a minor refinement to `typedTelegramErrors.ts` and the four public sends in `telegramTools.ts`.
+**Edge cases.**
+
+| Case | Behaviour |
+|---|---|
+| `chatId` field is `undefined` (e.g. error came from `getMe` or `setMyCommands`) | Log warning, do not write `status='gone'`, do not DM admins. The chat-gone semantics only apply to a known target chat. |
+| One admin has blocked the bot (`TelegramForbiddenError` on the DM) | Catch per-admin, log, continue with the next admin. One blocked admin must not break the page-loop. |
+| Audit-log insert fails (DB transient) | Catch, log, do not propagate. Alert delivery beats audit completeness here. |
+| Bot is later re-added to the chat (`my_chat_member` `new.status='member'`) | Existing `my_chat_member` handler resets `chat_settings.status='active'` so future updates resume normally. The reset path already handles the `'kicked'` case; extend it to also reset from `'gone'`. |
+| Multiple webhook updates arrive while the chat is gone | The "newly transitioned" check in `setChatGone` returns whether the row's status flipped this call. Only the first call DMs admins; subsequent calls are silent no-ops. |
 
 ### 3.4 Member-velocity alert
 
@@ -125,15 +134,19 @@ The first option is cleaner and is the chosen approach. This is a minor refineme
 **Change.** Add an in-process rolling-window counter:
 
 - For each `(chatId, kind)` where `kind ∈ {'join', 'leave'}`, store an in-memory array of timestamps from the last 60 minutes. Old entries are pruned on every push.
-- On `my_chat_member` update where the *member* (not the bot itself) changed status, push a timestamp into the appropriate array.
+- On `chat_member` update, **classify the transition**:
+  - `join` if `old.status ∈ {'left', 'kicked'}` and `new.status ∈ {'member', 'restricted', 'administrator'}`.
+  - `leave` if `old.status ∈ {'member', 'restricted', 'administrator'}` and `new.status ∈ {'left', 'kicked'}`.
+  - **All other transitions ignored** (promotion, demotion, restriction changes — these are not brigading signals).
 - After each push, if the array length crosses a threshold (`5+` joins or `3+` leaves in the window), DM all admins with: `Member-velocity alert in <chatId>: <N> joins / <M> leaves in last 60 min. Possible brigading. See docs/runbook/opsec.md.`
 - After firing, suppress further alerts for the same `(chatId, kind)` for 60 minutes (in-memory `nextAlertAfter[chatId+kind] = now+60min`).
+- Per-admin DM is wrapped in try/catch so one blocked admin doesn't abort the loop.
 
 State is in-memory only and resets on deploy. This is intentional — the alert is a heuristic, and a fresh window after deploy is acceptable. No DB changes.
 
-`my_chat_member` updates for *user* members (not the bot) require the existing `allowed_updates: [..., "my_chat_member"]` plus `"chat_member"` in the webhook config. **Adding `"chat_member"` to `allowed_updates` is part of this chunk.** This requires the bot to be a group admin, which it already is.
+`my_chat_member` updates for the *bot itself* are already subscribed (V3 chunk 12.2). Detecting transitions of *other users* requires adding `"chat_member"` to the webhook's `allowed_updates`. **Adding `"chat_member"` is part of this chunk.** It requires the bot to be a group admin, which it already is.
 
-**Test.** Synthetic unit test: feed N fake `my_chat_member` updates into the velocity tracker, assert alert fires and is suppressed correctly.
+**Test.** Synthetic unit test: feed `chat_member` payloads representing 5 joins → assert alert; feed a 6th → assert no re-alert (suppressed); fast-forward 60 min → assert can re-alert; feed promotion/demotion payloads → assert no count change.
 
 ### 3.5 Bot command menu cleanup
 
@@ -211,8 +224,9 @@ No e2e test for the full takedown flow — that would require simulating a Teleg
 ## 6. Migration & rollout
 
 - No migration required (`status='gone'` reuses existing `chat_settings.status` column).
+- New test files (`memberVelocity.test.ts`, `chatGoneHandler.test.ts`) **must be appended to the `test` script in `package.json`** per `CLAUDE.md` — otherwise they won't run in CI.
 - After deploy, run `npm run telegram:onboarding -- --guide-chat-id <id>` once to push the updated bot description and the trimmed slash-command menu to BotFather.
-- After deploy, run `npm run telegram:webhook` once to add `chat_member` to `allowed_updates`.
+- After deploy, run `npm run telegram:webhook` once to register the new `allowed_updates` set including `chat_member`.
 - Manual hardening checklist (`opsec.md` §2) is the operator's responsibility; nothing in the code enforces Request-to-Join etc.
 - Backup group setup is a one-time manual step; document the chosen backup chat ID privately in `.env.local` for future reference (commented-out, not loaded).
 
