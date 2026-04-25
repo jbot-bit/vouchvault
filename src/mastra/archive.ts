@@ -196,18 +196,18 @@ export function buildArchiveEntryText(input: {
   legacySourceTimestamp?: Date | null;
 }): string {
   const isLegacy = input.source === "legacy_import";
-  const heading = isLegacy
-    ? "<b>Legacy Entry</b>"
-    : "<b>Entry</b>";
 
-  const lines = [
-    heading,
-    "",
+  const lines: string[] = [];
+  if (isLegacy) {
+    lines.push("<b>From the Vault</b>", "");
+  }
+
+  lines.push(
     `OP: ${fmtUser(input.reviewerUsername)}`,
     `Target: ${fmtUser(input.targetUsername)}`,
     `Result: ${fmtResult(input.result)}`,
     `Tags: ${fmtTags(input.tags)}`,
-  ];
+  );
 
   if (isLegacy && input.legacySourceTimestamp) {
     lines.push(`Original: ${fmtDate(input.legacySourceTimestamp)}`);

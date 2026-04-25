@@ -18,7 +18,7 @@ import {
   TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
-test("buildArchiveEntryText renders live entries with bold fields, no number, no emoji", () => {
+test("buildArchiveEntryText renders live entries with bold fields and no heading", () => {
   const text = buildArchiveEntryText({
     entryId: 42,
     reviewerUsername: "alice",
@@ -31,8 +31,6 @@ test("buildArchiveEntryText renders live entries with bold fields, no number, no
   });
 
   assert.equal(text, [
-    "<b>Entry</b>",
-    "",
     "OP: <b>@alice</b>",
     "Target: <b>@bobbiz</b>",
     "Result: <b>Positive</b>",
@@ -40,7 +38,7 @@ test("buildArchiveEntryText renders live entries with bold fields, no number, no
   ].join("\n"));
 });
 
-test("buildArchiveEntryText renders legacy entries with the original date and no entry number", () => {
+test("buildArchiveEntryText renders legacy entries under a 'From the Vault' heading with the original date", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -54,7 +52,7 @@ test("buildArchiveEntryText renders legacy entries with the original date and no
   });
 
   assert.equal(text, [
-    "<b>Legacy Entry</b>",
+    "<b>From the Vault</b>",
     "",
     "OP: <b>@legacyop</b>",
     "Target: <b>@oldvendor</b>",
