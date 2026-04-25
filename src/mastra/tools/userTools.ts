@@ -3,26 +3,6 @@ import { eq } from "drizzle-orm";
 import { db } from "../storage/db.ts";
 import { users } from "../storage/schema.ts";
 
-function calculateRank(yesVotes: number): { rank: string; stars: string } {
-  if (yesVotes >= 20) {
-    return { rank: "👑 Top-Tier Verified", stars: "⭐⭐⭐⭐⭐" };
-  }
-
-  if (yesVotes >= 15) {
-    return { rank: "🛡 Endorsed", stars: "⭐⭐⭐⭐" };
-  }
-
-  if (yesVotes >= 10) {
-    return { rank: "🔷 Trusted", stars: "⭐⭐⭐" };
-  }
-
-  if (yesVotes >= 5) {
-    return { rank: "✅ Verified", stars: "⭐⭐" };
-  }
-
-  return { rank: "🚫 Unverified", stars: "⭐" };
-}
-
 type UserIdentityInput = {
   telegramId: number;
   username?: string | null;
@@ -77,10 +57,6 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
         username: input.username ?? null,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
-        totalYesVotes: 0,
-        totalNoVotes: 0,
-        rank: "🚫 Unverified",
-        stars: "⭐",
       })
       .returning();
 
@@ -118,28 +94,6 @@ export async function getUserByTelegramId(telegramId: number) {
   return result[0] ?? null;
 }
 
-export async function updateUserVotes(input: {
-  userId: number;
-  yesVotes: number;
-  noVotes: number;
-}) {
-  const { rank, stars } = calculateRank(input.yesVotes);
-
-  const rows = await db
-    .update(users)
-    .set({
-      totalYesVotes: input.yesVotes,
-      totalNoVotes: input.noVotes,
-      rank,
-      stars,
-      updatedAt: new Date(),
-    })
-    .where(eq(users.id, input.userId))
-    .returning();
-
-  return rows[0]!;
-}
-
 export const createOrUpdateUserTool = {
   execute: async ({ context, mastra }: { context: UserIdentityInput; mastra?: any }) =>
     createOrUpdateUser(context, mastra?.getLogger?.()),
@@ -152,10 +106,3 @@ export const getUserByTelegramIdTool = {
   },
 };
 
-export const updateUserVotesTool = {
-  execute: async ({
-    context,
-  }: {
-    context: { userId: number; yesVotes: number; noVotes: number };
-  }) => updateUserVotes(context),
-};
