@@ -8,6 +8,12 @@
 attached_assets/
 node_modules/
 
+# Legacy export JSON files (replay input + checkpoints/reports)
+Export/
+imports/
+*.legacy-import-checkpoint.json
+*.legacy-import-review.json
+
 # Local environment files
 .env
 .env.*
