@@ -15,6 +15,9 @@ export function getDatabaseUrl(): string {
 
 export const pool = new Pool({
   connectionString: getDatabaseUrl(),
+  max: 5,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 export const db = drizzle(pool, { schema });
