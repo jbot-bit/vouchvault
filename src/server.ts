@@ -102,7 +102,21 @@ async function main() {
         }
 
         const payload = await readJsonBody(req);
-        await processTelegramUpdate(payload, console);
+
+        const TIMEOUT_MS = 25_000;
+        const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
+          setTimeout(() => resolve({ timeout: true }), TIMEOUT_MS).unref?.(),
+        );
+        const work = processTelegramUpdate(payload, console).then(() => ({
+          timeout: false as const,
+        }));
+        const outcome = await Promise.race([work, timeoutPromise]);
+        if (outcome.timeout) {
+          console.error(
+            "Telegram update processing exceeded 25s; returning 200 to avoid retry loop",
+            { update_id: payload.update_id },
+          );
+        }
 
         const response = textResponse("OK");
         res.writeHead(response.statusCode, response.headers);
