@@ -116,3 +116,16 @@ export const chatSettings = pgTable("chat_settings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const adminAuditLog = pgTable("admin_audit_log", {
+  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+  adminTelegramId: bigint("admin_telegram_id", { mode: "number" }).notNull(),
+  adminUsername: text("admin_username"),
+  command: text("command").notNull(),
+  targetChatId: bigint("target_chat_id", { mode: "number" }),
+  targetUsername: text("target_username"),
+  entryId: integer("entry_id"),
+  reason: text("reason"),
+  denied: boolean("denied").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});

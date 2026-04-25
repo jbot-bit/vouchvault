@@ -22,6 +22,13 @@
       "when": 1777095999949,
       "tag": "0002_chat_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1777096066605,
+      "tag": "0003_admin_audit_log",
+      "breakpoints": true
     }
   ]
 }
