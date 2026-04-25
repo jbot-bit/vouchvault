@@ -1,4 +1,5 @@
 import {
+  buildAdminHelpText,
   buildAdminOnlyText,
   buildFrozenListText,
   buildGroupLauncherReplyText,
@@ -632,6 +633,25 @@ async function handleAdminCommand(input: {
     );
     return;
   }
+
+  if (input.command === "/admin_help") {
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: buildAdminHelpText(),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
+      input.logger,
+    );
+    return;
+  }
 }
 
 async function applySelectedTarget(input: {
@@ -936,7 +956,8 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       command === "/frozen_list" ||
       command === "/recover_entry" ||
       command === "/pause" ||
-      command === "/unpause"
+      command === "/unpause" ||
+      command === "/admin_help"
     ) {
       await handleAdminCommand({
         command,
@@ -1095,7 +1116,8 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/frozen_list" ||
     command === "/recover_entry" ||
     command === "/pause" ||
-    command === "/unpause"
+    command === "/unpause" ||
+    command === "/admin_help"
   ) {
     await handleAdminCommand({
       command,

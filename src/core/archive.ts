@@ -380,6 +380,22 @@ export function buildAdminOnlyText(): string {
   return "<b>Admin only.</b>";
 }
 
+export function buildAdminHelpText(): string {
+  return [
+    "<b><u>Admin commands</u></b>",
+    "",
+    "/freeze @x [reason] — block new entries",
+    "/unfreeze @x — allow entries again",
+    "/frozen_list — show frozen profiles",
+    "/remove_entry &lt;id&gt; — delete an entry",
+    "/recover_entry &lt;id&gt; — clear stuck publishing",
+    "/profile @x — entry totals",
+    "/lookup @x — full audit list",
+    "/pause — pause new vouches",
+    "/unpause — resume vouches",
+  ].join("\n");
+}
+
 export function buildProfileText(input: {
   targetUsername: string;
   totals: { positive: number; mixed: number; negative: number };
