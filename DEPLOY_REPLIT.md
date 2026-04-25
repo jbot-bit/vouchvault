@@ -109,3 +109,14 @@ If you see all of that, the deploy works.
 ## Already known, non-blocking
 
 See `HANDOFF.md` → "Known gaps / follow-ups" for the list (dep pinning, drizzle migrations vs. schema push, logging upgrade, `src/mastra/` rename).
+
+## Baseline migration applied marker (one-time, prod only)
+
+Existing prod DBs already have every table created by the legacy `ensureDatabaseSchema()` boot DDL. Tell drizzle-kit the baseline migration is already applied so it does not try to re-create those tables:
+
+```sql
+INSERT INTO __drizzle_migrations (hash, created_at)
+VALUES ('<paste hash from migrations/meta/_journal.json>', extract(epoch from now()) * 1000);
+```
+
+Hash is `migrations/meta/_journal.json`'s `entries[0].tag` value. After this insert, `npm run db:migrate` skips 0000 and applies 0001 onward.
