@@ -69,6 +69,7 @@ import {
   editTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
+import { isChatPaused } from "./core/chatSettingsStore.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
@@ -226,6 +227,17 @@ async function startDraftFlow(input: {
         chatId: input.chatId,
         text: "That launcher is no longer active. Open the current group launcher and try again.",
         replyMarkup: buildStartKeyboard(),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  if (await isChatPaused(resolvedTargetGroupChatId)) {
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: "Vouching is paused. An admin will lift this when ready. Use /recent to see the archive.",
       },
       input.logger,
     );
@@ -1151,6 +1163,18 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           {
             callbackQueryId: callbackQuery.id,
             text: "You need a public @username.",
+            showAlert: true,
+          },
+          logger,
+        );
+        return;
+      }
+
+      if (await isChatPaused(latestTargetGroupChatId)) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            text: "Vouching is paused.",
             showAlert: true,
           },
           logger,
