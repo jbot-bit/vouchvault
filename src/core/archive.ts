@@ -7,6 +7,9 @@ export type EntryResult = (typeof ENTRY_RESULTS)[number];
 export const ENTRY_SOURCES = ["live", "legacy_import"] as const;
 export type EntrySource = (typeof ENTRY_SOURCES)[number];
 
+export const ENTRY_STATUSES = ["pending", "publishing", "published", "removed"] as const;
+export type EntryStatus = (typeof ENTRY_STATUSES)[number];
+
 export const TAG_OPTIONS_BY_RESULT = {
   positive: ["good_comms", "efficient", "on_time", "good_quality"],
   mixed: ["mixed_comms", "some_delays", "acceptable_quality", "minor_issue"],
@@ -164,11 +167,26 @@ function fmtTags(tags: EntryTag[]): string {
   return escapeHtml(formatTagList(tags));
 }
 
-function fmtDate(date: Date): string {
+export function fmtDate(date: Date): string {
   const day = String(date.getUTCDate()).padStart(2, "0");
   const month = String(date.getUTCMonth() + 1).padStart(2, "0");
   const year = date.getUTCFullYear();
   return escapeHtml(`${day}/${month}/${year}`);
+}
+
+export function fmtDateTime(date: Date): string {
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return escapeHtml(`${day}/${month}/${year} ${hours}:${minutes}`);
+}
+
+function fmtStatusLine(isFrozen: boolean, freezeReason: string | null): string {
+  return isFrozen
+    ? `Status: Frozen — <i>${escapeHtml(freezeReason ?? "no reason given")}</i>`
+    : "Status: Active";
 }
 
 function rulesLine(): string {
@@ -296,6 +314,8 @@ function withCeiling(lines: string[], more: number): string {
 
 export function buildLookupText(input: {
   targetUsername: string;
+  isFrozen: boolean;
+  freezeReason: string | null;
   entries: Array<{
     id: number;
     reviewerUsername: string;
@@ -305,11 +325,14 @@ export function buildLookupText(input: {
     source?: EntrySource;
   }>;
 }): string {
+  const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
+  const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
+
   if (input.entries.length === 0) {
-    return `No entries for ${fmtUser(input.targetUsername)}.`;
+    return [heading, statusLine, "", `No entries for ${fmtUser(input.targetUsername)}.`].join("\n");
   }
 
-  const lines = [`<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`, ""];
+  const lines = [heading, statusLine, ""];
   for (const entry of input.entries) {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
@@ -422,13 +445,10 @@ export function buildProfileText(input: {
   freezeReason: string | null;
   recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
 }): string {
-  const status = input.isFrozen
-    ? `Frozen — <i>${escapeHtml(input.freezeReason ?? "no reason given")}</i>`
-    : "Active";
   const lines = [
     `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`,
     `Positive: ${input.totals.positive} • Mixed: ${input.totals.mixed} • Negative: ${input.totals.negative}`,
-    `Status: ${status}`,
+    fmtStatusLine(input.isFrozen, input.freezeReason),
   ];
   if (input.recent.length > 0) {
     lines.push("");

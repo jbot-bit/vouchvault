@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { db } from "./storage/db.ts";
 import {
@@ -15,6 +15,7 @@ import {
   type DraftStep,
   type EntryResult,
   type EntrySource,
+  type EntryStatus,
   type EntryTag,
   type EntryType,
   serializeSelectedTags,
@@ -118,6 +119,8 @@ export async function getProfileSummary(targetUsername: string): Promise<{
 }
 
 export async function listFrozenProfiles() {
+  // 10× the visible cap of buildFrozenListText leaves margin for the
+  // "…and N more" footer math without scanning every frozen row.
   return db
     .select({
       username: businessProfiles.username,
@@ -126,7 +129,8 @@ export async function listFrozenProfiles() {
     })
     .from(businessProfiles)
     .where(eq(businessProfiles.isFrozen, true))
-    .orderBy(desc(businessProfiles.frozenAt));
+    .orderBy(desc(businessProfiles.frozenAt))
+    .limit(100);
 }
 
 export async function setBusinessProfileFrozen(input: {
@@ -299,11 +303,11 @@ export async function hasRecentEntryForReviewerAndTarget(input: {
   reviewerTelegramId: number;
   targetUsername: string;
   withinHours: number;
-}) {
+}): Promise<Date | null> {
   const cutoff = new Date(Date.now() - input.withinHours * 60 * 60 * 1000);
 
   const result = await db
-    .select()
+    .select({ createdAt: vouchEntries.createdAt })
     .from(vouchEntries)
     .where(
       and(
@@ -313,9 +317,10 @@ export async function hasRecentEntryForReviewerAndTarget(input: {
         eq(vouchEntries.status, "published"),
       ),
     )
+    .orderBy(desc(vouchEntries.createdAt))
     .limit(1);
 
-  return result.length > 0;
+  return result[0]?.createdAt ?? null;
 }
 
 export async function createArchiveEntry(input: {
@@ -396,7 +401,7 @@ export async function markArchiveEntryPublishing(entryId: number) {
   return updated[0] ?? null;
 }
 
-export async function setArchiveEntryStatus(entryId: number, status: string) {
+export async function setArchiveEntryStatus(entryId: number, status: EntryStatus) {
   const rows = await db
     .update(vouchEntries)
     .set({
@@ -606,17 +611,26 @@ export async function runArchiveMaintenance() {
 export async function countRecentEntriesByReviewer(input: {
   reviewerTelegramId: number;
   withinHours: number;
-}): Promise<number> {
+}): Promise<{ count: number; oldestInWindow: Date | null }> {
   const cutoff = new Date(Date.now() - input.withinHours * 3600 * 1000);
-  const result = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(vouchEntries)
-    .where(
-      and(
-        eq(vouchEntries.reviewerTelegramId, input.reviewerTelegramId),
-        gte(vouchEntries.createdAt, cutoff),
-        ne(vouchEntries.status, "removed"),
-      ),
-    );
-  return Number(result[0]?.count ?? 0);
+  const filter = and(
+    eq(vouchEntries.reviewerTelegramId, input.reviewerTelegramId),
+    gte(vouchEntries.createdAt, cutoff),
+    ne(vouchEntries.status, "removed"),
+  );
+
+  const [countRow, oldestRow] = await Promise.all([
+    db.select({ count: sql<number>`count(*)::int` }).from(vouchEntries).where(filter),
+    db
+      .select({ createdAt: vouchEntries.createdAt })
+      .from(vouchEntries)
+      .where(filter)
+      .orderBy(asc(vouchEntries.createdAt))
+      .limit(1),
+  ]);
+
+  return {
+    count: Number(countRow[0]?.count ?? 0),
+    oldestInWindow: oldestRow[0]?.createdAt ?? null,
+  };
 }

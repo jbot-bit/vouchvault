@@ -15,6 +15,8 @@ import {
   DEFAULT_DUPLICATE_COOLDOWN_HOURS,
   DEFAULT_DRAFT_TIMEOUT_HOURS,
   MAINTENANCE_EVERY_N_UPDATES,
+  fmtDate,
+  fmtDateTime,
   formatUsername,
   getAllowedTagsForResult,
   isEntryResult,
@@ -82,6 +84,7 @@ import {
   setChatPaused,
 } from "./core/chatSettingsStore.ts";
 import { recordAdminAction } from "./core/adminAuditStore.ts";
+import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
@@ -328,12 +331,17 @@ async function handleLookupCommand(input: {
     return;
   }
 
-  const entries = await getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES);
+  const [entries, profile] = await Promise.all([
+    getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES),
+    getBusinessProfileByUsername(targetUsername),
+  ]);
   await sendTelegramMessage(
     {
       chatId: input.chatId,
       text: buildLookupText({
         targetUsername,
+        isFrozen: profile?.isFrozen ?? false,
+        freezeReason: profile?.freezeReason ?? null,
         entries: entries.map((entry) => ({
           id: entry.id,
           reviewerUsername: entry.reviewerUsername,
@@ -438,6 +446,14 @@ async function handleAdminCommand(input: {
   if (input.command === "/freeze" || input.command === "/unfreeze") {
     const targetUsername = normalizeUsername(input.args[0] ?? "");
     if (!targetUsername) {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        targetUsername: input.args[0] ?? null,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -479,6 +495,13 @@ async function handleAdminCommand(input: {
   if (input.command === "/remove_entry") {
     const entryId = Number(input.args[0]);
     if (!Number.isInteger(entryId)) {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -492,6 +515,14 @@ async function handleAdminCommand(input: {
 
     const entry = await getArchiveEntryById(entryId);
     if (!entry) {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        entryId,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -562,6 +593,13 @@ async function handleAdminCommand(input: {
   if (input.command === "/recover_entry") {
     const entryId = Number(input.args[0]);
     if (!Number.isInteger(entryId)) {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -574,6 +612,14 @@ async function handleAdminCommand(input: {
     }
     const entry = await getArchiveEntryById(entryId);
     if (!entry) {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        entryId,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -585,6 +631,15 @@ async function handleAdminCommand(input: {
       return;
     }
     if (entry.status !== "publishing") {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        entryId,
+        reason: `wrong status: ${entry.status}`,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -705,17 +760,20 @@ async function applySelectedTarget(input: {
     return;
   }
 
-  const duplicateExists = await hasRecentEntryForReviewerAndTarget({
+  const lastVouchedAt = await hasRecentEntryForReviewerAndTarget({
     reviewerTelegramId: input.reviewerTelegramId,
     targetUsername: input.targetUsername,
     withinHours: DEFAULT_DUPLICATE_COOLDOWN_HOURS,
   });
 
-  if (duplicateExists) {
+  if (lastVouchedAt) {
+    const cooldownEnd = new Date(
+      lastVouchedAt.getTime() + DEFAULT_DUPLICATE_COOLDOWN_HOURS * 60 * 60 * 1000,
+    );
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: "You already posted a recent archive entry for that target. Try again later.",
+        text: `You vouched <b>${formatUsername(input.targetUsername)}</b> on ${fmtDate(lastVouchedAt)}.\nCooldown ends ${fmtDate(cooldownEnd)}.`,
         replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
       },
       input.logger,
@@ -723,15 +781,16 @@ async function applySelectedTarget(input: {
     return;
   }
 
-  const dailyCount = await countRecentEntriesByReviewer({
+  const daily = await countRecentEntriesByReviewer({
     reviewerTelegramId: input.reviewerTelegramId,
     withinHours: 24,
   });
-  if (dailyCount >= 5) {
+  if (daily.count >= 5 && daily.oldestInWindow) {
+    const resetAt = new Date(daily.oldestInWindow.getTime() + 24 * 60 * 60 * 1000);
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: "Daily limit reached. Try again tomorrow.",
+        text: `Daily limit reached. Try again after ${fmtDateTime(resetAt)}.`,
         replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
       },
       input.logger,
@@ -1054,13 +1113,13 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
 }
 
 async function handleGroupMessage(message: any, logger?: LoggerLike) {
+  const migration = parseChatMigration(message);
+  if (migration) {
+    await setChatMigrated(migration.oldId, migration.newId);
+    logger?.info?.("[Group] Chat migrated to supergroup", migration);
+    return;
+  }
   if (message?.migrate_to_chat_id != null) {
-    const oldId = Number(message.chat?.id);
-    const newId = Number(message.migrate_to_chat_id);
-    if (Number.isSafeInteger(oldId) && Number.isSafeInteger(newId)) {
-      await setChatMigrated(oldId, newId);
-      logger?.info?.("[Group] Chat migrated to supergroup", { oldId, newId });
-    }
     return;
   }
 
@@ -1092,6 +1151,25 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/lookup") {
+    if (!isAdmin(message.from?.id)) {
+      await recordAdminAction({
+        adminTelegramId: message.from?.id ?? 0,
+        adminUsername: message.from?.username ?? null,
+        command,
+        targetChatId: chatId,
+        targetUsername: args[0] ?? null,
+        denied: true,
+      });
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildAdminOnlyText(),
+          ...buildReplyOptions(message.message_id, true),
+        },
+        logger,
+      );
+      return;
+    }
     await handleLookupCommand({
       chatId,
       rawUsername: args[0],
@@ -1161,7 +1239,7 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
     return;
   }
 
-  if (newStatus === "kicked" || newStatus === "left") {
+  if (shouldMarkChatKicked(newStatus)) {
     await setChatKicked(chatId);
     logger?.info?.("[Group] Bot lost access", { chatId, newStatus });
   }
@@ -1473,13 +1551,13 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         return;
       }
 
-      const duplicateExists = await hasRecentEntryForReviewerAndTarget({
+      const recentEntryAt = await hasRecentEntryForReviewerAndTarget({
         reviewerTelegramId,
         targetUsername: latestTargetUsername,
         withinHours: DEFAULT_DUPLICATE_COOLDOWN_HOURS,
       });
 
-      if (duplicateExists) {
+      if (recentEntryAt) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
