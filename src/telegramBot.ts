@@ -70,6 +70,7 @@ import {
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
 import { isChatPaused } from "./core/chatSettingsStore.ts";
+import { recordAdminAction } from "./core/adminAuditStore.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
@@ -374,6 +375,14 @@ async function handleAdminCommand(input: {
   logger?: LoggerLike;
 }) {
   if (!isAdmin(input.from?.id)) {
+    await recordAdminAction({
+      adminTelegramId: input.from?.id ?? 0,
+      adminUsername: input.from?.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      targetUsername: input.args[0] ?? null,
+      denied: true,
+    });
     await sendTelegramMessage(
       {
         chatId: input.chatId,
@@ -400,6 +409,14 @@ async function handleAdminCommand(input: {
     }
 
     const updated = await setBusinessProfileFrozen(targetUsername, input.command === "/freeze");
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      targetUsername,
+      denied: false,
+    });
     await sendTelegramMessage(
       {
         chatId: input.chatId,
@@ -454,6 +471,14 @@ async function handleAdminCommand(input: {
 
     await markArchiveEntryRemoved(entryId);
     await refreshGroupLauncher(entry.chatId, input.logger);
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      entryId,
+      denied: false,
+    });
 
     await sendTelegramMessage(
       {
