@@ -75,6 +75,12 @@ const POSITIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "trusted", regex: buildLegacyKeywordPattern("trusted") },
   { label: "good", regex: buildLegacyKeywordPattern("good") },
   { label: "recommend", regex: /(?<!not\s)\brecommend(?:ed|s|ing)?\b/ },
+  { label: "pos vouch", regex: /(?<!not\s)\bpos\s+vouch\b/ },
+  { label: "huge vouch", regex: /(?<!not\s)\bhuge\s+vouch\b/ },
+  { label: "big vouch", regex: /(?<!not\s)\bbig\s+vouch\b/ },
+  { label: "mad vouch", regex: /(?<!not\s)\bmad\s+vouch\b/ },
+  { label: "high vouch", regex: /(?<!not\s)\bhigh(?:ly)?\s+vouch\b/ },
+  { label: "solid vouch", regex: /(?<!not\s)\bsolid\s+vouch\b/ },
 ];
 
 const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
@@ -84,6 +90,15 @@ const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "bad", regex: buildLegacyKeywordPattern("bad") },
   { label: "warning", regex: buildLegacyKeywordPattern("warning") },
   { label: "not legit", regex: /\bnot\s+legit\b/ },
+  { label: "neg vouch", regex: /(?<!not\s)\bneg\s+vouch\b/ },
+  { label: "scam", regex: /(?<!not\s)\bscam(?:mer|med|ming|s)?\b/ },
+  { label: "ripped", regex: /(?<!not\s)\bripped\b/ },
+  { label: "dodgy", regex: /(?<!not\s)\bdodgy\b/ },
+  { label: "sketchy", regex: /(?<!not\s)\bsketchy\b/ },
+  { label: "shady", regex: /(?<!not\s)\bshady\b/ },
+  { label: "ghost", regex: /(?<!not\s)\bghost(?:ed|ing)?\b/ },
+  { label: "steer clear", regex: /(?<!not\s)\bsteer\s+clear\b/ },
+  { label: "dont trust", regex: /(?<!not\s)\bdon'?t\s+trust\b/ },
 ];
 
 const TELEGRAM_USERNAME_REGEX = /@([A-Za-z][A-Za-z0-9_]{4,31})\b/g;

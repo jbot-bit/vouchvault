@@ -213,3 +213,66 @@ test("skips messages from configured bot senders", () => {
     assert.equal(decision.reviewItem.reason, "bot_sender");
   }
 });
+
+const positiveSamples = [
+  { name: "pos vouch", text: "@target pos vouch" },
+  { name: "huge vouch", text: "@target huge vouch from me" },
+  { name: "big vouch", text: "@target big vouch" },
+  { name: "mad vouch", text: "@target mad vouch" },
+  { name: "high vouch", text: "@target high vouch" },
+  { name: "highly vouch", text: "@target highly vouch" },
+  { name: "solid vouch", text: "@target solid vouch" },
+];
+
+for (const sample of positiveSamples) {
+  test(`classifies ${sample.name} as positive`, () => {
+    const decision = parseLegacyExportMessage({
+      message: { type: "message", id: 100, date_unixtime: "1700000000", from: "alice", from_id: "user1", text: sample.text },
+      sourceChatId: -1001234567890,
+    });
+    assert.equal(decision.kind, "import");
+    if (decision.kind === "import") {
+      assert.equal(decision.candidate.result, "positive");
+    }
+  });
+
+  test(`negated ${sample.name} skips`, () => {
+    const decision = parseLegacyExportMessage({
+      message: { type: "message", id: 101, date_unixtime: "1700000000", from: "alice", from_id: "user1", text: `@target not ${sample.name}` },
+      sourceChatId: -1001234567890,
+    });
+    assert.equal(decision.kind, "skip");
+    if (decision.kind === "skip") {
+      assert.equal(decision.reviewItem.reason, "unclear_sentiment");
+    }
+  });
+}
+
+const negativeSamples = [
+  { name: "neg vouch", text: "@target neg vouch" },
+  { name: "scam", text: "@target is a scam" },
+  { name: "scammer", text: "@target scammer" },
+  { name: "scammed", text: "@target scammed me" },
+  { name: "ripped", text: "@target ripped me off" },
+  { name: "dodgy", text: "@target dodgy" },
+  { name: "sketchy", text: "@target sketchy" },
+  { name: "shady", text: "@target shady" },
+  { name: "ghost", text: "@target ghost on payment" },
+  { name: "ghosted", text: "@target ghosted me" },
+  { name: "steer clear", text: "@target steer clear" },
+  { name: "dont trust", text: "@target dont trust him" },
+  { name: "don't trust", text: "@target don't trust him" },
+];
+
+for (const sample of negativeSamples) {
+  test(`classifies ${sample.name} as negative`, () => {
+    const decision = parseLegacyExportMessage({
+      message: { type: "message", id: 200, date_unixtime: "1700000000", from: "alice", from_id: "user1", text: sample.text },
+      sourceChatId: -1001234567890,
+    });
+    assert.equal(decision.kind, "import");
+    if (decision.kind === "import") {
+      assert.equal(decision.candidate.result, "negative");
+    }
+  });
+}
