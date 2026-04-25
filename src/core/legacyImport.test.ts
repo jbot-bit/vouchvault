@@ -138,3 +138,23 @@ test("skips self-targeted legacy messages", () => {
   assert.equal(decision.kind, "skip");
   assert.equal(decision.reviewItem.reason, "self_target");
 });
+
+test("skips messages from configured bot senders", () => {
+  const decision = parseLegacyExportMessage({
+    message: {
+      type: "message",
+      id: 1,
+      date_unixtime: "1700000000",
+      from: "GroupHelpBot",
+      from_id: "user5555555",
+      text: "@target +rep",
+    },
+    sourceChatId: -1001234567890,
+    botSenders: new Set(["grouphelpbot"]),
+  });
+  assert.equal(decision.kind, "skip");
+  if (decision.kind === "skip") {
+    assert.equal(decision.bucket, "bot_sender");
+    assert.equal(decision.reviewItem.reason, "bot_sender");
+  }
+});

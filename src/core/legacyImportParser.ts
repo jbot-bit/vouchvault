@@ -11,12 +11,15 @@ export type LegacySkipReason =
   | "unclear_sentiment"
   | "missing_source_message_id"
   | "missing_timestamp"
-  | "unsupported_message_type";
+  | "unsupported_message_type"
+  | "bot_sender";
 
 export type LegacySummaryBucket =
   | "missing_reviewer"
   | "missing_target"
+  | "multiple_targets"
   | "unclear_sentiment"
+  | "bot_sender"
   | "other";
 
 type LegacyPattern = {
@@ -336,6 +339,7 @@ function buildSkipDecision(input: {
 export function parseLegacyExportMessage(input: {
   message: unknown;
   sourceChatId: number;
+  botSenders?: Set<string>;
 }): LegacyImportDecision {
   if (!isRecord(input.message)) {
     return buildSkipDecision({
@@ -387,6 +391,18 @@ export function parseLegacyExportMessage(input: {
       reason: "missing_timestamp",
       detail: "Message record has no parseable original timestamp.",
       bucket: "other",
+    });
+  }
+
+  if (reviewerUsername && input.botSenders?.has(reviewerUsername)) {
+    return buildSkipDecision({
+      message: input.message,
+      sourceMessageId,
+      originalTimestamp,
+      reviewerUsername,
+      reason: "bot_sender",
+      detail: `Skipping known bot sender ${reviewerUsername}.`,
+      bucket: "bot_sender",
     });
   }
 
