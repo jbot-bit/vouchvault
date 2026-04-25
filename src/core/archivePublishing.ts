@@ -15,6 +15,7 @@ import {
   setArchiveEntryStatus,
 } from "./archiveStore.ts";
 import { sendTelegramMessage } from "./tools/telegramTools.ts";
+import { TelegramApiError } from "./typedTelegramErrors.ts";
 
 type PublishableArchiveEntry = {
   id: number;
@@ -68,7 +69,7 @@ export function buildArchiveEntryPostText(entry: PublishableArchiveEntry): strin
 }
 
 function isDeterministicTelegramApiFailure(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("Telegram API error:");
+  return error instanceof TelegramApiError;
 }
 
 export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, logger?: any) {
