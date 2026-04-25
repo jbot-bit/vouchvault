@@ -1,4 +1,4 @@
-import { normalizeUsername } from "./mastra/archive.ts";
+import { normalizeUsername } from "./core/archive.ts";
 
 export function parseTypedTargetUsername(text: string): {
   targetUsername: string | null;

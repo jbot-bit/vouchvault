@@ -25,14 +25,14 @@ import {
   type EntryResult,
   type EntrySource,
   type EntryTag,
-} from "./mastra/archive.ts";
-import { publishArchiveEntryRecord } from "./mastra/archivePublishing.ts";
+} from "./core/archive.ts";
+import { publishArchiveEntryRecord } from "./core/archivePublishing.ts";
 import {
   getPrimaryGroupChatId,
   isAllowedGroupChatId,
   refreshGroupLauncher,
   sendLauncherPrompt,
-} from "./mastra/archiveLauncher.ts";
+} from "./core/archiveLauncher.ts";
 import {
   clearDraftByReviewerTelegramId,
   completeTelegramUpdate,
@@ -52,22 +52,22 @@ import {
   setBusinessProfileFrozen,
   updateDraftByReviewerTelegramId,
   withReviewerDraftLock,
-} from "./mastra/archiveStore.ts";
+} from "./core/archiveStore.ts";
 import {
   buildTargetRequestReplyMarkup,
   buildThreadedGroupReplyOptions,
   shouldSendThreadedLauncherReply,
   TARGET_USER_REQUEST_ID,
-} from "./mastra/telegramUx.ts";
-import { getAllowedTelegramChatIdSet } from "./mastra/telegramChatConfig.ts";
-import { createOrUpdateUser } from "./mastra/tools/userTools.ts";
+} from "./core/telegramUx.ts";
+import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
+import { createOrUpdateUser } from "./core/tools/userTools.ts";
 import {
   answerTelegramCallbackQuery,
   buildInlineKeyboard,
   deleteTelegramMessage,
   editTelegramMessage,
   sendTelegramMessage,
-} from "./mastra/tools/telegramTools.ts";
+} from "./core/tools/telegramTools.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;

@@ -1,4 +1,4 @@
-import { ensureDatabaseSchema } from "../src/mastra/storage/bootstrap.ts";
+import { ensureDatabaseSchema } from "../src/core/storage/bootstrap.ts";
 
 async function main() {
   await ensureDatabaseSchema();

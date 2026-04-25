@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-import { getAllowedTelegramChatIdSet } from "./mastra/telegramChatConfig.ts";
+import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
 
 function requireRuntimeEnv(name: string): string {
@@ -61,7 +61,7 @@ async function main() {
 
   const { drizzle } = await import("drizzle-orm/node-postgres");
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-  const { pool } = await import("./mastra/storage/db.ts");
+  const { pool } = await import("./core/storage/db.ts");
   await migrate(drizzle(pool), { migrationsFolder: "./migrations" });
 
   const port = Number(process.env.PORT || "5000");

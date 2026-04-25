@@ -4,7 +4,7 @@ import {
   buildBotDescriptionText,
   buildBotShortDescription,
   buildPinnedGuideText,
-} from "../src/mastra/archive.ts";
+} from "../src/core/archive.ts";
 
 type BotCommand = {
   command: string;

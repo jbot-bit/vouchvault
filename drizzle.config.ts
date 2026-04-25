@@ -1,7 +1,7 @@
 import type { Config } from "drizzle-kit";
 
 export default {
-  schema: "./src/mastra/storage/schema.ts",
+  schema: "./src/core/storage/schema.ts",
   out: "./migrations",
   dialect: "postgresql",
   dbCredentials: {

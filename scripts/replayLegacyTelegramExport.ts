@@ -116,7 +116,7 @@ function parseCliArguments(argv: string[]): CliOptions {
 
 async function main() {
   const options = parseCliArguments(process.argv.slice(2));
-  const { replayLegacyExport } = await import("../src/mastra/legacyImport.ts");
+  const { replayLegacyExport } = await import("../src/core/legacyImport.ts");
   const result = await replayLegacyExport({
     exportFilePath: options.exportFilePath,
     reviewReportPath: options.reviewReportPath,
