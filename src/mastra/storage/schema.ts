@@ -60,6 +60,7 @@ export const vouchEntries = pgTable(
       .notNull()
       .references(() => businessProfiles.id),
     targetUsername: text("target_username").notNull(),
+    targetTelegramId: bigint("target_telegram_id", { mode: "number" }),
     chatId: bigint("chat_id", { mode: "number" }).notNull(),
     entryType: text("entry_type").notNull(),
     result: text("result").notNull(),

@@ -1,0 +1,1 @@
+ALTER TABLE "vouch_entries" ADD COLUMN "target_telegram_id" bigint;
