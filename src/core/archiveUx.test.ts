@@ -18,7 +18,7 @@ import {
   TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
-test("buildArchiveEntryText renders compact live entries with HTML formatting", () => {
+test("buildArchiveEntryText renders live entries with bold labels and no heading", () => {
   const text = buildArchiveEntryText({
     entryId: 42,
     reviewerUsername: "alice",
@@ -33,16 +33,15 @@ test("buildArchiveEntryText renders compact live entries with HTML formatting", 
   assert.equal(
     text,
     [
-      "🧾 <b>Entry #42</b>",
-      "",
-      "OP: <b>@alice</b>",
-      "Target: <b>@bobbiz</b>",
-      "Result: <b>Positive</b>",
+      "<b>From:</b> <b>@alice</b>",
+      "<b>For:</b> <b>@bobbiz</b>",
+      "<b>Vouch:</b> <b>Positive</b>",
+      "<b>Tags:</b> Good Comms, On Time",
     ].join("\n"),
   );
 });
 
-test("buildArchiveEntryText renders compact legacy entries with HTML formatting", () => {
+test("buildArchiveEntryText renders legacy entries with bold labels, dd/mm/yyyy Date, and an italic '(repost)' footer", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -52,23 +51,24 @@ test("buildArchiveEntryText renders compact legacy entries with HTML formatting"
     tags: ["poor_comms"],
     createdAt: new Date("2025-11-02T00:00:00.000Z"),
     source: "legacy_import",
-    legacySourceTimestamp: new Date("2025-11-02T00:00:00.000Z"),
+    legacySourceTimestamp: new Date(Date.UTC(2025, 10, 2, 12)),
   });
 
   assert.equal(
     text,
     [
-      "🧾 <b>Legacy Entry #7</b>",
+      "<b>From:</b> <b>@legacyop</b>",
+      "<b>For:</b> <b>@oldvendor</b>",
+      "<b>Vouch:</b> <b>Negative</b>",
+      "<b>Tags:</b> Poor Comms",
+      "<b>Date:</b> 02/11/2025",
       "",
-      "OP: <b>@legacyop</b>",
-      "Target: <b>@oldvendor</b>",
-      "Result: <b>Negative</b>",
-      "Original: 2025-11-02",
+      "<i>(repost)</i>",
     ].join("\n"),
   );
 });
 
-test("buildPreviewText renders the DM review screen with a bold heading", () => {
+test("buildPreviewText mirrors the posted format with a bold underlined heading", () => {
   const text = buildPreviewText({
     reviewerUsername: "alice",
     targetUsername: "bobbiz",
@@ -81,10 +81,10 @@ test("buildPreviewText renders the DM review screen with a bold heading", () => 
     [
       "<b><u>Preview</u></b>",
       "",
-      "OP: <b>@alice</b>",
-      "Target: <b>@bobbiz</b>",
-      "Result: <b>Positive</b>",
-      "Tags: Good Comms, On Time",
+      "<b>From:</b> <b>@alice</b>",
+      "<b>For:</b> <b>@bobbiz</b>",
+      "<b>Vouch:</b> <b>Positive</b>",
+      "<b>Tags:</b> Good Comms, On Time",
     ].join("\n"),
   );
 });
