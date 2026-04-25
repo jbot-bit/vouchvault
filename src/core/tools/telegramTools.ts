@@ -146,12 +146,13 @@ export function buildUrlInlineKeyboard(text: string, url: string) {
   };
 }
 
-export function buildInlineKeyboard(
-  buttons: Array<Array<{ text: string; callback_data: string }>>,
-) {
-  return {
-    inline_keyboard: buttons,
-  };
+type InlineKeyboardButton = { text: string } & (
+  | { callback_data: string }
+  | { url: string }
+);
+
+export function buildInlineKeyboard(buttons: InlineKeyboardButton[][]) {
+  return { inline_keyboard: buttons };
 }
 
 export const sendTelegramMessageTool = {

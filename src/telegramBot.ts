@@ -77,6 +77,16 @@ type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 const SERVICE_ENTRY_TYPE = "service";
 const allowedTelegramChatIds = getAllowedTelegramChatIdSet();
 
+function buildEntryDeepLink(chatId: number, messageId: number): string {
+  // Telegram URL format: https://t.me/c/<chatPart>/<messageId>
+  // Supergroup chat IDs are like -1001234567890; the chatPart drops the -100 prefix.
+  const stringId = String(chatId);
+  const chatPart = stringId.startsWith("-100")
+    ? stringId.slice(4)
+    : stringId.replace(/^-/, "");
+  return `https://t.me/c/${chatPart}/${messageId}`;
+}
+
 function getAdminIds(): Set<number> {
   return new Set(
     (process.env.TELEGRAM_ADMIN_IDS || "")
@@ -1265,13 +1275,25 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         });
       }
 
+      const publishedEntry = await getArchiveEntryById(createdEntry.id);
+      const viewUrl = publishedEntry?.publishedMessageId
+        ? buildEntryDeepLink(latestTargetGroupChatId, publishedEntry.publishedMessageId)
+        : null;
+
+      const confirmKeyboard = viewUrl
+        ? buildInlineKeyboard([
+            [{ text: "Start Another Vouch", callback_data: `archive:start:${latestTargetGroupChatId}` }],
+            [{ text: "View this entry", url: viewUrl }],
+          ])
+        : buildRestartKeyboard(latestTargetGroupChatId);
+
       try {
         await editTelegramMessage(
           {
             chatId,
             messageId,
             text: buildPublishedDraftText(latestTargetUsername, latestResult),
-            replyMarkup: buildRestartKeyboard(latestTargetGroupChatId),
+            replyMarkup: confirmKeyboard,
           },
           logger,
         );
