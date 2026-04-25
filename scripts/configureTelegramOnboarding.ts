@@ -19,20 +19,30 @@ type CliOptions = {
 };
 
 const DEFAULT_COMMANDS: BotCommand[] = [
-  { command: "help", description: "How the archive works" },
+  { command: "help", description: "How the Vouch Hub works" },
   { command: "recent", description: "Show recent entries" },
 ];
 
 const PRIVATE_COMMANDS: BotCommand[] = [
   { command: "vouch", description: "Start a new vouch" },
+  { command: "cancel", description: "Cancel your in-progress draft" },
+  { command: "profile", description: "Show entry totals for an @username" },
+  { command: "lookup", description: "Look up entries for an @username" },
   ...DEFAULT_COMMANDS,
 ];
 
 const ADMIN_COMMANDS: BotCommand[] = [
   ...DEFAULT_COMMANDS,
-  { command: "freeze", description: "Freeze @username" },
+  { command: "profile", description: "Show entry totals for an @username" },
+  { command: "lookup", description: "Look up entries for an @username" },
+  { command: "freeze", description: "Freeze @username [reason]" },
   { command: "unfreeze", description: "Unfreeze @username" },
+  { command: "frozen_list", description: "List frozen profiles" },
   { command: "remove_entry", description: "Remove an entry by id" },
+  { command: "recover_entry", description: "Clear stuck publishing for an entry id" },
+  { command: "pause", description: "Pause new vouch submissions" },
+  { command: "unpause", description: "Resume vouch submissions" },
+  { command: "admin_help", description: "Admin command reference" },
 ];
 
 function printUsage() {
@@ -208,6 +218,7 @@ async function main() {
 
   const botUsername = await resolveBotUsername(options.botUsername);
 
+  await callTelegramAPI("setMyName", { name: "Vouch Hub" });
   await callTelegramAPI("setMyDescription", {
     description,
   });
