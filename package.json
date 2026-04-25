@@ -13,6 +13,8 @@
     "test": "node --test --experimental-strip-types src/mastra/archiveUx.test.ts src/mastra/legacyImport.test.ts src/telegramBotInput.test.ts",
     "format": "prettier --write .",
     "check:format": "prettier --check .",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --experimental-strip-types scripts/runMigrations.ts",
     "db:init": "node --experimental-strip-types scripts/initDatabase.ts",
     "telegram:onboarding": "node --experimental-strip-types scripts/configureTelegramOnboarding.ts",
     "telegram:webhook": "node --experimental-strip-types scripts/setTelegramWebhook.ts",
@@ -25,6 +27,7 @@
   "devDependencies": {
     "@types/node": "latest",
     "@types/pg": "^8.20.0",
+    "drizzle-kit": "0.31.4",
     "prettier": "3.3.3",
     "typescript": "latest"
   }
