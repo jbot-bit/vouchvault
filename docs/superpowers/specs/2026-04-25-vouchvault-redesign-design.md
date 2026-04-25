@@ -138,7 +138,7 @@ Notes:
 4. **Step 3/3 — Tags**: bot edits to show 4 tags allowed for that result (multi-select with ✓ prefix), Done, Cancel.
 5. **Preview**: bot edits to show preview + Publish + Cancel.
 6. **Posted confirmation**: bot edits to show "Posted to the group" + **Start Another Vouch** + **View this entry** (URL button).
-7. **In-group**: a fresh `Entry #N` message appears, the previous launcher is debounced or replaced.
+7. **In-group**: a fresh entry card (§14.7) appears, the previous launcher is debounced or replaced.
 
 Per Telegram's UX guidance ("edit your keyboard when the user toggles a setting button or navigates to a new page – this is both faster and smoother", `bots/features`), the entire DM flow operates on **one bot message** edited at each step.
 
@@ -709,10 +709,10 @@ Same body; ordered list says "Tap <b>Submit Vouch</b> below."
 ### 14.3 Step prompts
 
 - **Step 1/3 — target**: `<b>Step 1 of 3 — Choose target</b>\n\nSend the target @username here.\nYou can also tap <b>Choose Target</b> below.`
-- **Step 2/3 — result**: `<b>Step 2 of 3 — Result</b>\n\nTarget: <b>@x</b>\n\nChoose the result.`
-- **Step 3/3 — tags**: `<b>Step 3 of 3 — Tags</b>\n\nTarget: <b>@x</b>\nResult: <b>Positive</b>\nTags: Good Comms, Efficient\n\nChoose one or more tags, then tap <b>Done</b>.`
-- **Preview**: `<b><u>Preview</u></b>\n\nOP: <b>@reviewer</b>\nTarget: <b>@target</b>\nResult: <b>Positive</b>\nTags: Good Comms, Efficient`
-- **Posted**: `<b>Posted to the group</b>\n\nTarget: <b>@target</b>\nResult: <b>Positive</b>` + buttons Start Another Vouch / View this entry.
+- **Step 2/3 — result**: `<b>Step 2 of 3 — Result</b>\n\n<b>For:</b> <b>@x</b>\n\nChoose the result.`
+- **Step 3/3 — tags**: `<b>Step 3 of 3 — Tags</b>\n\n<b>For:</b> <b>@x</b>\n<b>Vouch:</b> <b>Positive</b>\n<b>Tags:</b> Good Comms, Efficient\n\nChoose one or more tags, then tap <b>Done</b>.`
+- **Preview**: `<b><u>Preview</u></b>\n\n<b>POS Vouch &gt; @target</b>\n<b>From:</b> <b>@reviewer</b>\n<b>Tags:</b> Good Comms, Efficient` (mirrors the §14.7 entry card under a Preview heading).
+- **Posted**: `<b>✓ Posted to the group</b>\n\n<b>POS Vouch &gt; @target</b>` + buttons Start Another Vouch / View this entry.
 
 ### 14.4 Errors (DM)
 
@@ -741,16 +741,21 @@ Same body; ordered list says "Tap <b>Submit Vouch</b> below."
 ### 14.7 Entry card (group post)
 
 ```
-🧾 <b>Entry #N</b>
-
-OP: <b>@reviewer</b>
-Target: <b>@target</b>
-Result: <b>Positive</b>
+<b>POS Vouch &gt; @target</b>
+<b>From:</b> <b>@reviewer</b>
+<b>Tags:</b> Good Comms, On Time
 ```
 
-Legacy variant: heading `🧾 <b>Legacy Entry #N</b>` and trailing `Original: YYYY-MM-DD`.
+Legacy variant adds a `<b>Date:</b> dd/mm/yyyy` line carrying the original post date (not the repost date):
 
-**By design**: tags are intentionally omitted from the public group post; they appear in `/lookup` and `/profile`.
+```
+<b>NEG Vouch &gt; @target</b>
+<b>From:</b> <b>@reviewer</b>
+<b>Tags:</b> Poor Comms
+<b>Date:</b> 02/11/2025
+```
+
+The heading prefix (`POS` / `MIX` / `NEG`) encodes the verdict inline — there is no separate `Vouch:` line. There is no `(repost)` footer; the `Date:` line alone signals an archive entry. Tags are now shown on the public card (the previous "tags omitted from group post" rule is dropped — they are short, useful at-a-glance, and parity with `/lookup` reduces follow-up commands).
 
 ### 14.8 `/recent`
 
@@ -758,10 +763,10 @@ Legacy variant: heading `🧾 <b>Legacy Entry #N</b>` and trailing `Original: YY
 <b><u>Recent entries</u></b>
 
 <b>#42</b> — <b>Positive</b>
-<b>@a</b> → <b>@b</b> • 2026-04-25
+<b>@a</b> → <b>@b</b> • 25/04/2026
 
 <b>#41</b> — <b>Negative</b>
-<b>@c</b> → <b>@d</b> • 2026-04-24
+<b>@c</b> → <b>@d</b> • 24/04/2026
 
 …
 ```
@@ -775,8 +780,8 @@ Legacy variant: heading `🧾 <b>Legacy Entry #N</b>` and trailing `Original: YY
 Status: Active <i>or</i> Frozen — <i>reason</i>
 
 <b>#N</b> — <b>Positive</b>
-By <b>@reviewer</b> • 2026-04-25
-Tags: Good Comms, Efficient
+By <b>@reviewer</b> • 25/04/2026
+<b>Tags:</b> Good Comms, Efficient
 
 …
 ```
@@ -791,7 +796,7 @@ Positive: 12 • Mixed: 3 • Negative: 1
 Status: Active
 
 <b>Last 5 entries</b>
-<b>#N</b> — <b>Positive</b> • 2026-04-25
+<b>#N</b> — <b>Positive</b> • 25/04/2026
 …
 ```
 
@@ -827,8 +832,8 @@ Group: §14.5 launcher block.
 ```
 <b><u>Frozen profiles</u></b>
 
-<b>@x</b> — frozen 2026-04-20 — <i>reason here</i>
-<b>@y</b> — frozen 2026-04-22 — <i>no reason given</i>
+<b>@x</b> — frozen 20/04/2026 — <i>reason here</i>
+<b>@y</b> — frozen 22/04/2026 — <i>no reason given</i>
 …
 ```
 
