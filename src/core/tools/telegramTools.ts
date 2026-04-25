@@ -1,3 +1,11 @@
+import {
+  TelegramApiError,
+  TelegramChatGoneError,
+  TelegramForbiddenError,
+  TelegramRateLimitError,
+} from "../typedTelegramErrors.ts";
+import { withTelegramRetry } from "../withTelegramRetry.ts";
+
 const TELEGRAM_API_URL = "https://api.telegram.org/bot";
 
 let cachedBotUsername: string | null = null;
@@ -19,7 +27,18 @@ export async function callTelegramAPI(method: string, params: any, logger?: any)
   const data = await response.json();
   if (!data.ok) {
     logger?.error?.("Telegram API call failed", { method, params, error: data });
-    throw new Error(`Telegram API error: ${data.description}`);
+    const desc = String(data.description ?? "");
+    const code = Number(data.error_code ?? 0);
+    if (code === 429) {
+      throw new TelegramRateLimitError(code, desc, Number(data.parameters?.retry_after ?? 0));
+    }
+    if (code === 403 && /bot was blocked by the user|bot is not a member/i.test(desc)) {
+      throw new TelegramForbiddenError(code, desc);
+    }
+    if (code === 400 && /chat not found/i.test(desc)) {
+      throw new TelegramChatGoneError(code, desc);
+    }
+    throw new TelegramApiError(code, desc);
   }
 
   return data.result;
@@ -62,7 +81,9 @@ export async function sendTelegramMessage(
   },
   logger?: any,
 ) {
-  return callTelegramAPI("sendMessage", buildTelegramSendMessageParams(input), logger);
+  return withTelegramRetry(() =>
+    callTelegramAPI("sendMessage", buildTelegramSendMessageParams(input), logger),
+  );
 }
 
 export async function editTelegramMessage(
@@ -75,16 +96,18 @@ export async function editTelegramMessage(
   },
   logger?: any,
 ) {
-  return callTelegramAPI(
-    "editMessageText",
-    {
-      chat_id: input.chatId,
-      message_id: input.messageId,
-      text: input.text,
-      parse_mode: input.parseMode ?? "HTML",
-      reply_markup: input.replyMarkup,
-    },
-    logger,
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "editMessageText",
+      {
+        chat_id: input.chatId,
+        message_id: input.messageId,
+        text: input.text,
+        parse_mode: input.parseMode ?? "HTML",
+        reply_markup: input.replyMarkup,
+      },
+      logger,
+    ),
   );
 }
 
@@ -95,13 +118,15 @@ export async function deleteTelegramMessage(
   },
   logger?: any,
 ) {
-  return callTelegramAPI(
-    "deleteMessage",
-    {
-      chat_id: input.chatId,
-      message_id: input.messageId,
-    },
-    logger,
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "deleteMessage",
+      {
+        chat_id: input.chatId,
+        message_id: input.messageId,
+      },
+      logger,
+    ),
   );
 }
 
@@ -113,14 +138,16 @@ export async function answerTelegramCallbackQuery(
   },
   logger?: any,
 ) {
-  return callTelegramAPI(
-    "answerCallbackQuery",
-    {
-      callback_query_id: input.callbackQueryId,
-      text: input.text,
-      show_alert: input.showAlert,
-    },
-    logger,
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "answerCallbackQuery",
+      {
+        callback_query_id: input.callbackQueryId,
+        text: input.text,
+        show_alert: input.showAlert,
+      },
+      logger,
+    ),
   );
 }
 
