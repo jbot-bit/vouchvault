@@ -64,19 +64,27 @@ export async function getOrCreateBusinessProfile(username: string) {
   }
 }
 
-export async function setBusinessProfileFrozen(username: string, isFrozen: boolean) {
-  const profile = await getOrCreateBusinessProfile(username);
+export async function setBusinessProfileFrozen(input: {
+  username: string;
+  isFrozen: boolean;
+  reason?: string | null;
+  byTelegramId?: number | null;
+}) {
+  const profile = await getOrCreateBusinessProfile(input.username);
+  const reasonTrimmed = input.reason?.trim().slice(0, 200) || null;
 
   const rows = await db
     .update(businessProfiles)
     .set({
-      isFrozen,
+      isFrozen: input.isFrozen,
+      freezeReason: input.isFrozen ? reasonTrimmed : null,
+      frozenAt: input.isFrozen ? new Date() : null,
+      frozenByTelegramId: input.isFrozen ? (input.byTelegramId ?? null) : null,
       updatedAt: new Date(),
     })
     .where(eq(businessProfiles.id, profile.id))
     .returning();
 
-  // update().returning() always returns the updated row when the where clause matches
   return rows[0]!;
 }
 

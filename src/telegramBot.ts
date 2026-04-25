@@ -400,7 +400,7 @@ async function handleAdminCommand(input: {
       await sendTelegramMessage(
         {
           chatId: input.chatId,
-          text: `Send ${input.command} @username`,
+          text: `Use: ${input.command} @username${input.command === "/freeze" ? " [reason]" : ""}.`,
           ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
         },
         input.logger,
@@ -408,13 +408,20 @@ async function handleAdminCommand(input: {
       return;
     }
 
-    const updated = await setBusinessProfileFrozen(targetUsername, input.command === "/freeze");
+    const reason = input.command === "/freeze" ? input.args.slice(1).join(" ") || null : null;
+    const updated = await setBusinessProfileFrozen({
+      username: targetUsername,
+      isFrozen: input.command === "/freeze",
+      reason,
+      byTelegramId: input.from.id,
+    });
     await recordAdminAction({
       adminTelegramId: input.from.id,
       adminUsername: input.from.username ?? null,
       command: input.command,
       targetChatId: input.chatId,
       targetUsername,
+      reason,
       denied: false,
     });
     await sendTelegramMessage(
