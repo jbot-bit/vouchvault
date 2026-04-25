@@ -173,7 +173,10 @@ function fmtTags(tags: EntryTag[]): string {
 }
 
 function fmtDate(date: Date): string {
-  return escapeHtml(date.toISOString().slice(0, 10));
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const year = date.getUTCFullYear();
+  return escapeHtml(`${day}/${month}/${year}`);
 }
 
 function rulesLine(): string {
@@ -197,20 +200,19 @@ export function buildArchiveEntryText(input: {
 }): string {
   const isLegacy = input.source === "legacy_import";
 
-  const lines: string[] = [];
-  if (isLegacy) {
-    lines.push("<b>From the Vault</b>", "");
-  }
-
-  lines.push(
+  const lines: string[] = [
     `OP: ${fmtUser(input.reviewerUsername)}`,
     `Target: ${fmtUser(input.targetUsername)}`,
     `Result: ${fmtResult(input.result)}`,
     `Tags: ${fmtTags(input.tags)}`,
-  );
+  ];
 
   if (isLegacy && input.legacySourceTimestamp) {
-    lines.push(`Original: ${fmtDate(input.legacySourceTimestamp)}`);
+    lines.push(`Date: ${fmtDate(input.legacySourceTimestamp)}`);
+  }
+
+  if (isLegacy) {
+    lines.push("", "<i>(from the vault)</i>");
   }
 
   return lines.join("\n");

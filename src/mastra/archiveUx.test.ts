@@ -38,7 +38,7 @@ test("buildArchiveEntryText renders live entries with bold fields and no heading
   ].join("\n"));
 });
 
-test("buildArchiveEntryText renders legacy entries under a 'From the Vault' heading with the original date", () => {
+test("buildArchiveEntryText renders legacy entries with a dd/mm/yyyy Date and an italic '(from the vault)' footer", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -52,13 +52,13 @@ test("buildArchiveEntryText renders legacy entries under a 'From the Vault' head
   });
 
   assert.equal(text, [
-    "<b>From the Vault</b>",
-    "",
     "OP: <b>@legacyop</b>",
     "Target: <b>@oldvendor</b>",
     "Result: <b>Negative</b>",
     "Tags: Poor Comms",
-    "Original: 2025-11-02",
+    "Date: 02/11/2025",
+    "",
+    "<i>(from the vault)</i>",
   ].join("\n"));
 });
 
