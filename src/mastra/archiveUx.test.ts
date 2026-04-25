@@ -31,14 +31,14 @@ test("buildArchiveEntryText renders live entries with bold fields and no heading
   });
 
   assert.equal(text, [
-    "OP: <b>@alice</b>",
-    "Target: <b>@bobbiz</b>",
-    "Result: <b>Positive</b>",
+    "From: <b>@alice</b>",
+    "For: <b>@bobbiz</b>",
+    "Vouch: <b>Positive</b>",
     "Tags: Good Comms, On Time",
   ].join("\n"));
 });
 
-test("buildArchiveEntryText renders legacy entries with a dd/mm/yyyy Date and an italic '(from the vault)' footer", () => {
+test("buildArchiveEntryText renders legacy entries with a dd/mm/yyyy Date and an italic '(repost)' footer", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -52,13 +52,13 @@ test("buildArchiveEntryText renders legacy entries with a dd/mm/yyyy Date and an
   });
 
   assert.equal(text, [
-    "OP: <b>@legacyop</b>",
-    "Target: <b>@oldvendor</b>",
-    "Result: <b>Negative</b>",
+    "From: <b>@legacyop</b>",
+    "For: <b>@oldvendor</b>",
+    "Vouch: <b>Negative</b>",
     "Tags: Poor Comms",
     "Date: 02/11/2025",
     "",
-    "<i>(from the vault)</i>",
+    "<i>(repost)</i>",
   ].join("\n"));
 });
 
@@ -73,9 +73,9 @@ test("buildPreviewText mirrors the posted format with a bold underlined heading"
   assert.equal(text, [
     "<b><u>Preview</u></b>",
     "",
-    "OP: <b>@alice</b>",
-    "Target: <b>@bobbiz</b>",
-    "Result: <b>Positive</b>",
+    "From: <b>@alice</b>",
+    "For: <b>@bobbiz</b>",
+    "Vouch: <b>Positive</b>",
     "Tags: Good Comms, On Time",
   ].join("\n"));
 });

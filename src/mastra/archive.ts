@@ -201,9 +201,9 @@ export function buildArchiveEntryText(input: {
   const isLegacy = input.source === "legacy_import";
 
   const lines: string[] = [
-    `OP: ${fmtUser(input.reviewerUsername)}`,
-    `Target: ${fmtUser(input.targetUsername)}`,
-    `Result: ${fmtResult(input.result)}`,
+    `From: ${fmtUser(input.reviewerUsername)}`,
+    `For: ${fmtUser(input.targetUsername)}`,
+    `Vouch: ${fmtResult(input.result)}`,
     `Tags: ${fmtTags(input.tags)}`,
   ];
 
@@ -212,7 +212,7 @@ export function buildArchiveEntryText(input: {
   }
 
   if (isLegacy) {
-    lines.push("", "<i>(from the vault)</i>");
+    lines.push("", "<i>(repost)</i>");
   }
 
   return lines.join("\n");
@@ -227,9 +227,9 @@ export function buildPreviewText(input: {
   return [
     "<b><u>Preview</u></b>",
     "",
-    `OP: ${fmtUser(input.reviewerUsername)}`,
-    `Target: ${fmtUser(input.targetUsername)}`,
-    `Result: ${fmtResult(input.result)}`,
+    `From: ${fmtUser(input.reviewerUsername)}`,
+    `For: ${fmtUser(input.targetUsername)}`,
+    `Vouch: ${fmtResult(input.result)}`,
     `Tags: ${fmtTags(input.tags)}`,
   ].join("\n");
 }
@@ -273,7 +273,7 @@ export function buildResultPromptText(targetUsername: string): string {
   return [
     "<b>Step 2 of 3 — Result</b>",
     "",
-    `Target: ${fmtUser(targetUsername)}`,
+    `For: ${fmtUser(targetUsername)}`,
     "",
     "Choose the result.",
   ].join("\n");
@@ -283,8 +283,8 @@ export function buildTagPromptText(targetUsername: string, result: EntryResult, 
   return [
     "<b>Step 3 of 3 — Tags</b>",
     "",
-    `Target: ${fmtUser(targetUsername)}`,
-    `Result: ${fmtResult(result)}`,
+    `For: ${fmtUser(targetUsername)}`,
+    `Vouch: ${fmtResult(result)}`,
     `Tags: ${fmtTags(tags)}`,
     "",
     "Choose one or more tags, then tap <b>Done</b>.",
@@ -374,8 +374,8 @@ export function buildPublishedDraftText(targetUsername: string, result: EntryRes
   return [
     "<b>✓ Posted to the group</b>",
     "",
-    `Target: ${fmtUser(targetUsername)}`,
-    `Result: ${fmtResult(result)}`,
+    `For: ${fmtUser(targetUsername)}`,
+    `Vouch: ${fmtResult(result)}`,
   ].join("\n");
 }
 
