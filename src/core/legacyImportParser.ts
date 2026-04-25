@@ -505,6 +505,12 @@ export function parseLegacyExportMessage(input: {
     return flattenLegacyMessageText((input.message as Record<string, unknown>).caption).trim();
   })();
 
+  // The bot_sender skip above gates on the export-level @username only —
+  // by the time we reach the unwrap, that check has already let the message
+  // through. We deliberately do not re-check the unwrapped reviewer against
+  // botSenders: by construction the wrapped reviewer is the original human
+  // sender quoted by the import bot, so re-checking would just risk false
+  // positives on unrelated similarly-named accounts.
   const unwrap = tryUnwrapManualRepostHeader(rawText);
   const text = unwrap ? unwrap.body.trim() : rawText;
   if (unwrap) {
