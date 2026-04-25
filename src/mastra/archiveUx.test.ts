@@ -18,7 +18,7 @@ import {
   TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
-test("buildArchiveEntryText renders compact live entries with HTML formatting", () => {
+test("buildArchiveEntryText renders live entries with bold fields, no number, no emoji", () => {
   const text = buildArchiveEntryText({
     entryId: 42,
     reviewerUsername: "alice",
@@ -31,15 +31,16 @@ test("buildArchiveEntryText renders compact live entries with HTML formatting", 
   });
 
   assert.equal(text, [
-    "🧾 <b>Entry #42</b>",
+    "<b>Entry</b>",
     "",
     "OP: <b>@alice</b>",
     "Target: <b>@bobbiz</b>",
     "Result: <b>Positive</b>",
+    "Tags: Good Comms, On Time",
   ].join("\n"));
 });
 
-test("buildArchiveEntryText renders compact legacy entries with HTML formatting", () => {
+test("buildArchiveEntryText renders legacy entries with the original date and no entry number", () => {
   const text = buildArchiveEntryText({
     entryId: 7,
     reviewerUsername: "legacyop",
@@ -53,16 +54,17 @@ test("buildArchiveEntryText renders compact legacy entries with HTML formatting"
   });
 
   assert.equal(text, [
-    "🧾 <b>Legacy Entry #7</b>",
+    "<b>Legacy Entry</b>",
     "",
     "OP: <b>@legacyop</b>",
     "Target: <b>@oldvendor</b>",
     "Result: <b>Negative</b>",
+    "Tags: Poor Comms",
     "Original: 2025-11-02",
   ].join("\n"));
 });
 
-test("buildPreviewText renders the DM review screen with a bold heading", () => {
+test("buildPreviewText mirrors the posted format with a bold underlined heading", () => {
   const text = buildPreviewText({
     reviewerUsername: "alice",
     targetUsername: "bobbiz",

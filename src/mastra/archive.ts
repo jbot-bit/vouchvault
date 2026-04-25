@@ -195,9 +195,10 @@ export function buildArchiveEntryText(input: {
   source?: EntrySource;
   legacySourceTimestamp?: Date | null;
 }): string {
-  const heading = input.source === "legacy_import"
-    ? `🧾 <b>Legacy Entry #${input.entryId}</b>`
-    : `🧾 <b>Entry #${input.entryId}</b>`;
+  const isLegacy = input.source === "legacy_import";
+  const heading = isLegacy
+    ? "<b>Legacy Entry</b>"
+    : "<b>Entry</b>";
 
   const lines = [
     heading,
@@ -205,9 +206,10 @@ export function buildArchiveEntryText(input: {
     `OP: ${fmtUser(input.reviewerUsername)}`,
     `Target: ${fmtUser(input.targetUsername)}`,
     `Result: ${fmtResult(input.result)}`,
+    `Tags: ${fmtTags(input.tags)}`,
   ];
 
-  if (input.source === "legacy_import" && input.legacySourceTimestamp) {
+  if (isLegacy && input.legacySourceTimestamp) {
     lines.push(`Original: ${fmtDate(input.legacySourceTimestamp)}`);
   }
 
