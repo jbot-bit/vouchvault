@@ -671,6 +671,29 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
 
+    if (command === "/cancel") {
+      await withReviewerDraftLock(message.from.id, async () => {
+        const draft = await getDraftByReviewerTelegramId(message.from.id);
+        if (!draft) {
+          await sendTelegramMessage(
+            { chatId, text: "No active draft." },
+            logger,
+          );
+          return;
+        }
+        await clearDraftByReviewerTelegramId(message.from.id);
+        await sendTelegramMessage(
+          {
+            chatId,
+            text: "Cancelled.",
+            replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
+          },
+          logger,
+        );
+      });
+      return;
+    }
+
     if (command === "/vouch") {
       await startDraftFlow({
         chatId,
