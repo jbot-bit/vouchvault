@@ -20,6 +20,9 @@ imports/
 # ...but DO track the template.
 !.env.example
 
+# Per-machine Claude Code permission state (the shared settings.json stays tracked)
+.claude/settings.local.json
+
 # OS/editor noise
 Thumbs.db
 .DS_Store

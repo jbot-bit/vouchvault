@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:core.telegram.org)",
-      "WebSearch",
-      "WebFetch(domain:docs.railway.com)"
-    ]
-  }
-}
