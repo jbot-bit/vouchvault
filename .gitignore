@@ -14,6 +14,11 @@ node_modules/
 # ...but DO track the template.
 !.env.example
 
+# Legacy-import review reports + checkpoints — generated artifacts, not source.
+*.legacy-import-review.json
+*.legacy-import-checkpoint.json
+review_*.json
+
 # OS/editor noise
 Thumbs.db
 .DS_Store

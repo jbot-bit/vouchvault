@@ -73,6 +73,8 @@ const LEGACY_TAGS_BY_RESULT: Record<LegacyImportResult, readonly EntryTag[]> = {
 const POSITIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "+rep", regex: /(^|[^a-z0-9_])\+\s*rep(?=$|[^a-z0-9_])/ },
   { label: "+vouch", regex: /(^|[^a-z0-9_])\+\s*vouch(?=$|[^a-z0-9_])/ },
+  // "pos vouch" / "positive vouch" / "heavy pos vouch" — the dominant in-the-wild idiom.
+  { label: "pos vouch", regex: /\b(?:heavy\s+)?pos(?:itive)?\s+vouch\b/ },
   { label: "legit", regex: buildLegacyKeywordPattern("legit") },
   { label: "trusted", regex: buildLegacyKeywordPattern("trusted") },
   { label: "good", regex: buildLegacyKeywordPattern("good") },
@@ -82,11 +84,77 @@ const POSITIVE_PATTERNS: readonly LegacyPattern[] = [
 const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "-rep", regex: /(^|[^a-z0-9_])-\s*rep(?=$|[^a-z0-9_])/ },
   { label: "-vouch", regex: /(^|[^a-z0-9_])-\s*vouch(?=$|[^a-z0-9_])/ },
+  // "neg vouch" / "negative vouch".
+  { label: "neg vouch", regex: /\bneg(?:ative)?\s+vouch\b/ },
+  { label: "scammer", regex: buildLegacyKeywordPattern("scammer") },
+  { label: "stay clear", regex: /\bstay\s+clear\b/ },
   { label: "avoid", regex: buildLegacyKeywordPattern("avoid") },
   { label: "bad", regex: buildLegacyKeywordPattern("bad") },
   { label: "warning", regex: buildLegacyKeywordPattern("warning") },
   { label: "not legit", regex: /\bnot\s+legit\b/ },
 ];
+
+// Manual-repost wrapper used when an admin pasted historical vouches into a
+// new group instead of using the bot. Format is exactly:
+//   FROM: @username / 1234567890
+//   DATE: dd/mm/yyyy
+//   <blank line>
+//   <original body>
+// The username may also be the literal "DELETED ACCOUNT" — in which case we
+// fall back to a synthetic placeholder built from the numeric id so the row
+// can still flow through validation.
+const REPOST_HEADER_REGEX =
+  /^FROM:\s*(?:@\s*([A-Za-z0-9_]+)|(DELETED\s+ACCOUNT))\s*\/\s*(\d+)\s*\r?\n+DATE:\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*\r?\n/i;
+
+function legacyUsernameForDeletedAccount(numericId: number): string {
+  return `legacy_${numericId}`;
+}
+
+function tryUnwrapManualRepostHeader(text: string): {
+  body: string;
+  reviewerUsername: string;
+  originalTimestamp: Date;
+} | null {
+  const match = REPOST_HEADER_REGEX.exec(text);
+  if (!match) {
+    return null;
+  }
+
+  const [, namedUsername, deletedMarker, idStr, dayStr, monthStr, yearStr] = match;
+  const numericId = Number(idStr);
+  if (!Number.isSafeInteger(numericId)) {
+    return null;
+  }
+
+  const reviewerUsername = deletedMarker
+    ? legacyUsernameForDeletedAccount(numericId)
+    : (normalizeUsername(namedUsername ?? null) ?? null);
+  if (!reviewerUsername) {
+    return null;
+  }
+
+  const day = Number(dayStr);
+  const month = Number(monthStr);
+  let year = Number(yearStr);
+  if (year < 100) year += 2000;
+  if (
+    !Number.isInteger(day) || day < 1 || day > 31
+    || !Number.isInteger(month) || month < 1 || month > 12
+    || !Number.isInteger(year) || year < 2000 || year > 2100
+  ) {
+    return null;
+  }
+  // Anchor to noon UTC so the slice(0, 10) date label is stable across timezones.
+  const originalTimestamp = new Date(Date.UTC(year, month - 1, day, 12));
+
+  const body = text.slice(match[0].length).replace(/^\s*\n+/, "");
+  return { body, reviewerUsername, originalTimestamp };
+}
+
+function isLikelyBotSender(message: Record<string, unknown>): boolean {
+  const fromName = typeof message.from === "string" ? message.from : "";
+  return /\bbot\b/i.test(fromName);
+}
 
 const TELEGRAM_USERNAME_REGEX = /@([A-Za-z][A-Za-z0-9_]{4,31})\b/g;
 const REVIEWER_FIELD_NAMES = [
@@ -356,8 +424,9 @@ export function parseLegacyExportMessage(input: {
 
   const messageType = typeof input.message.type === "string" ? input.message.type : "message";
   const sourceMessageId = getLegacyMessageId(input.message);
-  const originalTimestamp = getLegacyMessageTimestamp(input.message);
-  const reviewerUsername = extractLegacyReviewerUsername(input.message);
+  const exportTimestamp = getLegacyMessageTimestamp(input.message);
+  let originalTimestamp = exportTimestamp;
+  let reviewerUsername = extractLegacyReviewerUsername(input.message);
 
   if (messageType !== "message") {
     return buildSkipDecision({
@@ -367,6 +436,20 @@ export function parseLegacyExportMessage(input: {
       reviewerUsername,
       reason: "unsupported_message_type",
       detail: `Skipping export record with type "${messageType}".`,
+      bucket: "other",
+    });
+  }
+
+  // Skip messages from bot accounts (admin/mod bots, ban announcers, etc.)
+  // before any further classification so they never end up in the review pile.
+  if (isLikelyBotSender(input.message)) {
+    return buildSkipDecision({
+      message: input.message,
+      sourceMessageId,
+      originalTimestamp,
+      reviewerUsername,
+      reason: "unsupported_message_type",
+      detail: `Skipping message from a bot sender ("${input.message.from}").`,
       bucket: "other",
     });
   }
@@ -395,6 +478,19 @@ export function parseLegacyExportMessage(input: {
     });
   }
 
+  // If the message text starts with a manual-repost wrapper
+  // (`FROM: @user / id\nDATE: dd/mm/yyyy\n\n<body>`), unwrap it: the wrapper's
+  // FROM/DATE fields override the export-level sender + timestamp, and the
+  // body becomes the text we run target/sentiment extraction on. This is how
+  // the prior admin migration packed historical vouches as their own posts.
+  const rawText = flattenLegacyMessageText(input.message.text).trim();
+  const unwrap = tryUnwrapManualRepostHeader(rawText);
+  const text = unwrap ? unwrap.body.trim() : rawText;
+  if (unwrap) {
+    reviewerUsername = unwrap.reviewerUsername;
+    originalTimestamp = unwrap.originalTimestamp;
+  }
+
   if (!reviewerUsername) {
     return buildSkipDecision({
       message: input.message,
@@ -407,7 +503,6 @@ export function parseLegacyExportMessage(input: {
     });
   }
 
-  const text = flattenLegacyMessageText(input.message.text).trim();
   const targetUsernames = extractLegacyTargetUsernames(text);
 
   if (targetUsernames.length === 0) {

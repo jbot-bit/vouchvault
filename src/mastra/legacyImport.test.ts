@@ -16,6 +16,81 @@ function buildMessage(overrides: Record<string, unknown> = {}) {
   };
 }
 
+test("imports `pos vouch @target` style messages", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({ text: "POS VOUCH @target_user great deal" }),
+  });
+
+  assert.equal(decision.kind, "import");
+  assert.equal(decision.candidate.result, "positive");
+  assert.equal(decision.candidate.targetUsername, "target_user");
+});
+
+test("imports `neg vouch @target` style messages", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({ text: "Neg vouch @target_user owes me money" }),
+  });
+
+  assert.equal(decision.kind, "import");
+  assert.equal(decision.candidate.result, "negative");
+});
+
+test("skips messages whose sender display name contains 'bot'", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({
+      from: "Suncoast Bot",
+      text: "@target_user [12345] banned.",
+    }),
+  });
+
+  assert.equal(decision.kind, "skip");
+  assert.equal(decision.bucket, "other");
+});
+
+test("unwraps a FROM/DATE manual-repost header and uses its fields", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({
+      from: "-",
+      text:
+        "FROM: @rixx_aus / 2091586089\n" +
+        "DATE: 05/04/2026\n" +
+        "\n" +
+        "Pos vouch @mordecai_on good lad, always a pleasure",
+    }),
+  });
+
+  assert.equal(decision.kind, "import");
+  assert.equal(decision.candidate.reviewerUsername, "rixx_aus");
+  assert.equal(decision.candidate.targetUsername, "mordecai_on");
+  assert.equal(decision.candidate.result, "positive");
+  assert.equal(
+    decision.candidate.originalTimestamp.toISOString().slice(0, 10),
+    "2026-04-05",
+  );
+});
+
+test("unwraps a FROM/DATE header for a DELETED ACCOUNT into a synthetic legacy username", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({
+      from: "-",
+      text:
+        "FROM: DELETED ACCOUNT / 8448430705\n" +
+        "DATE: 05/04/2026\n" +
+        "\n" +
+        "+rep @cool_ridge solid",
+    }),
+  });
+
+  assert.equal(decision.kind, "import");
+  assert.equal(decision.candidate.reviewerUsername, "legacy_8448430705");
+  assert.equal(decision.candidate.targetUsername, "cool_ridge");
+});
+
 test("imports a positive legacy message with one clear target", () => {
   const decision = parseLegacyExportMessage({
     sourceChatId: SOURCE_CHAT_ID,
