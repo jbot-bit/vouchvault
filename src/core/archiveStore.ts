@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { db } from "./storage/db.ts";
 import {
@@ -527,4 +527,22 @@ export async function runArchiveMaintenance() {
   await db
     .delete(processedTelegramUpdates)
     .where(lt(processedTelegramUpdates.updatedAt, processedUpdateCutoff));
+}
+
+export async function countRecentEntriesByReviewer(input: {
+  reviewerTelegramId: number;
+  withinHours: number;
+}): Promise<number> {
+  const cutoff = new Date(Date.now() - input.withinHours * 3600 * 1000);
+  const result = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(vouchEntries)
+    .where(
+      and(
+        eq(vouchEntries.reviewerTelegramId, input.reviewerTelegramId),
+        gte(vouchEntries.createdAt, cutoff),
+        ne(vouchEntries.status, "removed"),
+      ),
+    );
+  return Number(result[0]?.count ?? 0);
 }

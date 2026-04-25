@@ -36,6 +36,7 @@ import {
 import {
   clearDraftByReviewerTelegramId,
   completeTelegramUpdate,
+  countRecentEntriesByReviewer,
   createArchiveEntry,
   createOrResetDraft,
   getArchiveEntriesForTarget,
@@ -500,6 +501,22 @@ async function applySelectedTarget(input: {
       {
         chatId: input.chatId,
         text: "You already posted a recent archive entry for that target. Try again later.",
+        replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  const dailyCount = await countRecentEntriesByReviewer({
+    reviewerTelegramId: input.reviewerTelegramId,
+    withinHours: 24,
+  });
+  if (dailyCount >= 5) {
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: "Daily limit reached. Try again tomorrow.",
         replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
       },
       input.logger,
