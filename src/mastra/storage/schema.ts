@@ -16,47 +16,10 @@ export const users = pgTable("users", {
   username: text("username"),
   firstName: text("first_name"),
   lastName: text("last_name"),
-  totalYesVotes: integer("total_yes_votes").notNull().default(0),
-  totalNoVotes: integer("total_no_votes").notNull().default(0),
-  rank: text("rank").notNull().default("🚫 Unverified"),
-  stars: text("stars").notNull().default("⭐"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const polls = pgTable("polls", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  telegramPollId: text("telegram_poll_id").notNull().unique(),
-  userId: integer("user_id")
-    .notNull()
-    .references(() => users.id),
-  chatId: bigint("chat_id", { mode: "number" }).notNull(),
-  pollMessageId: integer("poll_message_id").notNull(),
-  cardMessageId: integer("card_message_id").notNull(),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  lastBumpedAt: timestamp("last_bumped_at").notNull().defaultNow(),
-});
-
-export const votes = pgTable(
-  "votes",
-  {
-    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-    pollId: integer("poll_id")
-      .notNull()
-      .references(() => polls.id),
-    voterId: integer("voter_id")
-      .notNull()
-      .references(() => users.id),
-    voteValue: boolean("vote_value").notNull(),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-  },
-  (table) => {
-    return {
-      uniqueVote: unique().on(table.pollId, table.voterId),
-    };
-  },
-);
 
 export const businessProfiles = pgTable("business_profiles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
