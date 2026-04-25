@@ -1,10 +1,10 @@
-# VouchVault — Full Redesign & Hardening Spec
+# VouchVault — Full Redesign & Hardening Spec (v2)
 
-_Date: 2026-04-25. Author: Claude Opus 4.7 with jbot-bit. Status: DRAFT for user review._
+_Date: 2026-04-25. Status: locked for implementation. Supersedes v1 of the same date._
 
-This document is the single source of truth for the next round of work on VouchVault. It covers every user-facing surface, every edge case I could enumerate, the legacy-replay improvements that never landed, and the platform migration. It is designed to be implementable as one cohesive plan via the `writing-plans` skill.
+This document is the single source of truth for the next round of work on VouchVault. v2 closes gaps from v1 (schema cleanup, project layout, local dev, admin audit, copy enumeration, more admin controls). All decisions previously labelled "recommend" are now **locked**.
 
-All Telegram facts cited below come from the official docs at `core.telegram.org/bots/*`. Non-official claims are explicitly labelled.
+All Telegram facts cited here come from `core.telegram.org/bots/*`. Tdesktop export schema facts come from `github.com/telegramdesktop/tdesktop/blob/dev/Telegram/SourceFiles/export/output/export_output_json.cpp`. Hosting facts come from each provider's pricing/docs page (cited inline in §11).
 
 ---
 
@@ -13,17 +13,21 @@ All Telegram facts cited below come from the official docs at `core.telegram.org
 **Goals**
 
 1. Make the live bot UX feel professional and predictable — every message follows one tone, every button does what its label says, every error tells the user what to do next.
-2. Align every Bot API call with Telegram's official guidelines (formatting, rate limits, callback acks, allowed updates, secret-token verification).
-3. Land the legacy-replay improvements Replit prototyped (numeric `from_id` fallback, expanded sentiment patterns, bot-sender filter, throttle, `--max-imports`).
-4. Migrate hosting from Replit to Railway. The repo, server, schema, and scripts already work on any Postgres + Node 20 host; this is a deploy-doc + secret-management swap.
-5. Surface every cross-cutting failure mode as a deliberate code path (bot blocked, bot kicked, Telegram 429, DB outage, webhook timeout, deleted account selected as target, etc.).
+2. Align every Bot API call with Telegram's official guidelines (formatting, rate limits, callback acks, allowed updates, secret-token verification, retries on 429).
+3. Land the legacy-replay improvements that never reached `main` (numeric `from_id` fallback, expanded sentiment patterns, bot-sender filter, throttle, `--max-imports`, 429 handling).
+4. Clean up dead schema and code from the pre-cutover Mastra/reputation-bot era and rename the misleading `src/mastra/` folder.
+5. Migrate hosting from Replit to Railway and adopt drizzle-kit migrations instead of ad-hoc DDL at boot.
+6. Add admin **control surfaces** (pause/unpause, freeze with reason, audit log, frozen list, profile lookup) so the bot is operable without DB access.
+7. Surface every cross-cutting failure mode as a deliberate code path.
 
 **Non-goals**
 
-- Renaming `src/mastra/` (cosmetic, deferred per HANDOFF.md).
-- Switching from `node --experimental-strip-types` to a build step.
-- Building a Web App / Mini App. Inline keyboards + reply keyboards remain the only UI primitives.
-- Pinning dependency versions (separate, low-priority follow-up).
+- Building a Web App / Mini App. Inline + reply keyboards remain the only UI.
+- Localisation. English-only.
+- A dispute/appeal flow. Targets DM an admin; admin uses `/remove_entry`.
+- Reputation aggregation as a competitive feature (totals shown via `/profile`, no rankings).
+- Pinning runtime dep versions. Separate, lower-priority follow-up — but **dev** deps for new tools (pino, drizzle-kit) get pinned at adoption time.
+- A separate Sentry-style error tracker. Pino + Railway log search is sufficient at this scale.
 
 ---
 
@@ -31,15 +35,15 @@ All Telegram facts cited below come from the official docs at `core.telegram.org
 
 Telegram exposes three text fields per language; current state vs. proposed:
 
-| Field | Limit (official) | Where it surfaces | Current | Proposed |
+| Field | Limit | Where it surfaces | Current | Proposed |
 |---|---|---|---|---|
-| Name (`setMyName`) | 0–64 | Header in chat list / profile | unset (BotFather default) | `Vouch Hub` |
-| About (`setMyShortDescription`) | 0–120 | Profile page, share preview, suggestions | "Vouch hub for local businesses. Submit in DM from the group launcher. Lawful use only." (118 chars) | "Vouch Hub — log and verify local-business service experiences. Open from the group launcher." (~95 chars) |
-| Description (`setMyDescription`) | 0–512 | Empty-chat splash before first `/start` | One paragraph, ~370 chars | Three short lines (see §2.1) — easier to scan on a phone |
+| Name (`setMyName`) | 0–64 | Header in chat list / profile | unset | `Vouch Hub` |
+| About (`setMyShortDescription`) | 0–120 | Profile page, share preview | "Vouch hub for local businesses…" (118 chars) | "Vouch Hub — log and verify local-business service experiences. Open from the group launcher." (~95) |
+| Description (`setMyDescription`) | 0–512 | Empty-chat splash | one paragraph, ~370 chars | three short lines (§2.1) |
 
-Sources: `core.telegram.org/bots/features` (description ≤ 512, about ≤ 120). Name length is industry-known 0–64; verify at `core.telegram.org/bots/api#setmyname`.
+Sources: `core.telegram.org/bots/features` (description ≤ 512, about ≤ 120). Name limit and `setMyName` exact range from the Bot API page.
 
-### 2.1 Proposed description copy
+### 2.1 Locked description copy
 
 ```
 Log and verify local-business service experiences with the community.
@@ -51,192 +55,220 @@ Lawful use only — follow Telegram's Terms of Service.
 
 ### 2.2 Bot picture
 
-Out of scope for this spec (deferred, BotFather upload). Note this in handoff.
+Out of scope (manual BotFather upload). Note in handoff.
 
 ---
 
 ## 3. Commands by scope
 
-Telegram supports per-scope command lists via `setMyCommands` (`scope.type` = `default`, `all_private_chats`, `all_group_chats`, `all_chat_administrators`, `chat`, `chat_administrators`, `chat_member`). Source: `core.telegram.org/bots/features#commands`.
-
-Telegram explicitly recommends supporting `/start`, `/help`, `/settings` "where applicable" (`bots/features`).
+Telegram supports per-scope command lists via `setMyCommands` `scope.type` (`default`, `all_private_chats`, `all_group_chats`, `all_chat_administrators`, `chat`, `chat_administrators`, `chat_member`). Source: `bots/features#commands`. Telegram explicitly recommends supporting `/start`, `/help`, `/settings` "where applicable".
 
 ### 3.1 Final command matrix
 
 | Command | Default | Private | Group (member) | Group (admin) | Description |
 |---|---|---|---|---|---|
-| `/start` | — | hidden¹ | — | — | (deep-link entry only; does not appear in command menu) |
+| `/start` | — | hidden | — | — | Deep-link entry only |
 | `/vouch` | — | ✓ | — | — | Start a new vouch entry |
-| `/help` | ✓ | ✓ | ✓ | ✓ | How the Vouch Hub works |
-| `/recent` | ✓ | ✓ | ✓ | ✓ | Show the 5 most recent entries |
-| `/lookup` | — | ✓² | — | ✓ | Look up entries for an @username |
 | `/cancel` | — | ✓ | — | — | Cancel your in-progress draft |
-| `/freeze` | — | — | — | ✓ | Freeze an @username (no new entries) |
+| `/help` | ✓ | ✓ | ✓ | ✓ | How the Vouch Hub works |
+| `/recent` | ✓ | ✓ | ✓ | ✓ | Show the 10 most recent entries |
+| `/profile` | — | ✓ | — | ✓ | `/profile @username` — entry totals + last 5 entries |
+| `/lookup` | — | ✓ | — | ✓ | `/lookup @username` — full entry list (admin in group) |
+| `/admin_help` | — | — | — | ✓ | Admin command reference |
+| `/freeze` | — | — | — | ✓ | `/freeze @x [reason]` — block new entries for a target |
 | `/unfreeze` | — | — | — | ✓ | Unfreeze an @username |
-| `/remove_entry` | — | — | — | ✓ | Remove an entry by id |
+| `/frozen_list` | — | — | — | ✓ | List currently-frozen profiles |
+| `/remove_entry` | — | — | — | ✓ | `/remove_entry <id>` — soft-delete + delete in group |
+| `/recover_entry` | — | — | — | ✓ | `/recover_entry <id>` — clear stuck "publishing" status |
+| `/pause` | — | — | — | ✓ | Pause new vouch submissions group-wide |
+| `/unpause` | — | — | — | ✓ | Resume vouch submissions |
 
-¹ `/start` is the Telegram-default entry point and does not need to be in the menu — Telegram already routes `t.me/<bot>?start=<payload>` to it. (`bots/features#deep-linking`.)
+Notes:
 
-² **Bug found in current code** (`src/telegramBot.ts:267`): `/lookup` is exposed in the private command list but the handler does not gate on `isAdmin()` — only the **error string** says "limited to admins." Decision: `/lookup` is **public to anyone in DM**, public to admins in groups. The error message will be rewritten to remove the false claim.
-
-Admin commands (`/freeze`, `/unfreeze`, `/remove_entry`, `/frozen_list`, `/admin_help`) **continue to work in DM** for whitelisted admins (per `TELEGRAM_ADMIN_IDS`), but only appear in the command menu under the `all_chat_administrators` group scope. Telegram has no per-user-DM scope mechanism without explicitly enumerating each admin's private chat by id, which is operationally fragile — admins memorising the commands (or using `/admin_help`) is the simpler path.
+- `/start` does not appear in the menu (Telegram routes deep links automatically).
+- `/lookup` and `/profile` differ: `/profile @x` is a user-friendly summary (totals + last 5); `/lookup @x` is the full audit list. Both admin-gated in group; both available in DM (any user can self-lookup).
+- Admin commands work in DM for whitelisted admins (`TELEGRAM_ADMIN_IDS`) but only appear in the menu under `all_chat_administrators` scope. `/admin_help` covers memorisation.
 
 ### 3.2 Edits vs. current
 
-- Add `/cancel` (currently no in-text way to cancel without tapping the inline Cancel button).
-- Drop `/verify` from the threaded-launcher reply set in `telegramUx.ts:7` — it's never registered as a command but the bot replies to it, which is misleading.
-- Add `/admin_help` so admins don't have to memorise the admin command list.
+- **Add**: `/cancel`, `/profile`, `/admin_help`, `/frozen_list`, `/recover_entry`, `/pause`, `/unpause`.
+- **Drop**: `/verify` from `THREADED_LAUNCHER_COMMANDS` (`telegramUx.ts:7`) — never registered as a real command.
+- **Fix bug**: `/lookup` error string falsely says "limited to admins" when not admin-gated in DM (`telegramBot.ts:267-285`). Rewrite the error string.
+- **Bump**: `/recent` from 5 to 10 entries (`MAX_RECENT_ENTRIES`).
 
 ---
 
 ## 4. DM flow
 
-### 4.1 Happy path (4 messages, all same DM)
+### 4.1 Happy path
 
 1. **Entry**: user taps **Submit Vouch** in the group (URL deep link `t.me/<bot>?start=vouch_<chatId>`). Telegram opens DM and pre-fills `/start vouch_<chatId>`.
-2. **Step 1/3 — Target**: bot replies with target prompt + reply-keyboard `request_users` button labelled **Choose Target**. User can either tap the button (Telegram-native user picker) or type `@username`.
-3. **Step 2/3 — Result**: bot edits the prompt message in place to show three result buttons (Positive / Mixed / Negative) plus Cancel.
-4. **Step 3/3 — Tags**: bot edits to show the 4 tags allowed for that result, multi-select (✓ prefix), Done, Cancel.
-5. **Preview**: bot edits to show preview + Publish + Cancel.
-6. **Posted confirmation**: bot edits to show "✓ Posted to the group" + Start Another Vouch button.
-7. **In-group**: a fresh `Entry #N` message appears, the previous launcher is deleted, a new launcher message replaces it under the new entry.
+2. **Step 1/3 — Target**: bot replies with target prompt + reply-keyboard `request_users` button **Choose Target**. User can tap or type `@username`.
+3. **Step 2/3 — Result**: bot **edits the same message** to show three result buttons (Positive / Mixed / Negative) + Cancel. Reply keyboard from step 1 is removed in this same step (`reply_markup: { remove_keyboard: true }` sent on a transient confirmation send, then deleted; or persisted on the next send).
+4. **Step 3/3 — Tags**: bot edits to show 4 tags allowed for that result (multi-select with ✓ prefix), Done, Cancel.
+5. **Preview**: bot edits to show the rendered preview + Publish + Cancel.
+6. **Posted confirmation**: bot edits to show "Posted to the group" + **Start Another Vouch** + **View this entry** (URL button to `t.me/c/<chatPart>/<messageId>`).
+7. **In-group**: a fresh `Entry #N` message appears, the previous launcher is debounced or replaced.
 
 Per Telegram's official UX guidance ("edit your keyboard when the user toggles a setting button or navigates to a new page – this is both faster and smoother than sending a whole new message", `bots/features`), the entire DM flow operates on **one bot message** that is edited at each step.
 
 ### 4.2 Reply markup choices
 
-- **Step 1 (target)**: reply keyboard with `KeyboardButtonRequestUsers` (`request_users`, `user_is_bot=false`, `max_quantity=1`, `request_username=true`). Shows under the input. `one_time_keyboard=true`. This is unchanged from current.
-- **Steps 2–4 (result/tags/preview)**: inline keyboard attached to the edited bot message. No reply keyboard visible. `buildReplyKeyboardRemove()` is sent **once** in step 2 alongside the inline keyboard so the reply keyboard from step 1 disappears (verify the current code does this; if not, add it — the reply keyboard will otherwise remain stuck on screen).
-- **Confirmation**: inline keyboard with **Start Another Vouch** + (new) **View this entry** URL button that links to the published group message via `t.me/c/<chatPart>/<messageId>`. Useful for users who want to share or screenshot.
+- **Step 1 (target)**: reply keyboard with `KeyboardButtonRequestUsers` (`request_users`, `user_is_bot=false`, `max_quantity=1`, `request_username=true`). `one_time_keyboard=true`. Unchanged.
+- **Step 2**: a brief transient send with `reply_markup: { remove_keyboard: true }` (1 line, "Result?"), immediately deleted, so the reply keyboard from step 1 disappears. Or simpler: send the inline result-keyboard message with `reply_markup: { remove_keyboard: true }` riding it (Telegram accepts only one `reply_markup` per send though, so we use the transient + delete pattern). **Decision**: send an extra ephemeral message in step 2 that says "Result?" with `remove_keyboard: true`, then delete it after the inline message is sent. Costs +2 API calls but is the only API-correct way per `bots/api`.
+- **Steps 3–5**: inline keyboard attached to the edited bot message.
+- **Confirmation**: inline keyboard — Start Another Vouch (callback) + View this entry (URL).
 
 ### 4.3 Edge cases enumerated
 
-| # | Scenario | Current behaviour | Proposed |
-|---|---|---|---|
-| E01 | User has no public `@username` | "You need a public Telegram @username to create a vouch entry." (no recovery) | Same message + a brief inline tip: "Set one in Telegram → Settings → Username, then tap Start Another Vouch." |
-| E02 | User shares a target with no `@username` via the user picker | "The selected account needs a public @username." with the picker still open | Keep behaviour, but also add a fallback message after 2 failed picks: "Or send the @username as text." |
-| E03 | User types something that isn't a username | Re-prompt with parser error string + button | Keep, but make sure the parser error string itself is consistent (currently `parseTypedTargetUsername` returns terse codes; surface a single line: "Send only one @username — letters/digits/underscore, 5–32 chars.") |
-| E04 | User self-targets | "Self-vouching is not allowed." + button | Keep |
-| E05 | Target is frozen | "<@target> is currently frozen and cannot receive new archive entries." + button | Keep, drop the word "archive" — call them "vouches" everywhere user-facing |
-| E06 | Reviewer already vouched same target within 72h | "You already posted a recent archive entry for that target. Try again later." | Show **when** they can try again: "Cooldown active — you vouched <@target> on YYYY-MM-DD. Try again after YYYY-MM-DD." |
-| E07 | Draft expired (24h) | "Your last draft expired. Start again." + Start Another Vouch button | Keep |
-| E08 | User taps a button on an old preview after a different draft was started | The current code refetches `latestDraft` for tag/done/confirm; result/cancel may use stale state | Always refetch the draft inside the lock and validate `step` matches the action — if not, answer the callback with "This draft is no longer current" and edit the old message to match new draft state |
-| E09 | User taps Publish on a draft whose target group is no longer in `TELEGRAM_ALLOWED_CHAT_IDS` | Already handled (`isAllowedGroupChatId` check) — alert + restart prompt | Keep |
-| E10 | Bot is blocked by the user mid-flow | `sendTelegramMessage` throws (403) and the webhook returns 500; Telegram retries forever | Add a typed error from `telegramTools` (`TelegramForbiddenError`); on `forbidden` from `bot blocked by user`, swallow + clear the user's draft + log info, do not retry |
-| E11 | Bot is kicked / demoted from the target group between draft start and Publish | Publish currently posts to the group via Bot API, which returns 400 "chat not found" or 403 "bot is not a member"; we don't catch | Catch group-level `forbidden` / `bad_request`, alert the user "I lost access to the group. Notify an admin and try again later.", do not delete the draft so an admin can republish later |
-| E12 | Telegram returns 429 mid-flow | Throws; webhook 500; Telegram retries | Wrap every Bot API call in a single throttle/retry helper. On 429, sleep `retry_after` seconds then retry once. If second attempt 429s, surface a friendly "Telegram is rate-limiting us — try again in a minute" callback alert. |
-| E13 | Postgres outage | Webhook 500; Telegram retries | Keep (Telegram retries are correct behaviour — we do not want to lose updates) |
-| E14 | User opens deep link from group A's launcher but the launcher button still embeds an old, demoted chat ID | Draft is created with a stale `targetGroupChatId`; Publish later fails with E11 | At deep-link time, validate against the live allowlist; if invalid, message "That launcher is from an old group — open the current launcher in <group name>." (admin freeze workflow can leverage this) |
-| E15 | Two parallel users share a target user simultaneously | `withReviewerDraftLock` is per-reviewer, not per-target — independent draft state survives, both can publish, the second one trips duplicate cooldown only if it's the same reviewer; otherwise both publish | Keep — this is correct behaviour. Two reviewers vouching the same target is fine. |
-| E16 | User's `@username` changes between draft start and Publish | Draft stores `reviewerUsername` snapshot; we re-derive at publish from `callbackQuery.from.username`; if it changed, we use the new one | Keep, but also write to the `users` table on every update so the latest username is persisted |
-| E17 | User selects a bot account as target via the picker | `request_users` already filters with `user_is_bot=false` | Keep |
-| E18 | User selects a deleted/anonymous account via the picker | Picker returns `username: null` for the shared user | Already handled — "needs a public @username" |
-| E19 | Two callbacks fire on the same draft within milliseconds (e.g. user double-taps Publish) | `withReviewerDraftLock` is `SELECT FOR UPDATE`-style; second one queues; second one sees `step=preview` still and may publish a duplicate | After publish success we `clearDraftByReviewerTelegramId` inside the lock — second call should see `null` draft and exit gracefully. Verify and add a test. |
-| E20 | User edits a target message that they sent (Telegram allows edits) | We don't subscribe to `edited_message` updates so we ignore | Keep — `allowed_updates` will not include `edited_message`, documented choice |
-| E21 | User sends a photo or sticker as their target | `text` is empty, we return early | Keep |
-| E22 | Draft cleanup fails after a successful publish | Logged as warn; user sees Posted; their next action will fall through to "Use the buttons in your current draft" | Acceptable. Add a periodic janitor to nuke expired drafts (already exists via `runArchiveMaintenance` every 200 updates). |
-| E23 | User opens deep link with payload `vouch_<id>` for a chat ID they're not a member of | Bot still creates the draft (we don't verify membership) — Publish later may succeed if the chat is in `TELEGRAM_ALLOWED_CHAT_IDS` | This is fine — VouchVault is meant for one or a few groups; allowlist gating is sufficient. Document this. |
-| E24 | Callback `data` longer than 64 bytes (Telegram's hard limit, `bots/api#inlinekeyboardbutton`) | Current longest is `archive:start:-100<19-digit chat id>` = ~33 bytes. Safe. | Keep, but add a unit test that asserts every callback we generate is ≤64 bytes |
-
-### 4.4 Decision points (require user input before plan)
-
-- **D1**: Should `/cancel` also be a button on every step's keyboard? Currently Cancel is on Step 2/3/Preview. Adding to Step 1 too is trivial — recommend yes.
-- **D2**: Should the Posted confirmation include a deep link to the published group message? (Requires storing the published `message_id`, which we already do.) Recommend yes — adds a small UX win.
-- **D3**: Should `/recent` show 5 entries (current) or 10? Recommend 10 — fits in a single Telegram message and gives more context. Also: `/recent` could optionally accept `--positive` / `--negative` filters; recommend skip for v1.
+| # | Scenario | Behaviour |
+|---|---|---|
+| E01 | User has no public `@username` | "You need a public Telegram @username to vouch. Set one in Telegram → Settings → Username, then send /vouch." |
+| E02 | User shares a target with no `@username` via picker | Re-prompt; after 2 failed picks add fallback "Or send the @username as text." |
+| E03 | User types something that isn't a username | Re-prompt with single line: "Send only one @username — letters/digits/underscore, 5–32 chars." |
+| E04 | User self-targets | "Self-vouching is not allowed." + button |
+| E05 | Target is frozen | "@target is frozen and cannot receive new vouches right now." + button |
+| E06 | Reviewer already vouched same target within 72h | "You vouched @target on YYYY-MM-DD. Cooldown ends YYYY-MM-DD." + button |
+| E07 | Draft expired (24h) | "Your last draft expired. Start again." + button |
+| E08 | User taps a button on an old preview after a different draft was started | Inside the lock, refetch draft and validate `step` matches the action; if not, callback alert "This draft is no longer current" + edit old message to "Use the buttons in your current draft." |
+| E09 | User taps Publish on a draft whose target group is no longer allowed | Already handled. Keep. |
+| E10 | Bot blocked by user mid-flow | Throw a typed `TelegramForbiddenError` from `callTelegramAPI`; on `forbidden: bot was blocked by the user`, swallow + clear the user's draft + log info. **Do not** retry. |
+| E11 | Bot kicked / demoted between draft start and Publish | Catch group-level `forbidden` / `bad_request: chat not found`; alert user "I lost access to the group. Notify an admin and try again later." Keep the draft for admin republish. |
+| E12 | Telegram returns 429 | `withTelegramRetry` wrapper sleeps `retry_after`s, retries once. Second 429 → typed error → callback alert "Telegram is busy — try again in a minute." |
+| E13 | Postgres outage | Webhook returns 500; Telegram retries. Correct. |
+| E14 | Stale launcher (group removed from allowlist after launcher posted) | Validate at deep-link time; if invalid, "That launcher is from an old group — open the current launcher in <group name>." |
+| E15 | Two parallel reviewers vouching same target | Independent; both publish. Correct. |
+| E16 | User's `@username` changes between draft start and Publish | Use latest username at publish. Persist to `users` table on every update. |
+| E17 | User selects a bot account as target | `request_users` filters with `user_is_bot=false`. Correct. |
+| E18 | User selects deleted/anonymous account | Picker returns `username: null` → handled as E02. |
+| E19 | Double-tap Publish | `withReviewerDraftLock` serialises; second call sees draft cleared → "This draft is already posted." |
+| E20 | User edits text mid-flow | `edited_message` not in `allowed_updates` → ignored. |
+| E21 | User sends photo/sticker as target | Empty `text` → re-prompt with the type-only error. |
+| E22 | Draft cleanup fails after publish | Logged warn; janitor (`runArchiveMaintenance`, every 200 updates) catches expired drafts. Keep. |
+| E23 | Deep-link payload for a chat the user isn't a member of | Allowlist gating is sufficient — multi-group support is intentional. Document. |
+| E24 | Callback `data` length > 64 bytes | Add a unit test asserting every callback we generate is ≤ 64 bytes for any input chat ID (worst case `archive:start:-1009999999999999999` = 33 bytes). Safe. |
+| E25 | Reviewer floods 6+ vouches in 24h | Rate-limit: ≤ **5 vouches per reviewer per 24h** (rolling window). On 6th, refuse with "Daily limit reached. Try again after YYYY-MM-DD HH:MM." |
+| E26 | Bot is paused (admin `/pause`) | DM flow shows "Vouching is paused. An admin will lift this when ready. Use /recent to see the archive." Group launcher still posts but the deep-link DM rejects new drafts. |
+| E27 | Network blip mid-API-call | `withTelegramRetry` retries on `fetch` network errors once; after second failure, surface to the caller. |
+| E28 | Webhook handler exceeds 25 sec | Log error, still return 200 to Telegram (avoid duplicate-update flood). Idempotency in `processed_updates` handles the case where Telegram retried before our 200. |
+| E29 | Target's Telegram `@username` changes after entries exist | Existing entries reference the historical username; lookup by new handle won't find them until they re-vouch (which creates a new `business_profiles` row). Mitigation: when target is selected via the user picker, persist their Telegram numeric ID on `business_profiles.telegram_id` (new col, §12.2) so a future `/profile @newname` could resolve back via ID. v1 documents the limitation; the schema is forward-compatible. |
+| E30 | User sends sticker / voice / photo / animation / location as target | `text` is empty → re-prompt with E03. |
+| E31 | User forwards a message into the bot DM | Treat the forward's `text` (or `caption`) as the user's input — i.e. if the forwarded body is just `@username`, accept; else E03. |
+| E32 | User sends a string > 64 chars containing an `@` somewhere | `parseTypedTargetUsername` extracts the first valid handle if it stands alone; with extra words it returns E03 ("Send only one @username..."). Confirmed by existing tests. |
+| E33 | `setWebhook` fails during initial deploy | DEPLOY.md step 8 includes a verify (`getWebhookInfo`); if `last_error_message` is non-empty, instructions say re-run `npm run telegram:webhook`. |
+| E34 | Bot tries to DM an admin (e.g. for G04 supergroup-migration alert) but admin has the bot blocked | `TelegramForbiddenError` swallowed + warn logged; admin sees the alert next time they DM the bot (queued in `admin_audit_log`). |
+| E35 | "View this entry" deep link tapped from outside the group (user not a member) | Telegram silently fails to navigate; no error from us. Documented as a known UX limitation; chat link still works for members. |
 
 ---
 
 ## 5. Group flow
 
-### 5.1 Pinned guide message
+### 5.1 Pinned guide
 
-Currently `scripts/configureTelegramOnboarding.ts` posts a pinned message with HTML body + Submit Vouch URL button. The body uses HTML formatting (good — Telegram explicitly recommends HTML or MarkdownV2 over legacy Markdown, `bots/api#formatting-options`).
+`scripts/configureTelegramOnboarding.ts` posts a pinned HTML message + Submit Vouch URL button. `disable_notification: true` already set on both the send and the pin. Keep.
 
-**Issue**: pinning sends a service message ("Bot pinned a message") which spams the chat unless `disable_notification: true` is set. Verified — current code does set `disable_notification: true` on both `sendMessage` and `pinChatMessage`. Keep.
+### 5.2 Launcher message lifecycle (debounced)
 
-### 5.2 Launcher message lifecycle
+After every published entry, `refreshGroupLauncher` currently does delete-then-send (2 group writes per entry). Telegram's per-group cap is **20 msg/min** (`bots/faq`). With the entry message itself, that's 3 writes/entry → bursts > ~6/min trip the cap.
 
-After every published entry, `refreshGroupLauncher`:
-1. Deletes the previous launcher (`deleteMessage`)
-2. Sends a new launcher with the Submit Vouch URL button
+**Locked behaviour**: keep delete-then-send semantics, but **debounce per chat**: if the chat's `chat_launchers.updated_at` is within 30 sec of "now", skip the refresh — the existing launcher is still at the bottom of the chat (no foreign messages have intervened, since the only other writer is the bot itself). After 30 sec idle, the next published entry triggers a fresh launcher. Halves group writes during bursts; preserves "always at bottom" when traffic is sparse.
 
-This is a **2-message-per-entry** group cost (delete + send). Telegram's per-group limit is **20 messages/minute** (`core.telegram.org/bots/faq`). With the entry message itself as a 3rd message, a sustained burst above ~6 entries/min trips the cap.
+Implementation detail: `chat_launchers` already has `updatedAt` (schema confirmed). Code change only.
 
-**Final approach**: keep delete-then-send (we want the launcher visually "below" the latest entry), but **debounce**. Track `launcher.updated_at` per chat; if a new entry arrives within 30 sec of the prior launcher refresh, skip the delete-and-resend (the prior launcher is still at the bottom). After 30 sec idle, the next entry gets a fresh launcher. This keeps the "always-at-bottom" UX while halving group write volume during bursts.
+### 5.3 Privacy mode constraint
 
-### 5.3 Group commands
+Several group commands depend on the bot seeing all `/cmd` traffic, not just commands explicitly addressed to it. Telegram's privacy-mode setting (`bots/features#privacy-mode`) blocks generic `/cmd` reception when ON. **Lock**: privacy mode **OFF** in BotFather (`/setprivacy → Disable`), documented in DEPLOY.md as a one-time manual step. The group is a curated venue, so the broader read scope is acceptable.
 
-| Command | Behaviour | Edge cases |
+### 5.4 Group commands
+
+| Command | Behaviour |
+|---|---|
+| `/start`, `/help`, `/vouch` | Threaded silent reply with launcher prompt + URL deep-link button |
+| `/recent` | Threaded silent reply, 10 entries |
+| `/lookup @x` | Admin-gated in group; threaded silent reply |
+| `/profile @x` | Admin-gated in group; threaded silent reply |
+| `/freeze`, `/unfreeze`, `/freeze_list`, `/remove_entry`, `/recover_entry`, `/pause`, `/unpause`, `/admin_help` | Admin-gated, threaded silent reply |
+
+Privacy mode: locked at **off** in BotFather (`/setprivacy → Disable`) so the bot sees `/cmd` without `@yourbot` required. Document in DEPLOY.md.
+
+### 5.5 Group edge cases
+
+| # | Scenario | Behaviour |
 |---|---|---|
-| `/start`, `/help`, `/vouch` | Threaded silent reply with launcher prompt + URL deep-link button | Privacy mode caveat (`bots/features`): privacy-mode-on bots only receive replies + commands explicitly addressed to them. We require privacy mode **off** OR every command must be `/cmd@yourbot`. The current code uses `command.split("@")[0].toLowerCase()`, so it tolerates both. Recommend: ask the user to set the bot's privacy mode **off** in BotFather (`/setprivacy → Disable`) since the group is locked, this is acceptable. |
-| `/recent` | Threaded silent reply showing recent entries | Keep |
-| `/lookup @x` | Threaded silent reply showing 5 entries for `@x` | Keep |
-| `/freeze`, `/unfreeze`, `/remove_entry` | Admin-gated, threaded silent reply | Keep |
-
-### 5.4 Group edge cases
-
-| # | Scenario | Proposed |
-|---|---|---|
-| G01 | Bot is removed from the group | Webhook still receives `my_chat_member` updates if we opt in. We do not currently. **Decision**: subscribe to `my_chat_member` to record bot kicks and stop trying to refresh launchers in dead groups. |
-| G02 | Group is deleted/archived | Same as G01 |
-| G03 | Group converted to broadcast channel | We don't support channels. Reject in `handleGroupMessage`. |
-| G04 | Group is migrated to supergroup | `migrate_to_chat_id` arrives in the message payload; we currently ignore. **Add**: persist the new chat ID and update `TELEGRAM_ALLOWED_CHAT_IDS` automatically (or at least surface a clear admin alert). |
-| G05 | Topic groups (forum) | `message_thread_id` is in messages; we strip it. Recommend keeping launcher in the General topic. Document it. |
-| G06 | User says `@vouchhubbot` without slash | Privacy mode + lack of trigger means we do nothing. Correct. |
-| G07 | Bot mentioned but not commanded | Same — ignore. |
+| G01 | Bot removed from group | Subscribe to `my_chat_member`; on `status: kicked|left`, mark group inactive in `chat_settings`, stop launcher refreshes for that chat. |
+| G02 | Group deleted/archived | Same as G01. |
+| G03 | Group converted to channel | Reject in `handleGroupMessage` (channels not supported). |
+| G04 | Group migrated to supergroup | `migrate_to_chat_id` arrives in the message payload. Persist new chat ID in `chat_settings`; alert admins via DM "Group migrated; update `TELEGRAM_ALLOWED_CHAT_IDS`." Continue serving under the new ID for the current process lifetime. |
+| G05 | Topic groups (forum) | Strip `message_thread_id`; pin launcher in General topic. Document. |
+| G06 | Mention without slash | Privacy mode + no command → ignore. Correct. |
+| G07 | Bot demoted from admin (loses delete rights) | Catch `bad_request: not enough rights to delete a message` on launcher refresh; log warn; continue without deleting old launcher. |
 
 ---
 
 ## 6. Admin flow
 
-### 6.1 Current admin commands
+### 6.1 Final admin command set
 
-- `/freeze @x`, `/unfreeze @x` — toggle a `business_profiles.is_frozen` boolean. Frozen targets reject new vouches.
-- `/remove_entry <id>` — soft-deletes the entry, deletes the published Telegram message, refreshes the launcher.
-
-### 6.2 Issues
-
-- Admin gate uses `TELEGRAM_ADMIN_IDS` env var, **not** the actual group chat administrator list. Means a Telegram group admin who isn't in the env var has no powers. **Decision**: keep env-var gating (deliberate — the group can have many admins, only a curated subset get bot powers).
-- No `/freeze` reason note. Recommend adding `/freeze @x reason text here` and storing it; show in lookup output.
-- No way to view the list of currently-frozen profiles. Recommend `/frozen_list` (admin-only, group + DM).
-- `/remove_entry` deletes the published message; if the message was already deleted by a Telegram admin manually, the API call 400s; we warn + continue. Keep.
-
-### 6.3 New admin commands
-
-| Command | Behaviour |
-|---|---|
-| `/freeze @x [reason...]` | Now accepts an optional reason, stored on the profile |
-| `/unfreeze @x` | Unchanged |
-| `/frozen_list` | Lists currently-frozen profiles with their reasons + freeze date |
-| `/admin_help` | Shows the admin-only command list (so admins don't have to memorise) |
-
-### 6.4 Admin edge cases
-
-| # | Scenario | Proposed |
+| Command | Behaviour | Edge cases |
 |---|---|---|
-| A01 | Non-admin runs admin command in group | Threaded silent reply: "Admin only." |
-| A02 | Admin runs admin command in DM | Same |
-| A03 | Admin command applies to a profile that doesn't exist yet | `getOrCreateBusinessProfile` upserts — works fine |
-| A04 | `remove_entry` against a non-existent id | "Entry #N not found." |
-| A05 | `remove_entry` against an already-removed entry | Currently `markArchiveEntryRemoved` is idempotent — confirm and add a regression test |
+| `/freeze @x [reason text]` | Set `business_profiles.is_frozen=true`, store `freeze_reason`, `frozen_at`, `frozen_by_telegram_id`. Show in `/profile` and `/lookup`. | A04 |
+| `/unfreeze @x` | Clear flag + null reason fields. | — |
+| `/frozen_list` | Show all frozen profiles (paginated if > 10). | — |
+| `/remove_entry <id>` | Soft-delete entry, delete its Telegram message, refresh launcher (debounced). Idempotent. | A05 |
+| `/recover_entry <id>` | If entry is stuck in `status="publishing"` with no `published_message_id`, force `status="pending"` so it can republish (admin manually re-runs replay or the entry naturally republishes on next live event — see §10.3). | A06 |
+| `/pause` | Set `chat_settings.paused=true` for the group. New vouches refused with E26 message. Existing entries remain. | A07 |
+| `/unpause` | Clear pause flag. | — |
+| `/admin_help` | Static admin reference list. | — |
+| `/profile @x` | Show counts per result + last 5 entries + frozen status with reason. | — |
+
+### 6.2 Audit log
+
+New table `admin_audit_log` records every admin command:
+
+```
+id, admin_telegram_id, admin_username, command, target_chat_id,
+target_username (nullable), entry_id (nullable), reason (nullable),
+created_at
+```
+
+No user-facing surface for the log in v1 — admins inspect via DB / Railway data tab. Future: `/audit_log` command.
+
+### 6.3 Admin edge cases
+
+| # | Scenario | Behaviour |
+|---|---|---|
+| A01 | Non-admin runs admin command | "Admin only." |
+| A02 | Admin in DM | Same as A01-passes. |
+| A03 | Admin command targets non-existent profile | `getOrCreateBusinessProfile` upserts. Correct. |
+| A04 | `/freeze` with reason containing HTML | Escape with `escapeHtml` everywhere reason is rendered. |
+| A05 | `/remove_entry` against already-removed entry | Idempotent — no-op + "Entry #N is already removed." |
+| A06 | `/recover_entry` against an entry not in `publishing` | "Entry #N is in status=<x>, no recovery needed." |
+| A07 | `/pause` already paused | "Vouching is already paused." idempotent. |
+| A08 | Two admins issue conflicting commands simultaneously | DB row-level locking via `SELECT FOR UPDATE` in the `set*` helpers. Last write wins; both audit entries persist. |
 
 ---
 
 ## 7. Message formatting standard
 
-Telegram supports `HTML`, `MarkdownV2`, and legacy `Markdown` (`bots/api#formatting-options`). Telegram does not state a preference between HTML and MarkdownV2, but **HTML is operationally simpler** for arbitrary user content (only `<`, `>`, `&` need escaping vs. MarkdownV2's 18-character escape table).
+HTML mode everywhere (`bots/api#formatting-options`). Single `escapeHtml()` helper applied to every dynamic substitution. Add a unit test scanning text-builders for raw template substitution outside `escapeHtml`.
 
-**Decision**: HTML mode everywhere, single `escapeHtml()` helper applied to every dynamic substitution (already in place). Add lint rule via a unit test that scans for raw template substitution of user input outside `escapeHtml`.
-
-Allowed tags (per `bots/api#formatting-options`): `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<strike>`, `<del>`, `<a href="">`, `<code>`, `<pre>`, `<pre><code class="language-...">`, `<tg-spoiler>`, `<blockquote>`, `<blockquote expandable>`. No others.
+Allowed tags: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<strike>`, `<del>`, `<a href="">`, `<code>`, `<pre>`, `<pre><code class="lang">`, `<tg-spoiler>`, `<blockquote>`, `<blockquote expandable>`. No others.
 
 ### 7.1 Tone & content rules
 
-- **Sentence case**, not Title Case, except the entry-card heading "Entry #N".
+- **Sentence case**, except entry-card heading "Entry #N".
 - One-line per-step prompts where possible; max 4 short lines.
-- No emoji except the entry-card 🧾 (already in use). Drop the ✓ on Posted confirmation — too cute.
-- No "please." Direct instructions.
-- Every error ends with a recovery action ("tap Start Another Vouch" / "send /vouch" / "open the group launcher").
+- One emoji allowed: 🧾 on entry cards. No others (drop ✓ on Posted confirmation).
+- No "please." Direct.
+- Every error ends with a recovery action.
+
+### 7.2 4096-char ceiling
+
+Bot API hard limit is 4096 chars per `sendMessage` (verify at `bots/api#sendmessage`). Long lookups need truncation:
+
+- Build text iteratively; if total > 3900 chars, stop and append "…and N more." footer.
+- Apply to `/lookup`, `/recent`, `/profile`, `/frozen_list`.
+- Add unit tests with synthetic 50-entry fixtures.
 
 ---
 
@@ -244,24 +276,24 @@ Allowed tags (per `bots/api#formatting-options`): `<b>`, `<strong>`, `<i>`, `<em
 
 ### 8.1 Documented Telegram limits (`bots/faq`)
 
-- **Per chat (any)**: ~1 msg/sec sustainable; bursts tolerated until 429.
-- **Per group**: ≤ 20 msg/min (the binding constraint when sending into a single group).
-- **Per bot global**: ~30 msg/sec (free tier).
-- 429 responses include `parameters.retry_after` (seconds) — official guidance is to honour exactly.
+- Per chat: ~1 msg/sec.
+- Per group: ≤ 20 msg/min.
+- Per bot global: ~30 msg/sec.
+- 429 carries `parameters.retry_after` (seconds). Honour exactly.
 
 ### 8.2 Implementation
 
-- Add `withTelegramRetry(fn, { maxAttempts: 2 })` wrapper around every Bot API call in `tools/telegramTools.ts`. On 429, sleep `retry_after`s, retry once. On second 429, throw a typed error.
-- Add a per-chat token-bucket throttle for the legacy replay (3.0 sec / send, 1 token max) — 20 msg/min / 60 sec = 1 every 3 sec. Cite the FAQ in code comments.
-- Live bot does **not** need pre-emptive throttling at typical user volume; reactive 429 retry is sufficient. Document this.
+- `withTelegramRetry(fn, { maxAttempts: 2 })` wraps every Bot API call inside `tools/telegramTools.ts`. On 429, sleep `retry_after`s, retry once. On second 429, throw typed `TelegramRateLimitError`. On `403` `bot was blocked by the user`, throw typed `TelegramForbiddenError`. On `400` `chat not found` / `bot is not a member of`, throw typed `TelegramChatGoneError`.
+- Live bot does not need pre-emptive throttling; reactive retry suffices.
+- Replay script enforces a fixed **3.1 sec** gap between sends to a single group via a token-bucket helper. Cite `bots/faq` in code comments.
 
 ### 8.3 Edge cases
 
-| # | Scenario | Proposed |
+| # | Scenario | Behaviour |
 |---|---|---|
-| R01 | Single-chat 429 mid-publish | Retry once after `retry_after`. If user-visible: callback alert "Telegram is busy — try again in a minute." |
-| R02 | Global 30/sec ceiling hit | Should never happen at this volume. Log `warn` if we get a global 429 from a non-publish path. |
-| R03 | Replay run hits 429 | The 3-sec throttle should prevent this. If it happens, `retry_after` is honoured and the throttle interval doubles for 60s ("circuit-half-open"). |
+| R01 | 429 mid-publish | Retry once; if user-visible, callback alert "Telegram is busy — try again in a minute." |
+| R02 | 30/sec global hit | Should not happen at this volume. Log warn. |
+| R03 | Replay 429 | Honour `retry_after`; throttle widens to 6 sec for the next 60 sec ("circuit half-open"); persist checkpoint and continue. |
 
 ---
 
@@ -269,21 +301,20 @@ Allowed tags (per `bots/api#formatting-options`): `<b>`, `<strong>`, `<i>`, `<em
 
 ### 9.1 Setup (already correct)
 
-- `setWebhook` with `secret_token` (1–256 chars, charset `A-Z a-z 0-9 _ -`). Server verifies `X-Telegram-Bot-Api-Secret-Token` header; mismatched requests get 403. (`bots/api#setwebhook`.)
-- HTTPS required, ports `443/80/88/8443` only.
-- TLS 1.2+; CN matches domain.
+- `setWebhook` with `secret_token` (1–256 chars). Server verifies `X-Telegram-Bot-Api-Secret-Token`; mismatched requests get 403 (`server.ts:86-94`). Keep.
+- HTTPS, ports `443/80/88/8443`, TLS 1.2+, CN matches domain. (`bots/webhooks`.)
 
 ### 9.2 Improvements
 
-- **`allowed_updates`**: currently empty (default). The Bot API default **excludes** `chat_member`, `message_reaction`, `message_reaction_count`. We want `message`, `callback_query`, `my_chat_member` (for G01). We do **not** want `edited_message` (E20), `inline_query`, `chosen_inline_result`, `poll`, `poll_answer`, `chat_join_request`, `chat_member`, etc. Set `allowed_updates: ["message", "callback_query", "my_chat_member"]` explicitly. (`bots/api#setwebhook`.)
-- **`max_connections`**: default 40. For our throughput, drop to 10 to reduce concurrent webhook handlers and align with our DB pool. (`bots/api#setwebhook`.)
-- **`drop_pending_updates`**: pass `true` on every redeploy via the `telegram:webhook` script — no point processing stale updates after a code change.
+- **`allowed_updates`**: set to `["message", "callback_query", "my_chat_member"]` (default excludes some; we want `my_chat_member` for G01).
+- **`max_connections`**: 10 (default 40; we don't need that many concurrent handlers).
+- **`drop_pending_updates: true`** on every redeploy via the `telegram:webhook` script.
 
-### 9.3 Webhook handler hardening (server.ts)
+### 9.3 Handler hardening (`server.ts`)
 
-- 200 OK as fast as possible. Telegram retries until ack — but slow handlers compound rate limits.
-- Already idempotent via `processed_updates` table. Keep.
-- Add request-level timeout: if the handler exceeds 25s, return 200 anyway (Telegram retries our slow updates would create a duplicate-update flood). Verify current code's behaviour against the existing `processed_updates` reservation.
+- 200 OK as fast as possible. Currently we full-process before 200; for our scale OK, but document the 60-sec Telegram timeout (`bots/webhooks`).
+- Add request timeout: if processing exceeds 25 sec, log error + return 200 anyway. Idempotent processing in `processed_updates` handles re-deliveries.
+- Add `/readyz` endpoint that asserts Postgres is reachable. Returns 503 if not. Useful for Railway healthcheck.
 
 ---
 
@@ -291,22 +322,20 @@ Allowed tags (per `bots/api#formatting-options`): `<b>`, `<strong>`, `<i>`, `<em
 
 ### 10.1 Parser changes (`src/mastra/legacyImportParser.ts`)
 
-Required changes:
+1. **Numeric reviewer ID fallback**. When no `@username` resolves but the export has `from_id` like `"user6812728770"` (tdesktop format, confirmed against `wrapPeerId` in `export_output_json.cpp`), parse the numeric suffix:
+   - Synthesise reviewer handle `user<id>` (matches `[A-Za-z][A-Za-z0-9_]{4,31}` since `user` + 1+ digits ≥ 5 chars).
+   - Use the real numeric ID as `reviewerTelegramId` (not the synthetic FNV hash).
+   - `from_id` prefix `chat`/`channel` → skip with new `bot_sender` reason (anonymous group admin / channel signature).
+   - `from_id` missing → existing `missing_reviewer`.
+   - `from: null` (deleted account) but `from_id: "user…"` present → synthesise from `from_id`.
 
-1. **Numeric reviewer ID fallback.** When no string `@username` field resolves but the export has `from_id` as a string like `"user6812728770"` (tdesktop format — confirmed against `Telegram/SourceFiles/export/output/export_output_json.cpp` `wrapPeerId`), parse the numeric suffix and synthesise a reviewer handle of the form `user<id>` (matching `normalizeUsername`'s `[A-Za-z][A-Za-z0-9_]{4,31}` constraint — `user` + at least 1 digit ≥ 5 chars total). Use the real Telegram numeric ID as `reviewerTelegramId` instead of the synthetic FNV hash.
+2. **Bot-sender filter**. New env-driven config `LEGACY_BOT_SENDERS=combot,grouphelpbot,groupanonymousbot` (comma list). When the resolved reviewer matches (case-insensitive), skip with reason `bot_sender`, bucket `bot_sender`. Add corresponding column to summary.
 
-   Edge cases:
-   - `from_id` prefix `chat`/`channel` → skip as a non-user sender (anonymous group admin posts come through as `channel<id>`).
-   - `from_id` missing entirely → skip as `missing_reviewer` (current behaviour).
-   - `from` field is JSON `null` (deleted account) → still synthesise from `from_id`.
-
-2. **Bot-sender filter.** Add a `BOT_SENDER_USERNAMES` set (config-driven, defaulting to known group-help bots like `groupanonymousbot`, `combot`, `grouphelpbot`). When the resolved reviewer handle matches, skip with a new `bot_sender` reason in a new `bot_sender` summary bucket.
-
-3. **Sentiment patterns expanded.** Adding to `POSITIVE_PATTERNS`:
+3. **Sentiment patterns expanded**. POSITIVE adds:
    - `\bpos\s+vouch\b`
    - `\b(huge|big|mad|high|highly|solid)\s+vouch\b`
 
-   Adding to `NEGATIVE_PATTERNS`:
+   NEGATIVE adds:
    - `\bneg\s+vouch\b`
    - `\bscam(?:mer|med|ming|s)?\b`
    - `\bripped\b`, `\bdodgy\b`, `\bsketchy\b`, `\bshady\b`
@@ -314,32 +343,39 @@ Required changes:
    - `\bsteer\s+clear\b`
    - `\bdon'?t\s+trust\b`
 
-   Excluded (per D10): `legend`, `king` — too high false-positive risk in the group's register.
+   Excluded by decision: `legend`, `king` (false-positive risk).
 
-   Each pattern goes through the existing `(?<!not\s)` negation guard. Add a unit test per pattern: a positive sample and a negated sample.
+   Each pattern goes through the existing `(?<!not\s)` guard. Unit test per pattern: positive sample + negated sample.
 
-4. **Multiple-targets handling**. Current behaviour: skip with `multiple_targets` reason → bucket `missing_target`. Replit found 486 such messages. Decision: keep skipping, but split bucket out (`bucket: "multiple_targets"`) so the operator sees them separately and can hand-review. Do **not** auto-split into multiple entries — the `(source_chat_id, source_message_id)` unique index in the DB enforces 1 entry per source message.
+4. **Multiple-targets bucket split**. Keep skipping (DB unique index on `(legacy_source_chat_id, legacy_source_message_id)` enforces 1:1), but split into its own bucket `multiple_targets` so the operator can hand-review.
 
-5. **Service messages**: already filtered (`type !== "message"`).
+5. **Quoted-reply context**. If a message has `reply_to_message_id` and the parent is a `@username` post (single target), and the current message has no inline `@`, **do not** infer the parent as target — too ambiguous. Skip as `missing_target`. Document.
 
 ### 10.2 Replay script changes (`scripts/replayLegacyTelegramExport.ts`)
 
-1. **`--max-imports N` flag** — stop after N successful imports. Used to do tiny live batches (5, 50) before unleashing the full set.
-2. **`--throttle-ms N` flag**, default `3100` (3.1 sec, slightly above the 3.0 sec/send limit). Per-call sleep before each `sendMessage` to the live group.
-3. **Honour 429 `retry_after`** in the publish loop. On 429, sleep `retry_after + 100` ms, retry once, log loudly. If second attempt 429s, abort and persist a checkpoint so the next run resumes.
-4. **Resume from checkpoint** is already implemented; verify `--max-imports` interaction (if you stop at 50 with 1950 left, the checkpoint must record position so the next run picks up at 51).
+1. `--max-imports N` — stop after N successful imports (live + dry-run modes).
+2. `--throttle-ms N` (default `3100`). Sleep before each `sendMessage` to the live group. Implement as a token-bucket so leading bursts after long pauses still respect 1-per-3.1sec.
+3. **Honour 429** in the publish loop. On `TelegramRateLimitError`, sleep `retry_after + 100` ms, retry once. On second 429, persist checkpoint, exit non-zero so the next run resumes.
+4. Verify `--max-imports` interacts with the existing checkpoint resume (last-imported source-message-id).
 
-### 10.3 Replay edge cases
+### 10.3 Re-run guidance
 
-| # | Scenario | Proposed |
+If a parser improvement classifies messages that an earlier run skipped, simply re-run `replay:legacy` against the same export. The unique index on `(legacy_source_chat_id, legacy_source_message_id)` makes already-imported entries no-ops; newly-importable ones are appended. Use `--max-imports` to cap the incremental delta.
+
+### 10.4 Replay edge cases
+
+| # | Scenario | Behaviour |
 |---|---|---|
-| L01 | Export contains messages where `from_id` is `channel<id>` (anonymous admin posts) | Skip with new `bot_sender`-ish bucket; document |
-| L02 | Two messages have the same `(source_chat_id, source_message_id)` (shouldn't happen, but…) | Unique index rejects; log + skip |
-| L03 | `text` is an array of segments | `flattenLegacyMessageText` already collapses |
-| L04 | Sentiment matches BOTH positive and negative | Already returns `result: null`; goes to `unclear_sentiment` |
-| L05 | Negated sentiment ("not legit") | Existing `(?<!not\s)` guard; verify with test for every new pattern |
-| L06 | Telegram 429 during replay | Honour `retry_after`; if persistent, persist checkpoint and exit |
-| L07 | DB write fails mid-replay | Persist checkpoint at `currentIndex - 1`; next run resumes |
+| L01 | `from_id` is `channel<id>` | Skip as `bot_sender` (anonymous admin / channel signature). |
+| L02 | Same `(legacy_source_chat_id, legacy_source_message_id)` re-imported | Unique index rejects; existing entry's `publishedMessageId` decides resume vs duplicate skip. Already correct. |
+| L03 | `text` is array of segments | `flattenLegacyMessageText` handles. Correct. |
+| L04 | Both positive + negative patterns | `result: null` → `unclear_sentiment`. Correct. |
+| L05 | Negated sentiment | `(?<!not\s)` guard + tests. |
+| L06 | 429 during replay | §10.2 #3. |
+| L07 | DB write fails mid-replay | Existing checkpoint handles. |
+| L08 | Entry stuck in `status="publishing"` (Telegram sent but DB write failed) | Admin runs `/recover_entry <id>` to revert to `pending`; next replay run will re-attempt. Document in handoff. |
+| L09 | Reply-context message | §10.1 #5. |
+| L10 | Message timestamp is 1970 (parse error) | Existing `missing_timestamp` skip. Correct. |
 
 ---
 
@@ -347,145 +383,457 @@ Required changes:
 
 ### 11.1 Why Railway
 
-Per official-doc comparison done in research (sources: railway.com/pricing, render.com/pricing, fly.io/docs/about/pricing, replit pricing):
+Per official-doc comparison (sources cited inline):
 
-- Railway Hobby: $5/mo flat with $5 included usage credit. Always-on (no sleeping by default). Native GitHub auto-deploy. Native managed Postgres at usage-cost (~few $/mo). Reference variables wire `${{Postgres.DATABASE_URL}}` automatically.
-- Render: $7/mo + $6/mo Postgres = $13/mo minimum; first-paid web tier required to avoid 15-min sleep.
-- Fly.io: cheapest in raw pricing but requires GitHub Actions for deploy and self-managed Postgres for the cheap path.
-- Replit: $25 Core + $10 Reserved VM = $35/mo minimum for parity.
+- Railway Hobby: $5/mo flat + $5 included usage credit, always-on (`docs.railway.com/reference/app-sleeping`), native GitHub auto-deploy (`docs.railway.com/guides/github-autodeploys`), managed Postgres in same project (`docs.railway.com/guides/postgresql`), reference variables (`docs.railway.com/guides/variables`).
+- Render: $7 web + $6 Postgres = $13/mo minimum (`render.com/pricing`); Free tier sleeps after 15 min (`render.com/docs/free`).
+- Fly.io: cheapest raw but requires GitHub Actions + self-managed Postgres.
+- Replit: $25 Core + $10 Reserved VM = $35/mo for parity.
 
-**Recommendation: Railway.** Lowest-friction match for plain Node + Postgres + webhook.
+**Locked: Railway.**
 
-### 11.2 Deploy doc rewrite
+### 11.2 New `DEPLOY.md` (replaces `DEPLOY_REPLIT.md`)
 
-`DEPLOY_REPLIT.md` → `DEPLOY.md`. Steps:
+Steps:
 
-1. Sign in to Railway with the `jbot-bit` GitHub account, subscribe to Hobby ($5/mo).
-2. Install Railway GitHub app, grant access to `jbot-bit/vouchvault`.
-3. New project → Deploy PostgreSQL template.
-4. Same project → New service → GitHub Repo → `jbot-bit/vouchvault`.
-5. Service Settings → set `NIXPACKS_NODE_VERSION=22`, leave Build Command empty, set Start Command to `npm start`.
-6. Variables tab → add (use `${{Postgres.DATABASE_URL}}` for the DB URL):
+1. Sign in to Railway with GitHub `jbot-bit`. Subscribe to Hobby ($5/mo).
+2. Install Railway GitHub app; grant `vouchvault` repo access.
+3. New Project → Deploy PostgreSQL.
+4. Same project → New Service → GitHub Repo → `jbot-bit/vouchvault`.
+5. Service Settings → set `NIXPACKS_NODE_VERSION=22` (TS-strip stable from 22.6+; `nixpacks.com/docs/providers/node`); leave Build Command empty; Start Command `npm start`.
+6. Variables tab → add (`DATABASE_URL=${{Postgres.DATABASE_URL}}` reference):
    - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_ALLOWED_CHAT_IDS`
    - `TELEGRAM_ADMIN_IDS`
-   - `TELEGRAM_WEBHOOK_SECRET_TOKEN` (generate with `openssl rand -hex 32`)
+   - `TELEGRAM_WEBHOOK_SECRET_TOKEN` (`openssl rand -hex 32`)
    - `PUBLIC_BASE_URL` (set after step 7)
-   - `TELEGRAM_BOT_USERNAME` (optional — saves a `getMe` call at boot)
-7. Settings → Networking → Generate Domain. Copy the URL to `PUBLIC_BASE_URL`. Service auto-redeploys.
-8. From local shell with the same env vars: `npm run telegram:webhook`. This must call `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member"]`, `max_connections: 10`, `drop_pending_updates: true`.
+   - `TELEGRAM_BOT_USERNAME` (optional)
+   - `LEGACY_BOT_SENDERS` (optional, defaults to a sane list)
+7. Settings → Networking → Generate Domain. Copy URL → set `PUBLIC_BASE_URL`.
+8. From local shell (or Railway service shell): `npm run telegram:webhook` (sets `allowed_updates`, `max_connections`, `drop_pending_updates`).
 9. `npm run telegram:onboarding -- --guide-chat-id <id> --pin-guide`.
-10. Smoke test: tap launcher in group, complete a vouch in DM, verify entry appears + launcher refreshes.
+10. In BotFather: `/setprivacy` → Disable for the bot.
+11. Smoke-test: §13.3 checklist.
 
 ### 11.3 Migration edge cases
 
-| # | Scenario | Proposed |
+| # | Scenario | Behaviour |
 |---|---|---|
-| M01 | Postgres on Railway is fresh; existing data is on Replit | One-time `pg_dump` + `psql` restore. Document in DEPLOY.md. |
-| M02 | Webhook switch leaves a window where Telegram has both URLs queued | `setWebhook` is atomic from Telegram's side — only one URL is active at a time. Drop the Replit deployment **after** Railway smoke test passes. |
-| M03 | DNS propagation for custom domain | Railway issues `*.up.railway.app` immediately; custom domain is optional follow-up |
-| M04 | Replit secrets not migrated | Document the full env-var list in `.env.example` and in DEPLOY.md |
-| M05 | `node --experimental-strip-types` Node version drift | Pin `NIXPACKS_NODE_VERSION=22` (TS-strip is stable from 22.6+) |
+| M01 | Existing Postgres data on Replit | One-time `pg_dump` from Replit Postgres → `psql` restore into Railway Postgres. Document the exact `pg_dump --no-owner --no-acl` invocation. |
+| M02 | Webhook switch leaves dual-active window | `setWebhook` is atomic; only one URL active at a time. Drop Replit deploy after Railway smoke passes. |
+| M03 | DNS for custom domain | Optional. `*.up.railway.app` works immediately. |
+| M04 | Replit secrets not migrated | DEPLOY.md enumerates every secret. |
+| M05 | Node-version drift | Pin `NIXPACKS_NODE_VERSION=22`. |
 
 ---
 
-## 12. Observability
+## 12. Schema cleanup & migrations
 
-Current state: bare `console.info` / `console.warn` / `console.error`. Per HANDOFF.md "Known gaps", structured logging is wanted.
+### 12.1 Dead schema (drop)
 
-### 12.1 Proposed
+The pre-cutover Mastra/reputation-bot era left unused tables/columns. Confirmed unused via `grep` across `src/server.ts` and `src/telegramBot.ts` import chains (HANDOFF.md "All deletions are confirmed non-live").
 
-- Switch to `pino` (smallest dep, structured JSON, zero runtime overhead). Single helper `createLogger()` returns a child logger per request with `update_id` bound.
-- Log levels: `info` for happy-path lifecycle, `warn` for recovered errors (E10/E11), `error` for unrecovered.
-- Add a request-id header pass-through so Railway logs can be correlated.
-- Add a single metric counter table or counter file (out of scope — note as future).
+- Drop tables: `polls`, `votes`.
+- Drop columns from `users`: `total_yes_votes`, `total_no_votes`, `rank`, `stars`.
 
-### 12.2 Health endpoints
+### 12.2 New schema additions
 
-- `/healthz` → `{"ok": true}` (already exists). Keep.
-- Add `/readyz` → asserts Postgres pool is responsive. Returns 503 if not. Useful for Railway healthchecks.
+- `business_profiles`: add `freeze_reason TEXT NULL`, `frozen_at TIMESTAMPTZ NULL`, `frozen_by_telegram_id BIGINT NULL`, `telegram_id BIGINT NULL` (set when target was selected via the user picker; supports E29 future resolution).
+- New `chat_settings (chat_id BIGINT PK, paused BOOLEAN NOT NULL DEFAULT false, paused_at TIMESTAMPTZ NULL, paused_by_telegram_id BIGINT NULL, status TEXT NOT NULL DEFAULT 'active', migrated_to_chat_id BIGINT NULL)`. `status ∈ {active, kicked, migrated_away}`.
+- New `admin_audit_log` (§6.2).
+- `vouch_entries.target_telegram_id BIGINT NULL` (denormalised from `business_profiles.telegram_id` at insert time; lets us preserve the link if the target later renames).
+- `chat_launchers.updated_at` already exists — no change.
 
----
+### 12.3 Migration approach
 
-## 13. Testing approach
+- Adopt **drizzle-kit**. `npm run db:generate` produces SQL migration files in `migrations/`. `npm run db:migrate` applies them in order (idempotent — drizzle-kit tracks applied migrations in a `__drizzle_migrations` table).
+- Delete `ensureDatabaseSchema()` boot-time DDL. New boot path: server applies pending migrations on startup (single command, no extra round-trips if up-to-date).
+- First migration captures current schema as-is + the cleanup + the new tables/columns. Subsequent changes go in numbered migrations.
 
-### 13.1 What's already covered (22/22 passing)
+### 12.4 Data retention
 
-- `archiveUx.test.ts` — archive entry rendering, preview, welcome copy, telegram UX helpers
-- `legacyImport.test.ts` — parser positive/negative/conflict/negation/no-target/multi-target/no-sender/self
-- `telegramBotInput.test.ts` — `parseTypedTargetUsername` accepts/rejects
-
-### 13.2 New tests (TDD-first per superpowers conventions)
-
-For each new behaviour:
-
-- **`legacyImportParser.test.ts`** (or extend existing): one positive + one negated sample for every new sentiment pattern; numeric `from_id` synthesis; bot-sender filter; multi-target bucket split; deleted-account (`from: null`) handling.
-- **`telegramRateLimit.test.ts`** (new): mock fetch, simulate 429 with `retry_after`, assert single retry honours the delay; assert second 429 throws typed error.
-- **`telegramBot.test.ts`** (new): integration-style tests with a mock store/transport — full happy path; E08 stale-callback; E11 group-not-accessible; E10 user-blocked-bot; cancel-then-restart.
-- **`callbackData.test.ts`** (new): assert every callback string we build is ≤64 bytes for any input chat ID.
-- **`replayThrottle.test.ts`** (new): assert `--throttle-ms 3100` enforces the gap; assert `--max-imports 5` stops after 5; assert checkpoint resumes correctly.
-
-### 13.3 Smoke test (manual)
-
-- After deploy: tap launcher → complete vouch → see entry in group → see launcher refresh under it.
-- `/recent` in DM and group shows latest 5/10 entries.
-- `/lookup @x` in DM works; in group requires admin.
-- `/freeze @x reason` then re-attempt vouch → blocked. `/unfreeze @x` then re-attempt → succeeds.
-- `/remove_entry N` → published message disappears, launcher refreshes.
+- `vouch_entries`: keep forever (audit value).
+- `vouch_drafts`: replaced on each new draft (single row per reviewer); `runArchiveMaintenance` clears expired (>24h) every 200 updates. Keep.
+- `processed_telegram_updates`: 14-day rolling retention via `runArchiveMaintenance`. Keep.
+- `admin_audit_log`: keep forever.
+- `chat_launchers`: kept until a new launcher replaces; never deleted otherwise.
 
 ---
 
-## 14. Implementation order
+## 13. Project layout cleanup
 
-Each row is a discrete chunk that ends in green tests + a deployable state.
+### 13.1 Rename `src/mastra/` → `src/core/`
 
-| # | Chunk | Why this order |
+The `src/mastra/` directory is a vestigial name from the pre-cutover era — files inside no longer use the Mastra framework (HANDOFF.md confirms). Rename to clarify.
+
+- Move every file from `src/mastra/` to `src/core/`.
+- Update every relative import (`./mastra/...` → `./core/...`).
+- One sweep, one commit. No semantic change.
+
+### 13.2 README
+
+`README.md` does not exist. Add a short one with: what the bot does, prerequisites, env vars, common commands (`npm start`, `npm test`, `npm run db:migrate`, `npm run telegram:webhook`, `npm run telegram:onboarding`, `npm run replay:legacy`), pointer to `DEPLOY.md` and `HANDOFF.md`.
+
+### 13.3 `.gitattributes`
+
+Repo lives in OneDrive on Windows; every git operation warns "LF will be replaced by CRLF." Add `.gitattributes`:
+
+```
+* text=auto eol=lf
+*.ts text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.sh text eol=lf
+```
+
+### 13.4 GitHub Actions CI
+
+`.github/workflows/test.yml` runs `npm ci && npm test` on push to `main` and on PRs. Node 22. No deploy step (Railway handles that). Caches `node_modules` keyed on `package-lock.json`.
+
+---
+
+## 14. Final user-facing copy (locked)
+
+Every string the user can see, in one place. All HTML-formatted; all surfaces use `escapeHtml` for dynamic substitutions.
+
+### 14.1 Welcome / `/start` (private, no payload)
+
+```
+<b>Welcome to the Vouch Hub</b>
+
+Log and verify local-business service experiences with the community.
+
+<b><u>How to vouch</u></b>
+1. Tap <b>Submit Vouch</b> in the group.
+2. Send the target @username here.
+3. Choose result and tags.
+4. I post the entry back to the group.
+
+<b>Rules</b>
+Lawful use only — follow Telegram's Terms of Service.
+```
+
+### 14.2 Pinned group guide
+
+Same body, but the ordered list says "Tap <b>Submit Vouch</b> below." (since the button is right below the pinned message).
+
+### 14.3 Step prompts
+
+- **Step 1/3 — target**: `<b>Step 1 of 3 — Choose target</b>\n\nSend the target @username here.\nYou can also tap <b>Choose Target</b> below.`
+- **Step 2/3 — result**: `<b>Step 2 of 3 — Result</b>\n\nTarget: <b>@x</b>\n\nChoose the result.`
+- **Step 3/3 — tags**: `<b>Step 3 of 3 — Tags</b>\n\nTarget: <b>@x</b>\nResult: <b>Positive</b>\nTags: Good Comms, Efficient\n\nChoose one or more tags, then tap <b>Done</b>.`
+- **Preview**: `<b><u>Preview</u></b>\n\nOP: <b>@reviewer</b>\nTarget: <b>@target</b>\nResult: <b>Positive</b>\nTags: Good Comms, Efficient`
+- **Posted**: `<b>Posted to the group</b>\n\nTarget: <b>@target</b>\nResult: <b>Positive</b>` + buttons Start Another Vouch / View this entry.
+
+### 14.4 Errors (DM)
+
+- E01: "You need a public Telegram @username to vouch.\nSet one in Settings → Username, then send /vouch."
+- E02 (after 2 picks): "That account has no public @username.\nOr send the @username as text."
+- E03: "Send only one @username — letters/digits/underscore, 5–32 chars."
+- E04: "Self-vouching is not allowed."
+- E05: "<b>@x</b> is frozen and cannot receive new vouches right now."
+- E06: "You vouched <b>@x</b> on YYYY-MM-DD.\nCooldown ends YYYY-MM-DD."
+- E07: "Your last draft expired. Start again."
+- E11: "I lost access to the group.\nNotify an admin and try again later."
+- E12: "Telegram is busy — try again in a minute."
+- E25: "Daily limit reached. Try again after YYYY-MM-DD HH:MM."
+- E26 (paused): "Vouching is paused.\nAn admin will lift this when ready. Use /recent to see the archive."
+
+### 14.5 Group launcher
+
+- Top-of-launcher text: `<b>Submit a vouch</b>\nTap below to open the short DM form.`
+- Button: `Submit Vouch` (URL deep link)
+
+### 14.6 Group threaded replies
+
+- `/start`, `/help`, `/vouch`: launcher block as 14.5.
+- `/recent`: rendered list (§14.8).
+
+### 14.7 Entry card (group post)
+
+```
+🧾 <b>Entry #N</b>
+
+OP: <b>@reviewer</b>
+Target: <b>@target</b>
+Result: <b>Positive</b>
+```
+
+Legacy variant: heading `🧾 <b>Legacy Entry #N</b>` and trailing `Original: YYYY-MM-DD`.
+
+**By design**: tags are intentionally omitted from the public group post. Entry cards stay scannable; tags appear in `/lookup` and `/profile` for anyone who wants the breakdown.
+
+### 14.8 `/recent`
+
+```
+<b><u>Recent entries</u></b>
+
+<b>#42</b> — <b>Positive</b>
+<b>@a</b> → <b>@b</b> • 2026-04-25
+
+<b>#41</b> — <b>Negative</b>
+<b>@c</b> → <b>@d</b> • 2026-04-24
+
+…
+```
+
+10 entries max; truncate at 3900 chars with "…and N more."
+
+### 14.9 `/lookup @x`
+
+```
+<b><u>@x</u></b>
+Status: Active <i>or</i> Frozen — <i>reason</i>
+
+<b>#N</b> — <b>Positive</b>
+By <b>@reviewer</b> • 2026-04-25
+Tags: Good Comms, Efficient
+
+…
+```
+
+5 entries default (admin in group); 25 in DM. Truncate ≤ 3900 chars.
+
+### 14.10 `/profile @x`
+
+```
+<b><u>@x</u></b>
+Positive: 12 • Mixed: 3 • Negative: 1
+Status: Active
+
+<b>Last 5 entries</b>
+<b>#N</b> — <b>Positive</b> • 2026-04-25
+…
+```
+
+### 14.11 `/admin_help`
+
+```
+<b><u>Admin commands</u></b>
+
+/freeze @x [reason] — block new entries
+/unfreeze @x — allow entries again
+/frozen_list — show frozen profiles
+/remove_entry &lt;id&gt; — delete an entry
+/recover_entry &lt;id&gt; — clear stuck publishing
+/profile @x — entry totals
+/lookup @x — full audit list
+/pause — pause new vouches
+/unpause — resume vouches
+```
+
+### 14.12 `/cancel`
+
+DM only: "Cancelled." + Start Another Vouch button. If no draft: "No active draft."
+
+### 14.13 `/help` (DM and group)
+
+DM: shows §14.1 welcome + Start a Vouch button.
+Group: shows §14.5 launcher block.
+
+### 14.14 Frozen list
+
+```
+<b><u>Frozen profiles</u></b>
+
+<b>@x</b> — frozen 2026-04-20 — <i>reason here</i>
+<b>@y</b> — frozen 2026-04-22 — <i>no reason given</i>
+…
+```
+
+Paginated at 10 per page; "…and N more — refine with /lookup @x" when >10.
+
+---
+
+## 15. Local dev & ops
+
+### 15.1 Running locally with a public webhook
+
+Telegram requires HTTPS; local dev needs a tunnel. Use **ngrok** or **cloudflared**.
+
+Quick start:
+
+```bash
+# Terminal A
+npm run dev
+
+# Terminal B
+ngrok http 5000
+# copy the https URL → set PUBLIC_BASE_URL=https://xxxx.ngrok-free.app
+TELEGRAM_BOT_TOKEN=... PUBLIC_BASE_URL=... TELEGRAM_WEBHOOK_SECRET_TOKEN=... npm run telegram:webhook
+```
+
+For local dev a separate "test" bot via `@BotFather` is recommended so the live bot keeps its production webhook intact.
+
+### 15.2 Secret rotation
+
+- **Bot token**: BotFather → `/revoke` (gets a new token) → update `TELEGRAM_BOT_TOKEN` in Railway → service auto-redeploys → run `npm run telegram:webhook` (the webhook re-registers; secret_token is unchanged).
+- **Webhook secret token**: rotate `TELEGRAM_WEBHOOK_SECRET_TOKEN` → redeploy → run `npm run telegram:webhook` → Telegram now sends new secret to `/webhooks/telegram/action` and old secret is rejected.
+- **`DATABASE_URL`**: new Postgres → Railway managed-Postgres has rotation in Variables tab → service auto-redeploys.
+
+### 15.3 Backups
+
+Railway Postgres → Settings → Backups → enable daily snapshots (`docs.railway.com/reference/backups`). Document monthly manual `pg_dump` to operator local for cold storage.
+
+### 15.4 Observability (pino)
+
+- Drop `console.*` for `pino` (single dep, structured JSON, low overhead).
+- `createLogger()` returns a child logger per request with `update_id`, `chat_id`, `reviewer_telegram_id` bound where applicable.
+- Levels: `info` for happy-path lifecycle, `warn` for recovered errors (E10/E11/E12), `error` for unrecovered.
+- Railway log search handles correlation.
+- `/healthz` (existing) → `{ ok: true }`. New `/readyz` checks DB pool reachability; 503 if not.
+
+---
+
+## 16. Testing approach
+
+### 16.1 Existing coverage (22/22 passing)
+
+`archiveUx.test.ts` (rendering, copy), `legacyImport.test.ts` (parser), `telegramBotInput.test.ts` (username input).
+
+### 16.2 New tests (TDD-first)
+
+- `legacyImportParser.test.ts`: positive + negated sample for every new sentiment pattern; numeric `from_id` synthesis; `from: null` deleted-account handling; bot-sender filter; multi-target bucket split; quoted-reply skip.
+- `telegramRateLimit.test.ts`: mock fetch; simulate 429+`retry_after`; assert single retry; assert second 429 throws typed error.
+- `telegramErrors.test.ts`: typed errors raised for `403 bot was blocked`, `400 chat not found`, network failure.
+- `telegramBot.test.ts`: integration-style (mock store + transport) covering happy path, E08 stale callback, E10 user-blocked, E11 group-gone, E25 reviewer rate-limit, E26 paused, cancel/restart.
+- `callbackData.test.ts`: every callback string ≤ 64 bytes for any input chat ID.
+- `replayThrottle.test.ts`: token bucket enforces 3.1s gap; `--max-imports 5` stops; checkpoint resumes.
+- `formattingCeiling.test.ts`: 50-entry fixtures truncate at 3900 chars with "…and N more."
+- `escaping.test.ts`: scan every text-builder for raw template substitutions outside `escapeHtml`.
+- `auditLog.test.ts`: every admin command writes one row.
+- `migrations.test.ts`: clean-DB → run all migrations → schema matches; idempotent on re-run.
+
+### 16.3 Manual smoke (per deploy)
+
+1. Tap launcher → DM flow → entry posted → launcher refreshed.
+2. `/recent` in DM and group.
+3. `/profile @x` and `/lookup @x` in DM and group (admin-gated in group).
+4. `/freeze @x reason text` → submit attempt blocks. `/unfreeze @x` → submit succeeds.
+5. `/remove_entry N` → group message disappears; `/lookup @target` no longer shows it.
+6. `/pause` → DM flow blocked with E26. `/unpause` → flow restored.
+7. `/cancel` from inside an in-progress draft → cleared.
+8. From a non-admin user: every admin command answers "Admin only."
+
+---
+
+## 17. Implementation order
+
+Each chunk ends in green tests + a deployable state. Ordered to minimise risk and avoid coupled deploys.
+
+| # | Chunk | Notes |
 |---|---|---|
-| 1 | Parser improvements + tests (§10.1) | No deploy required, low blast radius, validates approach |
-| 2 | Replay script throttle/max-imports + tests (§10.2) | Same |
-| 3 | Bot identity copy + commands (§§2,3) — code change to text-builders + onboarding script | No infra change; test via dry-run + manual |
-| 4 | DM flow polish (§4) — error wording, reply-keyboard removal in step 2, callback-data length test, draft-step revalidation (E08), block-publish-on-stale-target (E14) | Pure code |
-| 5 | Group flow (§5) — launcher debouncing, `my_chat_member` subscription, supergroup migration handling | Pure code; webhook needs `allowed_updates` updated when this ships |
-| 6 | Admin flow (§6) — `/freeze` reason, `/frozen_list`, `/admin_help` | Pure code |
-| 7 | Rate-limit handling (§8) — `withTelegramRetry`, replay 429-aware | Pure code |
-| 8 | Webhook hardening (§9) — `allowed_updates`, `max_connections`, `drop_pending_updates`; `/readyz` endpoint | Code + a `setWebhook` rerun on deploy |
-| 9 | Observability (§12) — pino swap | Pure code |
-| 10 | Railway migration (§11) — DEPLOY.md rewrite, secret migration, db dump/restore, webhook switchover | Infra; do **last** so all the above is on `main` first |
-| 11 | Run legacy replay (§10) — first 5 with `--max-imports 5`, then full | After deploy stable |
+| 1 | `.gitattributes` + `README.md` + GitHub Actions CI | No runtime impact; stops noise |
+| 2 | Drizzle-kit migrations adoption + first migration capturing current schema | Foundation for the rest |
+| 3 | Schema cleanup migration: drop `polls`, `votes`, dead `users` cols; add `chat_settings`, `admin_audit_log`, freeze-reason cols | Backwards-compatible (no live code reads dropped tables) |
+| 4 | Project layout rename: `src/mastra/` → `src/core/` | One sweep |
+| 5 | Parser improvements + tests (§10.1) | Pure logic, low blast radius |
+| 6 | Replay script throttle / max-imports / 429 handling + tests (§10.2) | Pure logic |
+| 7 | Bot identity copy + commands (§§2, 3, 14) — text-builders + onboarding script | No infra change |
+| 8 | DM flow polish (§4) — wording, reply-keyboard removal, callback-data length test, draft-step revalidation, rate-limit, paused-state, view-this-entry deep link | Pure code |
+| 9 | Admin flow (§6) — freeze with reason, frozen_list, recover_entry, pause/unpause, profile, admin_help, audit log | Pure code; depends on chunk 3 schema |
+| 10 | Group flow (§5) — launcher debounce, `my_chat_member`, supergroup migration | Webhook needs `allowed_updates` updated when this ships |
+| 11 | Rate-limit + typed errors (§8) — `withTelegramRetry` and friends | Pure code |
+| 12 | Webhook hardening (§9) — `allowed_updates`, `max_connections`, `drop_pending_updates`, `/readyz`, 25-sec safety | Code + a `setWebhook` rerun on deploy |
+| 13 | Observability (§15.4) — pino swap | Pure code |
+| 14 | Railway migration (§11) — DEPLOY.md rewrite, secret migration, db dump/restore, webhook switchover | Infra last; everything above on `main` first |
+| 15 | Run legacy replay (§10) — first 5 with `--max-imports 5`, then full | After deploy stable |
 
 ---
 
-## 15. Open decisions (need user sign-off before plan)
+## 18. Locked decisions (no further input needed)
 
-These are the points I made a recommendation on but want you to confirm or override before I write the implementation plan:
-
-- **D1**: Cancel button on Step 1/Target. _Recommend: yes._
-- **D2**: Posted confirmation includes "View this entry" deep link. _Recommend: yes._
-- **D3**: `/recent` shows 10 entries, no filters. _Recommend: yes._
-- **D4**: BotFather privacy mode set to **Disable** (so the bot sees `/cmd` without `@yourbot` in the group). _Recommend: yes._
-- **D5**: `/freeze @x [reason]` — store reason. _Recommend: yes._
-- **D6**: New `/frozen_list` and `/admin_help` commands. _Recommend: yes._
-- **D7**: Pino for structured logs. _Recommend: yes._ (Tiny dep, no perf penalty.)
-- **D8**: Allowed updates set to `message`, `callback_query`, `my_chat_member`. _Recommend: yes._
-- **D9**: Bot name in BotFather: `Vouch Hub`. _Recommend: yes._ (Or your preferred name.)
-- **D10**: Sentiment patterns to include `legend` and `king` as positive. _Recommend: NO — high false-positive risk in this register. Exclude._
+| ID | Call |
+|---|---|
+| D1 | Cancel button on every flow step (including Step 1) — **yes** |
+| D2 | Posted confirmation includes "View this entry" deep link — **yes** |
+| D3 | `/recent` shows 10 entries — **yes** |
+| D4 | BotFather privacy mode set to **Disable** — **yes**, manual step in DEPLOY.md |
+| D5 | `/freeze @x [reason]` stores reason — **yes** |
+| D6 | `/frozen_list`, `/admin_help`, `/recover_entry`, `/pause`, `/unpause`, `/profile` — **yes, all** |
+| D7 | Pino for structured logs — **yes** |
+| D8 | `allowed_updates: ["message", "callback_query", "my_chat_member"]` — **yes** |
+| D9 | Bot name `Vouch Hub` — **yes** (operator can override in BotFather) |
+| D10 | `legend` / `king` excluded from sentiment patterns — **yes (excluded)** |
+| D11 | Drop `polls`, `votes`, dead `users` cols — **yes** |
+| D12 | Rename `src/mastra/` → `src/core/` — **yes** |
+| D13 | Adopt drizzle-kit migrations; remove `ensureDatabaseSchema` boot DDL — **yes** |
+| D14 | 5-vouches/24h per reviewer rate limit — **yes** |
+| D15 | Drizzle-kit added to `devDependencies` and pinned at adoption time — **yes** |
+| D16 | No dispute / appeal system in v1 — **yes** (admin removes via `/remove_entry`) |
+| D17 | No reputation aggregation as a competitive feature — **yes** (totals via `/profile`, no leaderboards) |
+| D18 | English-only — **yes** |
+| D19 | Lookup truncation: 3900-char ceiling with "…and N more." — **yes** |
+| D20 | Webhook handler 25-sec safety: log + 200 OK on overrun — **yes** |
 
 ---
 
-## 16. Appendix: official-source citations
+## 19. Trust model & data handling
 
-Every Bot API claim above is traceable to one of:
+### 19.1 Trust model
+
+- **Admins**: fully trusted. Whitelisted by `TELEGRAM_ADMIN_IDS`. A compromised admin can freeze, remove, pause, recover — anything an admin can do. Mitigation = remove the ID from the env var and redeploy.
+- **Reviewers**: untrusted. Rate-limit (5/24h), cooldown (72h same target), public `@username` requirement, `request_users` filter excluding bots — these together raise the friction for burner-account abuse.
+- **Targets**: not authenticated. The bot does not consult the target before posting an entry. This is consistent with how vouch culture works in the source group (people post vouches without permission); admins handle disputes via `/remove_entry`.
+- **Telegram itself**: trusted as the auth provider. Webhook secret-token verifies inbound traffic; bot token authenticates outbound.
+
+### 19.2 Compromise procedures
+
+- **Bot token leaked** → BotFather → `/revoke` → set new `TELEGRAM_BOT_TOKEN` in Railway → redeploy → `npm run telegram:webhook` (§15.2).
+- **Webhook secret token leaked** → rotate `TELEGRAM_WEBHOOK_SECRET_TOKEN` → redeploy → `npm run telegram:webhook` (the script writes the new secret to Telegram and the server starts rejecting the old one immediately).
+- **Database leaked / breached** → restore from Railway snapshot + last cold backup; usernames + telegram IDs are public information; no PII beyond that is stored.
+- **Admin account hijacked** → drop their ID from `TELEGRAM_ADMIN_IDS`; review `admin_audit_log` for actions to roll back via `/recover_entry` / `/unfreeze`.
+
+### 19.3 Data handling
+
+- **What we store**: Telegram numeric IDs, public `@username` snapshots, first names (optional), entry result + tags + timestamps, source-message metadata for legacy imports, audit log of admin actions.
+- **What we do NOT store**: phone numbers, emails, message content beyond the legacy parser's text excerpt for skipped messages (review report only — does not enter live data).
+- **Soft delete**: `vouch_entries` deleted via `/remove_entry` get `status='removed'`; row preserved for audit. Hard delete via SQL only.
+- **Hard delete**: `vouch_drafts` rows replaced on each new draft; expired drafts (>24h) janitored every 200 updates.
+- **Subject access / right to be forgotten**: an admin can SQL-delete a reviewer's entries on request. v1 has no self-serve interface; document in handoff.
+- **Group post visibility**: entries are posted to a Telegram group; that group's membership rules govern who sees them. The bot does not duplicate or republish externally.
+
+---
+
+## 20. What's deferred (explicit non-goals for this round)
+
+- Bot avatar / picture upload (manual BotFather step; defer until copy lands).
+- A `/audit_log` command surface (DB inspection sufficient for v1).
+- Per-group time zone display (UTC ISO date everywhere; document).
+- A separate Sentry-style error tracker.
+- Pinning runtime dep versions (`drizzle-orm`, `pg`).
+- Multi-language support.
+- Web App / Mini App.
+- Reputation leaderboards / competitive ranking.
+- Dispute / appeal flow.
+- Reactions on entry messages (Bot API supports `setMessageReaction`; not adopted).
+
+---
+
+## 21. Source citations
+
+**Telegram Bot Platform docs:**
 
 - `core.telegram.org/bots` — overview
-- `core.telegram.org/bots/features` — commands, deep links, menu button, privacy mode, keyboards (`request_users`)
+- `core.telegram.org/bots/features` — commands, deep links, menu button, privacy mode, keyboards
 - `core.telegram.org/bots/api` — endpoint reference
 - `core.telegram.org/bots/api#formatting-options` — HTML / MarkdownV2
-- `core.telegram.org/bots/api#setwebhook` — secret_token, allowed_updates, max_connections, drop_pending_updates
-- `core.telegram.org/bots/api#inlinekeyboardbutton` — callback_data 64-byte limit
+- `core.telegram.org/bots/api#setwebhook` — `secret_token`, `allowed_updates`, `max_connections`, `drop_pending_updates`
+- `core.telegram.org/bots/api#inlinekeyboardbutton` — `callback_data` 64-byte limit
+- `core.telegram.org/bots/api#sendmessage` — 4096-char body limit
+- `core.telegram.org/bots/api#setmessagereaction` — reactions (for reference)
 - `core.telegram.org/bots/faq` — rate limits (1/sec/chat, 20/min/group, 30/sec global)
-- `core.telegram.org/bots/webhooks` — TLS, ports, source IPs
+- `core.telegram.org/bots/webhooks` — TLS, ports, IP ranges
 
-Tdesktop export schema citations: `github.com/telegramdesktop/tdesktop/blob/dev/Telegram/SourceFiles/export/output/export_output_json.cpp` (`wrapPeerId`, `pushFrom`, `SerializeText`, `SerializeMessage`).
+**Tdesktop export schema:**
 
-Hosting comparison citations: `railway.com/pricing`, `docs.railway.com/guides/postgresql`, `docs.railway.com/guides/github-autodeploys`, `docs.railway.com/guides/variables`, `docs.railway.com/reference/app-sleeping`, `nixpacks.com/docs/providers/node`, `render.com/pricing`, `render.com/docs/free`, `fly.io/docs/about/pricing/`, `fly.io/docs/launch/autostop-autostart/`, `docs.replit.com/cloud-services/deployments/about-deployments`.
+- `github.com/telegramdesktop/tdesktop/blob/dev/Telegram/SourceFiles/export/output/export_output_json.cpp` (`wrapPeerId`, `pushFrom`, `SerializeText`, `SerializeMessage`)
+
+**Hosting:**
+
+- `railway.com/pricing`, `docs.railway.com/guides/postgresql`, `docs.railway.com/guides/github-autodeploys`, `docs.railway.com/guides/variables`, `docs.railway.com/reference/app-sleeping`, `docs.railway.com/reference/backups`
+- `nixpacks.com/docs/providers/node`
+- `render.com/pricing`, `render.com/docs/free`
+- `fly.io/docs/about/pricing/`, `fly.io/docs/launch/autostop-autostart/`
+- `docs.replit.com/cloud-services/deployments/about-deployments`
