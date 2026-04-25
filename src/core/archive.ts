@@ -217,17 +217,16 @@ export function buildWelcomeText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    aboutLine(),
+    "Log and verify local-business service experiences with the community.",
     "",
-    "<b><u>How to Vouch</u></b>",
-    "",
+    "<b><u>How to vouch</u></b>",
     "1. Tap <b>Submit Vouch</b> in the group.",
-    "2. Send only the target @username here.",
-    "3. Choose the result and tags.",
-    "4. I post the final entry back to the group.",
+    "2. Send the target @username here.",
+    "3. Choose result and tags.",
+    "4. I post the entry back to the group.",
     "",
     "<b>Rules</b>",
-    rulesLine(),
+    "Lawful use only — follow Telegram's Terms of Service.",
   ].join("\n");
 }
 
@@ -333,16 +332,15 @@ export function buildPinnedGuideText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    aboutLine(),
+    "Log and verify local-business service experiences with the community.",
     "",
-    "<b><u>How to Vouch</u></b>",
-    "",
+    "<b><u>How to vouch</u></b>",
     "1. Tap <b>Submit Vouch</b> below.",
     "2. In DM, send only the target @username, then use the buttons.",
     "3. I post the final entry back here.",
     "",
     "<b>Rules</b>",
-    rulesLine(),
+    "Lawful use only — follow Telegram's Terms of Service.",
   ].join("\n");
 }
 

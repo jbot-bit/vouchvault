@@ -89,24 +89,26 @@ test("buildPreviewText renders the DM review screen with a bold heading", () => 
   );
 });
 
-test("welcome and pinned guide use the business-hub framing and How to Vouch walkthrough", () => {
-  assert.equal(buildGroupLauncherReplyText(), "Tap below to submit your vouch in DM.");
+test("welcome text uses locked v3 wording", () => {
+  const text = buildWelcomeText();
+  assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
+  assert.match(text, /Log and verify local-business service experiences/);
+  assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
+  assert.match(text, /Tap <b>Submit Vouch<\/b> in the group/);
+  assert.match(text, /Send the target @username here/);
+  assert.match(text, /Choose result and tags/);
+  assert.match(text, /I post the entry back to the group/);
+  assert.match(text, /Lawful use only — follow Telegram's Terms of Service/);
+});
 
-  const welcome = buildWelcomeText();
-  assert.match(welcome, /<b>Welcome to the Vouch Hub<\/b>/);
-  assert.match(welcome, /business hub for local businesses/);
-  assert.match(welcome, /<b><u>How to Vouch<\/u><\/b>/);
-  assert.match(welcome, /1\. Tap <b>Submit Vouch<\/b> in the group\./);
-  assert.match(welcome, /Telegram's Terms of Service/);
-  assert.match(welcome, /No illegal activity/);
-
-  const guide = buildPinnedGuideText();
-  assert.match(guide, /<b>Welcome to the Vouch Hub<\/b>/);
-  assert.match(guide, /business hub for local businesses/);
-  assert.match(guide, /<b><u>How to Vouch<\/u><\/b>/);
-  assert.match(guide, /1\. Tap <b>Submit Vouch<\/b> below\./);
-  assert.match(guide, /Telegram's Terms of Service/);
-  assert.match(guide, /No illegal activity/);
+test("pinned guide text uses locked v3 wording", () => {
+  const text = buildPinnedGuideText();
+  assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
+  assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
+  assert.match(text, /Tap <b>Submit Vouch<\/b> below/);
+  assert.match(text, /In DM, send only the target @username/);
+  assert.match(text, /I post the final entry back here/);
+  assert.match(text, /Lawful use only/);
 });
 
 test("bot profile text uses the locked v3 copy", () => {
