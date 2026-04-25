@@ -32,6 +32,7 @@ export type LegacyImportSummary = {
   resumedPending: number;
   skippedMissingReviewer: number;
   skippedMissingTarget: number;
+  skippedMultipleTargets: number;
   skippedUnclearSentiment: number;
   skippedBotSender: number;
   skippedDuplicates: number;
@@ -113,6 +114,7 @@ function createInitialSummary(): LegacyImportSummary {
     resumedPending: 0,
     skippedMissingReviewer: 0,
     skippedMissingTarget: 0,
+    skippedMultipleTargets: 0,
     skippedUnclearSentiment: 0,
     skippedBotSender: 0,
     skippedDuplicates: 0,
@@ -134,6 +136,11 @@ function incrementSummary(summary: LegacyImportSummary, bucket: LegacySummaryBuc
 
   if (bucket === "unclear_sentiment") {
     summary.skippedUnclearSentiment += 1;
+    return;
+  }
+
+  if (bucket === "multiple_targets") {
+    summary.skippedMultipleTargets += 1;
     return;
   }
 

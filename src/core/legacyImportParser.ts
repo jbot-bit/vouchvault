@@ -478,7 +478,7 @@ export function parseLegacyExportMessage(input: {
       targetUsernames,
       reason: "multiple_targets",
       detail: "More than one Telegram @username target was found in the message text.",
-      bucket: "missing_target",
+      bucket: "multiple_targets",
     });
   }
 

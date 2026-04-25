@@ -139,6 +139,24 @@ test("skips self-targeted legacy messages", () => {
   assert.equal(decision.reviewItem.reason, "self_target");
 });
 
+test("skips multiple-target messages into multiple_targets bucket", () => {
+  const decision = parseLegacyExportMessage({
+    message: {
+      type: "message",
+      id: 4,
+      date_unixtime: "1700000000",
+      from: "alice",
+      from_id: "user1",
+      text: "@target1 @target2 +rep",
+    },
+    sourceChatId: -1001234567890,
+  });
+  assert.equal(decision.kind, "skip");
+  if (decision.kind === "skip") {
+    assert.equal(decision.bucket, "multiple_targets");
+  }
+});
+
 test("synthesises reviewer handle from numeric from_id when @username is missing", () => {
   const decision = parseLegacyExportMessage({
     message: {
