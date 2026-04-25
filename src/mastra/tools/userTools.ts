@@ -38,7 +38,8 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
     .limit(1);
 
   if (existingUser.length > 0) {
-    const user = existingUser[0];
+    // length > 0 so index 0 is guaranteed
+    const user = existingUser[0]!;
     const needsUpdate =
       (input.username != null && user.username !== input.username) ||
       (input.firstName != null && user.firstName !== input.firstName) ||
@@ -48,7 +49,7 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
       return user;
     }
 
-    const [updated] = await db
+    const rows = await db
       .update(users)
       .set({
         username: input.username ?? user.username,
@@ -59,12 +60,14 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
       .where(eq(users.id, user.id))
       .returning();
 
+    // update().returning() always returns the updated row
+    const updated = rows[0]!;
     logger?.info?.("Updated Telegram user record", { userId: updated.id, telegramId: input.telegramId });
     return updated;
   }
 
   try {
-    const [created] = await db
+    const rows = await db
       .insert(users)
       .values({
         telegramId: input.telegramId,
@@ -78,6 +81,8 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
       })
       .returning();
 
+    // insert().returning() always returns the inserted row
+    const created = rows[0]!;
     logger?.info?.("Created Telegram user record", { userId: created.id, telegramId: input.telegramId });
     return created;
   } catch (error) {
@@ -90,7 +95,8 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
       .limit(1);
 
     if (retried.length > 0) {
-      return retried[0];
+      // length > 0 so index 0 is guaranteed
+      return retried[0]!;
     }
 
     throw error;
@@ -114,7 +120,7 @@ export async function updateUserVotes(input: {
 }) {
   const { rank, stars } = calculateRank(input.yesVotes);
 
-  const [updated] = await db
+  const rows = await db
     .update(users)
     .set({
       totalYesVotes: input.yesVotes,
@@ -126,7 +132,7 @@ export async function updateUserVotes(input: {
     .where(eq(users.id, input.userId))
     .returning();
 
-  return updated;
+  return rows[0]!;
 }
 
 export const createOrUpdateUserTool = {

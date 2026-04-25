@@ -90,8 +90,11 @@ function isAdmin(telegramId: number | null | undefined): boolean {
 
 function getCommandParts(text: string) {
   const trimmed = text.trim();
-  const [rawCommand, ...args] = trimmed.split(/\s+/);
-  const command = rawCommand.split("@")[0].toLowerCase();
+  const parts = trimmed.split(/\s+/);
+  // split on non-empty string always yields at least one element
+  const rawCommand = parts[0]!;
+  const args = parts.slice(1);
+  const command = rawCommand.split("@")[0]!.toLowerCase();
   return { command, args };
 }
 

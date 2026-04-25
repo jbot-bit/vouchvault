@@ -141,5 +141,6 @@ export async function ensureDatabaseSchema(): Promise<void> {
     bootstrapPromise = pool.query(BOOTSTRAP_SQL).then(() => undefined);
   }
 
-  return bootstrapPromise;
+  // bootstrapPromise is guaranteed non-null after the if block above
+  return bootstrapPromise!;
 }

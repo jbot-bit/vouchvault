@@ -22,9 +22,10 @@ export function getAllowedTelegramChatIdSet(): Set<number> {
 
 export function getPrimaryAllowedTelegramChatId(): number {
   const chatIds = parseConfiguredTelegramChatIds();
-  if (chatIds.length === 0) {
+  const primary = chatIds[0];
+  if (primary == null) {
     throw new Error("TELEGRAM_ALLOWED_CHAT_IDS is not configured. Set it to the active Telegram group ID before starting the bot or replay.");
   }
 
-  return chatIds[0];
+  return primary;
 }

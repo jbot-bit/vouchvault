@@ -37,7 +37,7 @@ export async function getOrCreateBusinessProfile(username: string) {
   }
 
   try {
-    const [created] = await db
+    const rows = await db
       .insert(businessProfiles)
       .values({
         username,
@@ -46,7 +46,8 @@ export async function getOrCreateBusinessProfile(username: string) {
       })
       .returning();
 
-    return created;
+    // insert().returning() always returns the inserted row
+    return rows[0]!;
   } catch {
     const retried = await getBusinessProfileByUsername(username);
     if (retried) {
@@ -60,7 +61,7 @@ export async function getOrCreateBusinessProfile(username: string) {
 export async function setBusinessProfileFrozen(username: string, isFrozen: boolean) {
   const profile = await getOrCreateBusinessProfile(username);
 
-  const [updated] = await db
+  const rows = await db
     .update(businessProfiles)
     .set({
       isFrozen,
@@ -69,7 +70,8 @@ export async function setBusinessProfileFrozen(username: string, isFrozen: boole
     .where(eq(businessProfiles.id, profile.id))
     .returning();
 
-  return updated;
+  // update().returning() always returns the updated row when the where clause matches
+  return rows[0]!;
 }
 
 export async function getDraftByReviewerTelegramId(reviewerTelegramId: number) {
@@ -92,7 +94,7 @@ export async function createOrResetDraft(input: {
   const existing = await getDraftByReviewerTelegramId(input.reviewerTelegramId);
 
   if (existing) {
-    const [updated] = await db
+    const rows = await db
       .update(vouchDrafts)
       .set({
         reviewerUsername: input.reviewerUsername,
@@ -109,11 +111,11 @@ export async function createOrResetDraft(input: {
       .where(eq(vouchDrafts.id, existing.id))
       .returning();
 
-    return updated;
+    return rows[0]!;
   }
 
   try {
-    const [created] = await db
+    const rows = await db
       .insert(vouchDrafts)
       .values({
         reviewerTelegramId: input.reviewerTelegramId,
@@ -130,14 +132,14 @@ export async function createOrResetDraft(input: {
       })
       .returning();
 
-    return created;
+    return rows[0]!;
   } catch {
     const retried = await getDraftByReviewerTelegramId(input.reviewerTelegramId);
     if (!retried) {
       throw new Error(`Failed to create draft for reviewer ${input.reviewerTelegramId}`);
     }
 
-    const [updated] = await db
+    const rows = await db
       .update(vouchDrafts)
       .set({
         reviewerUsername: input.reviewerUsername,
@@ -154,7 +156,7 @@ export async function createOrResetDraft(input: {
       .where(eq(vouchDrafts.id, retried.id))
       .returning();
 
-    return updated;
+    return rows[0]!;
   }
 }
 
@@ -177,7 +179,7 @@ export async function updateDraftByReviewerTelegramId(
     return null;
   }
 
-  const [updated] = await db
+  const rows = await db
     .update(vouchDrafts)
     .set({
       reviewerUsername: updates.reviewerUsername ?? draft.reviewerUsername,
@@ -194,7 +196,7 @@ export async function updateDraftByReviewerTelegramId(
     .where(eq(vouchDrafts.id, draft.id))
     .returning();
 
-  return updated;
+  return rows[0]!;
 }
 
 export async function clearDraftByReviewerTelegramId(reviewerTelegramId: number) {
@@ -245,7 +247,7 @@ export async function createArchiveEntry(input: {
   legacySourceTimestamp?: Date | null;
   createdAt?: Date;
 }) {
-  const [created] = await db
+  const rows = await db
     .insert(vouchEntries)
     .values({
       reviewerUserId: input.reviewerUserId,
@@ -267,11 +269,12 @@ export async function createArchiveEntry(input: {
     })
     .returning();
 
-  return created;
+  // insert().returning() always returns the inserted row
+  return rows[0]!;
 }
 
 export async function setArchiveEntryPublishedMessageId(entryId: number, publishedMessageId: number) {
-  const [updated] = await db
+  const rows = await db
     .update(vouchEntries)
     .set({
       publishedMessageId,
@@ -281,7 +284,7 @@ export async function setArchiveEntryPublishedMessageId(entryId: number, publish
     .where(eq(vouchEntries.id, entryId))
     .returning();
 
-  return updated;
+  return rows[0]!;
 }
 
 export async function markArchiveEntryPublishing(entryId: number) {
@@ -304,7 +307,7 @@ export async function markArchiveEntryPublishing(entryId: number) {
 }
 
 export async function setArchiveEntryStatus(entryId: number, status: string) {
-  const [updated] = await db
+  const rows = await db
     .update(vouchEntries)
     .set({
       status,
@@ -313,7 +316,7 @@ export async function setArchiveEntryStatus(entryId: number, status: string) {
     .where(eq(vouchEntries.id, entryId))
     .returning();
 
-  return updated ?? null;
+  return rows[0] ?? null;
 }
 
 export async function getArchiveEntryById(entryId: number) {
@@ -345,7 +348,7 @@ export async function getArchiveEntryByLegacySource(input: {
 }
 
 export async function markArchiveEntryRemoved(entryId: number) {
-  const [updated] = await db
+  const rows = await db
     .update(vouchEntries)
     .set({
       status: "removed",
@@ -354,7 +357,7 @@ export async function markArchiveEntryRemoved(entryId: number) {
     .where(eq(vouchEntries.id, entryId))
     .returning();
 
-  return updated;
+  return rows[0]!;
 }
 
 export async function getRecentArchiveEntries(limit: number) {
@@ -394,7 +397,7 @@ export async function saveLauncherMessage(chatId: number, messageId: number) {
   const existing = await getLauncherByChatId(chatId);
 
   if (existing) {
-    const [updated] = await db
+    const rows = await db
       .update(chatLaunchers)
       .set({
         messageId,
@@ -403,10 +406,10 @@ export async function saveLauncherMessage(chatId: number, messageId: number) {
       .where(eq(chatLaunchers.id, existing.id))
       .returning();
 
-    return updated;
+    return rows[0]!;
   }
 
-  const [created] = await db
+  const rows = await db
     .insert(chatLaunchers)
     .values({
       chatId,
@@ -415,7 +418,7 @@ export async function saveLauncherMessage(chatId: number, messageId: number) {
     })
     .returning();
 
-  return created;
+  return rows[0]!;
 }
 
 export async function withChatLauncherLock<T>(chatId: number, fn: () => Promise<T>) {
@@ -491,7 +494,7 @@ export async function reserveTelegramUpdate(updateId: number) {
 }
 
 export async function completeTelegramUpdate(updateId: number) {
-  const [updated] = await db
+  const rows = await db
     .update(processedTelegramUpdates)
     .set({
       status: "completed",
@@ -500,7 +503,7 @@ export async function completeTelegramUpdate(updateId: number) {
     .where(eq(processedTelegramUpdates.updateId, updateId))
     .returning();
 
-  return updated;
+  return rows[0]!;
 }
 
 export async function releaseTelegramUpdate(updateId: number) {

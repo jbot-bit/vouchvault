@@ -436,7 +436,8 @@ export function parseLegacyExportMessage(input: {
     });
   }
 
-  const targetUsername = targetUsernames[0];
+  // length is exactly 1 here (checked above), so index 0 is guaranteed
+  const targetUsername = targetUsernames[0]!;
   if (targetUsername === reviewerUsername) {
     return buildSkipDecision({
       message: input.message,
