@@ -139,6 +139,43 @@ test("skips self-targeted legacy messages", () => {
   assert.equal(decision.reviewItem.reason, "self_target");
 });
 
+test("synthesises reviewer handle from numeric from_id when @username is missing", () => {
+  const decision = parseLegacyExportMessage({
+    message: {
+      type: "message",
+      id: 2,
+      date_unixtime: "1700000000",
+      from: null,
+      from_id: "user6812728770",
+      text: "@target +vouch",
+    },
+    sourceChatId: -1001234567890,
+  });
+  assert.equal(decision.kind, "import");
+  if (decision.kind === "import") {
+    assert.equal(decision.candidate.reviewerUsername, "user6812728770");
+    assert.equal(decision.candidate.reviewerTelegramId, 6812728770);
+  }
+});
+
+test("skips chat<id> and channel<id> from_id values as bot_sender", () => {
+  const decision = parseLegacyExportMessage({
+    message: {
+      type: "message",
+      id: 3,
+      date_unixtime: "1700000000",
+      from: null,
+      from_id: "channel1234567890",
+      text: "@target +rep",
+    },
+    sourceChatId: -1001234567890,
+  });
+  assert.equal(decision.kind, "skip");
+  if (decision.kind === "skip") {
+    assert.equal(decision.bucket, "bot_sender");
+  }
+});
+
 test("skips messages from configured bot senders", () => {
   const decision = parseLegacyExportMessage({
     message: {

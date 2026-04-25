@@ -87,6 +87,8 @@ const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
 ];
 
 const TELEGRAM_USERNAME_REGEX = /@([A-Za-z][A-Za-z0-9_]{4,31})\b/g;
+const FROM_ID_USER_PREFIX = /^user(\d+)$/;
+const FROM_ID_CHAT_OR_CHANNEL_PREFIX = /^(chat|channel)\d+$/;
 const REVIEWER_FIELD_NAMES = [
   "username",
   "from_username",
@@ -336,6 +338,19 @@ function buildSkipDecision(input: {
   };
 }
 
+function extractFromIdNumeric(message: unknown): { kind: "user"; numericId: number } | { kind: "non_user" } | null {
+  if (!isRecord(message)) return null;
+  const fromId = message.from_id;
+  if (typeof fromId !== "string") return null;
+  const userMatch = FROM_ID_USER_PREFIX.exec(fromId);
+  if (userMatch) {
+    const numericId = Number(userMatch[1]);
+    return Number.isSafeInteger(numericId) ? { kind: "user", numericId } : null;
+  }
+  if (FROM_ID_CHAT_OR_CHANNEL_PREFIX.test(fromId)) return { kind: "non_user" };
+  return null;
+}
+
 export function parseLegacyExportMessage(input: {
   message: unknown;
   sourceChatId: number;
@@ -356,7 +371,8 @@ export function parseLegacyExportMessage(input: {
   const messageType = typeof input.message.type === "string" ? input.message.type : "message";
   const sourceMessageId = getLegacyMessageId(input.message);
   const originalTimestamp = getLegacyMessageTimestamp(input.message);
-  const reviewerUsername = extractLegacyReviewerUsername(input.message);
+  let reviewerUsername = extractLegacyReviewerUsername(input.message);
+  let reviewerNumericId: number | null = null;
 
   if (messageType !== "message") {
     return buildSkipDecision({
@@ -404,6 +420,25 @@ export function parseLegacyExportMessage(input: {
       detail: `Skipping known bot sender ${reviewerUsername}.`,
       bucket: "bot_sender",
     });
+  }
+
+  if (!reviewerUsername) {
+    const fromId = extractFromIdNumeric(input.message);
+    if (fromId?.kind === "non_user") {
+      return buildSkipDecision({
+        message: input.message,
+        sourceMessageId,
+        originalTimestamp,
+        reviewerUsername: null,
+        reason: "bot_sender",
+        detail: "Sender is a chat/channel, not a user.",
+        bucket: "bot_sender",
+      });
+    }
+    if (fromId?.kind === "user") {
+      reviewerUsername = `user${fromId.numericId}`;
+      reviewerNumericId = fromId.numericId;
+    }
   }
 
   if (!reviewerUsername) {
@@ -487,7 +522,7 @@ export function parseLegacyExportMessage(input: {
       sourceMessageId,
       originalTimestamp,
       reviewerUsername,
-      reviewerTelegramId: getSyntheticLegacyReviewerTelegramId(reviewerUsername),
+      reviewerTelegramId: reviewerNumericId ?? getSyntheticLegacyReviewerTelegramId(reviewerUsername),
       targetUsername,
       entryType: LEGACY_ENTRY_TYPE,
       result: sentiment.result,
