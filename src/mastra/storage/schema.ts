@@ -25,6 +25,10 @@ export const businessProfiles = pgTable("business_profiles", {
   id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
   username: text("username").notNull().unique(),
   isFrozen: boolean("is_frozen").notNull().default(false),
+  freezeReason: text("freeze_reason"),
+  frozenAt: timestamp("frozen_at"),
+  frozenByTelegramId: bigint("frozen_by_telegram_id", { mode: "number" }),
+  telegramId: bigint("telegram_id", { mode: "number" }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

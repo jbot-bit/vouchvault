@@ -29,6 +29,13 @@
       "when": 1777096066605,
       "tag": "0003_admin_audit_log",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1777096111005,
+      "tag": "0004_business_profiles_freeze_reason",
+      "breakpoints": true
     }
   ]
 }
