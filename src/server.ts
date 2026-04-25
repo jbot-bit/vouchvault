@@ -1,16 +1,8 @@
 import { createServer } from "node:http";
 
-import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
+import { validateBootEnv } from "./core/bootValidation.ts";
+import { installGracefulShutdown } from "./core/gracefulShutdown.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
-
-function requireRuntimeEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-
-  return value;
-}
 
 function jsonResponse(body: unknown, statusCode = 200) {
   return {
@@ -53,11 +45,7 @@ async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
 }
 
 async function main() {
-  requireRuntimeEnv("DATABASE_URL");
-  requireRuntimeEnv("TELEGRAM_BOT_TOKEN");
-  if (getAllowedTelegramChatIdSet().size === 0) {
-    throw new Error("TELEGRAM_ALLOWED_CHAT_IDS is required.");
-  }
+  validateBootEnv();
 
   const { drizzle } = await import("drizzle-orm/node-postgres");
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
@@ -74,6 +62,24 @@ async function main() {
         const response = jsonResponse({ ok: true });
         res.writeHead(response.statusCode, response.headers);
         res.end(response.body);
+        return;
+      }
+
+      if (req.method === "GET" && req.url === "/readyz") {
+        try {
+          const { pool } = await import("./core/storage/db.ts");
+          await pool.query("SELECT 1");
+          const response = jsonResponse({ ok: true });
+          res.writeHead(response.statusCode, response.headers);
+          res.end(response.body);
+        } catch (error) {
+          const response = jsonResponse(
+            { ok: false, error: error instanceof Error ? error.message : String(error) },
+            503,
+          );
+          res.writeHead(response.statusCode, response.headers);
+          res.end(response.body);
+        }
         return;
       }
 
@@ -123,8 +129,17 @@ async function main() {
         host,
         webhookPath: "/webhooks/telegram/action",
         healthPath: "/healthz",
+        readyzPath: "/readyz",
       }),
     );
+  });
+
+  installGracefulShutdown({
+    server,
+    dbPool: pool,
+    drainMs: 5_000,
+    hardCeilingMs: 8_000,
+    logger: console,
   });
 }
 
