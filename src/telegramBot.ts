@@ -50,6 +50,7 @@ import {
   listFrozenProfiles,
   markArchiveEntryRemoved,
   releaseTelegramUpdate,
+  setArchiveEntryStatus,
   reserveTelegramUpdate,
   runArchiveMaintenance,
   setBusinessProfileFrozen,
@@ -71,7 +72,7 @@ import {
   editTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
-import { isChatPaused } from "./core/chatSettingsStore.ts";
+import { isChatPaused, setChatPaused } from "./core/chatSettingsStore.ts";
 import { recordAdminAction } from "./core/adminAuditStore.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
@@ -519,6 +520,86 @@ async function handleAdminCommand(input: {
     );
     return;
   }
+
+  if (input.command === "/recover_entry") {
+    const entryId = Number(input.args[0]);
+    if (!Number.isInteger(entryId)) {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: "Use: /recover_entry &lt;id&gt;.",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        },
+        input.logger,
+      );
+      return;
+    }
+    const entry = await getArchiveEntryById(entryId);
+    if (!entry) {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Entry #${entryId} not found.`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        },
+        input.logger,
+      );
+      return;
+    }
+    if (entry.status !== "publishing") {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Entry #${entryId} is in status="${entry.status}", no recovery needed.`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        },
+        input.logger,
+      );
+      return;
+    }
+    await setArchiveEntryStatus(entryId, "pending");
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      entryId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: `Entry #${entryId} reset to pending.`,
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  if (input.command === "/pause" || input.command === "/unpause") {
+    await setChatPaused({
+      chatId: input.chatId,
+      paused: input.command === "/pause",
+      byTelegramId: input.from.id,
+    });
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: input.command === "/pause" ? "Vouching paused." : "Vouching resumed.",
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
+      input.logger,
+    );
+    return;
+  }
 }
 
 async function applySelectedTarget(input: {
@@ -815,7 +896,10 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       command === "/freeze" ||
       command === "/unfreeze" ||
       command === "/remove_entry" ||
-      command === "/frozen_list"
+      command === "/frozen_list" ||
+      command === "/recover_entry" ||
+      command === "/pause" ||
+      command === "/unpause"
     ) {
       await handleAdminCommand({
         command,
