@@ -15,6 +15,13 @@
       "when": 1777095957604,
       "tag": "0001_drop_dead_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1777095999949,
+      "tag": "0002_chat_settings",
+      "breakpoints": true
     }
   ]
 }

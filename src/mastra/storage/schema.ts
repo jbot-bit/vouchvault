@@ -105,3 +105,14 @@ export const processedTelegramUpdates = pgTable("processed_telegram_updates", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+export const chatSettings = pgTable("chat_settings", {
+  chatId: bigint("chat_id", { mode: "number" }).primaryKey(),
+  paused: boolean("paused").notNull().default(false),
+  pausedAt: timestamp("paused_at"),
+  pausedByTelegramId: bigint("paused_by_telegram_id", { mode: "number" }),
+  status: text("status").notNull().default("active"),
+  migratedToChatId: bigint("migrated_to_chat_id", { mode: "number" }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
