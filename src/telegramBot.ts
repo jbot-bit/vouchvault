@@ -4,6 +4,7 @@ import {
   buildGroupLauncherReplyText,
   buildLookupText,
   buildPreviewText,
+  buildProfileText,
   buildPublishedDraftText,
   buildRecentEntriesText,
   buildResultPromptText,
@@ -46,6 +47,7 @@ import {
   getDraftByReviewerTelegramId,
   getOrCreateBusinessProfile,
   getRecentArchiveEntries,
+  getProfileSummary,
   hasRecentEntryForReviewerAndTarget,
   listFrozenProfiles,
   markArchiveEntryRemoved,
@@ -335,6 +337,36 @@ async function handleLookupCommand(input: {
           source: entry.source as EntrySource,
         })),
       }),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
+    input.logger,
+  );
+}
+
+async function handleProfileCommand(input: {
+  chatId: number;
+  rawUsername: string | null | undefined;
+  replyToMessageId?: number | null;
+  disableNotification?: boolean;
+  logger?: LoggerLike;
+}) {
+  const targetUsername = normalizeUsername(input.rawUsername ?? "");
+  if (!targetUsername) {
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: "Use: /profile @username.",
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
+      input.logger,
+    );
+    return;
+  }
+  const summary = await getProfileSummary(targetUsername);
+  await sendTelegramMessage(
+    {
+      chatId: input.chatId,
+      text: buildProfileText({ targetUsername, ...summary }),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
     },
     input.logger,
@@ -892,6 +924,11 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
 
+    if (command === "/profile") {
+      await handleProfileCommand({ chatId, rawUsername: args[0], logger });
+      return;
+    }
+
     if (
       command === "/freeze" ||
       command === "/unfreeze" ||
@@ -1029,7 +1066,37 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
-  if (command === "/freeze" || command === "/unfreeze" || command === "/remove_entry") {
+  if (command === "/profile") {
+    if (!isAdmin(message.from?.id)) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildAdminOnlyText(),
+          ...buildReplyOptions(message.message_id, true),
+        },
+        logger,
+      );
+      return;
+    }
+    await handleProfileCommand({
+      chatId,
+      rawUsername: args[0],
+      replyToMessageId: message.message_id,
+      disableNotification: true,
+      logger,
+    });
+    return;
+  }
+
+  if (
+    command === "/freeze" ||
+    command === "/unfreeze" ||
+    command === "/remove_entry" ||
+    command === "/frozen_list" ||
+    command === "/recover_entry" ||
+    command === "/pause" ||
+    command === "/unpause"
+  ) {
     await handleAdminCommand({
       command,
       args,

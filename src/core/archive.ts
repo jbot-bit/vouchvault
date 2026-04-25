@@ -380,6 +380,31 @@ export function buildAdminOnlyText(): string {
   return "<b>Admin only.</b>";
 }
 
+export function buildProfileText(input: {
+  targetUsername: string;
+  totals: { positive: number; mixed: number; negative: number };
+  isFrozen: boolean;
+  freezeReason: string | null;
+  recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
+}): string {
+  const status = input.isFrozen
+    ? `Frozen — <i>${escapeHtml(input.freezeReason ?? "no reason given")}</i>`
+    : "Active";
+  const lines = [
+    `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`,
+    `Positive: ${input.totals.positive} • Mixed: ${input.totals.mixed} • Negative: ${input.totals.negative}`,
+    `Status: ${status}`,
+  ];
+  if (input.recent.length > 0) {
+    lines.push("");
+    lines.push("<b>Last 5 entries</b>");
+    for (const r of input.recent) {
+      lines.push(`<b>#${r.id}</b> — ${fmtResult(r.result)} • ${fmtDate(r.createdAt)}`);
+    }
+  }
+  return lines.join("\n");
+}
+
 export function buildFrozenListText(
   rows: Array<{ username: string; freezeReason: string | null; frozenAt: Date | null }>,
 ): string {

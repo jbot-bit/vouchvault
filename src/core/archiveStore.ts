@@ -64,6 +64,59 @@ export async function getOrCreateBusinessProfile(username: string) {
   }
 }
 
+export async function getProfileSummary(targetUsername: string): Promise<{
+  totals: { positive: number; mixed: number; negative: number };
+  isFrozen: boolean;
+  freezeReason: string | null;
+  recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
+}> {
+  const profile = await db
+    .select({
+      isFrozen: businessProfiles.isFrozen,
+      freezeReason: businessProfiles.freezeReason,
+    })
+    .from(businessProfiles)
+    .where(eq(businessProfiles.username, targetUsername));
+
+  const counts = await db
+    .select({
+      result: vouchEntries.result,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(vouchEntries)
+    .where(
+      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
+    )
+    .groupBy(vouchEntries.result);
+
+  const recent = await db
+    .select({
+      id: vouchEntries.id,
+      result: vouchEntries.result,
+      createdAt: vouchEntries.createdAt,
+    })
+    .from(vouchEntries)
+    .where(
+      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
+    )
+    .orderBy(desc(vouchEntries.createdAt))
+    .limit(5);
+
+  const totals = { positive: 0, mixed: 0, negative: 0 };
+  for (const row of counts) {
+    if (row.result === "positive") totals.positive = row.count;
+    else if (row.result === "mixed") totals.mixed = row.count;
+    else if (row.result === "negative") totals.negative = row.count;
+  }
+
+  return {
+    totals,
+    isFrozen: profile[0]?.isFrozen ?? false,
+    freezeReason: profile[0]?.freezeReason ?? null,
+    recent: recent.map((r) => ({ id: r.id, result: r.result as EntryResult, createdAt: r.createdAt })),
+  };
+}
+
 export async function listFrozenProfiles() {
   return db
     .select({
