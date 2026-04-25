@@ -15,7 +15,12 @@ test("lookup truncates to <= 4096 chars with …and N more.", () => {
     tags: ["good_comms" as const, "efficient" as const],
     createdAt: new Date(),
   }));
-  const text = buildLookupText({ targetUsername: "bob_target", entries });
+  const text = buildLookupText({
+    targetUsername: "bob_target",
+    isFrozen: false,
+    freezeReason: null,
+    entries,
+  });
   assert.ok(text.length <= 4096);
   assert.match(text, /…and \d+ more\./);
 });
@@ -75,6 +80,11 @@ test("lookup leaves short lists untouched (no ellipsis line)", () => {
       createdAt: new Date(),
     },
   ];
-  const text = buildLookupText({ targetUsername: "bob", entries });
+  const text = buildLookupText({
+    targetUsername: "bob",
+    isFrozen: false,
+    freezeReason: null,
+    entries,
+  });
   assert.doesNotMatch(text, /…and \d+ more\./);
 });

@@ -39,7 +39,7 @@
 - `src/core/gracefulShutdown.ts` — SIGTERM handling
 - `src/core/chatSettingsStore.ts` — pause / kicked / migrated
 - `src/core/adminAuditStore.ts` — admin_audit_log writer
-- `src/core/rateLimiter.ts` — 5-vouches/24h rolling window
+- `src/core/rateLimiter.ts` — 5-vouches/24h rolling window _(merged: shipped as `countRecentEntriesByReviewer` in `src/core/archiveStore.ts`; no standalone module landed)_
 - `src/core/legacyBotSenders.ts` — bot-sender filter config
 - `tests/_helpers/inMemoryStore.ts` — store mock for integration tests
 - `src/core/<module>.test.ts` — colocated test files (per existing convention)

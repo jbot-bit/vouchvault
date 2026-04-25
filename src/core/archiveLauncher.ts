@@ -1,5 +1,6 @@
 import { buildLauncherText } from "./archive.ts";
 import { isChatKicked } from "./chatSettingsStore.ts";
+import { isLauncherDebounceActive } from "./launcherPolicy.ts";
 import { getLauncherByChatId, saveLauncherMessage, withChatLauncherLock } from "./archiveStore.ts";
 import {
   getAllowedTelegramChatIds,
@@ -67,22 +68,16 @@ export async function sendLauncherPrompt(
   );
 }
 
-// Debounce window: if the launcher was refreshed less than 30 seconds ago,
-// skip the delete + re-send. This protects against burst refreshes from
-// /vouch + entry publish + entry remove all firing within seconds in a busy
-// chat — Telegram rate-limits delete/send and an unnecessary churn looks
-// noisy in the chat history too.
-const LAUNCHER_REFRESH_DEBOUNCE_MS = 30_000;
-
 export async function refreshGroupLauncher(chatId: number, logger?: any) {
-  if (await isChatKicked(chatId)) {
-    logger?.info?.("[Archive] Skipping launcher refresh for kicked chat", { chatId });
-    return;
-  }
   await withChatLauncherLock(chatId, async () => {
+    if (await isChatKicked(chatId)) {
+      logger?.info?.("[Archive] Skipping launcher refresh for kicked chat", { chatId });
+      return;
+    }
+
     const existing = await getLauncherByChatId(chatId);
 
-    if (existing && Date.now() - existing.updatedAt.getTime() < LAUNCHER_REFRESH_DEBOUNCE_MS) {
+    if (existing && isLauncherDebounceActive(existing.updatedAt, Date.now())) {
       logger?.info?.("[Archive] Launcher refresh debounced", {
         chatId,
         ageMs: Date.now() - existing.updatedAt.getTime(),

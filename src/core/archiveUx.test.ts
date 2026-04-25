@@ -8,10 +8,13 @@ import {
   buildBotShortDescription,
   buildFrozenListText,
   buildGroupLauncherReplyText,
+  buildLookupText,
   buildPinnedGuideText,
   buildPreviewText,
   buildProfileText,
   buildWelcomeText,
+  fmtDate,
+  fmtDateTime,
 } from "./archive.ts";
 import {
   buildReplyKeyboardRemove,
@@ -231,6 +234,61 @@ test("buildProfileText shows Frozen status with reason when frozen, no recent bl
 
   assert.match(text, /Status: Frozen — <i>scam attempt 2025-12<\/i>/);
   assert.doesNotMatch(text, /Last 5 entries/);
+});
+
+test("buildLookupText shows Active status under heading when not frozen", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    entries: [
+      {
+        id: 42,
+        reviewerUsername: "alice",
+        result: "positive",
+        tags: ["good_comms"],
+        createdAt: new Date(Date.UTC(2026, 3, 5, 12)),
+      },
+    ],
+  });
+
+  assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
+  assert.match(text, /Status: Active/);
+  assert.match(text, /<b>#42<\/b>/);
+});
+
+test("buildLookupText shows Frozen status with reason under heading when frozen", () => {
+  const text = buildLookupText({
+    targetUsername: "icebox",
+    isFrozen: true,
+    freezeReason: "scam attempt",
+    entries: [],
+  });
+
+  assert.match(text, /<b><u>@icebox<\/u><\/b>/);
+  assert.match(text, /Status: Frozen — <i>scam attempt<\/i>/);
+  assert.match(text, /No entries for <b>@icebox<\/b>\./);
+});
+
+test("buildLookupText falls back to 'no reason given' when frozen with null reason", () => {
+  const text = buildLookupText({
+    targetUsername: "icebox",
+    isFrozen: true,
+    freezeReason: null,
+    entries: [],
+  });
+
+  assert.match(text, /Status: Frozen — <i>no reason given<\/i>/);
+});
+
+test("fmtDate renders dd/mm/yyyy in UTC", () => {
+  assert.equal(fmtDate(new Date(Date.UTC(2026, 3, 5, 12))), "05/04/2026");
+  assert.equal(fmtDate(new Date(Date.UTC(2025, 10, 2, 0))), "02/11/2025");
+});
+
+test("fmtDateTime renders dd/mm/yyyy HH:MM in UTC", () => {
+  assert.equal(fmtDateTime(new Date(Date.UTC(2026, 3, 5, 9, 7))), "05/04/2026 09:07");
+  assert.equal(fmtDateTime(new Date(Date.UTC(2025, 10, 2, 23, 45))), "02/11/2025 23:45");
 });
 
 test("buildAdminHelpText lists every admin command", () => {
