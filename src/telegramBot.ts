@@ -1,5 +1,6 @@
 import {
   buildAdminOnlyText,
+  buildFrozenListText,
   buildGroupLauncherReplyText,
   buildLookupText,
   buildPreviewText,
@@ -46,6 +47,7 @@ import {
   getOrCreateBusinessProfile,
   getRecentArchiveEntries,
   hasRecentEntryForReviewerAndTarget,
+  listFrozenProfiles,
   markArchiveEntryRemoved,
   releaseTelegramUpdate,
   reserveTelegramUpdate,
@@ -495,6 +497,27 @@ async function handleAdminCommand(input: {
       },
       input.logger,
     );
+    return;
+  }
+
+  if (input.command === "/frozen_list") {
+    const rows = await listFrozenProfiles();
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: buildFrozenListText(rows),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
+      input.logger,
+    );
+    return;
   }
 }
 
@@ -788,7 +811,12 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
 
-    if (command === "/freeze" || command === "/unfreeze" || command === "/remove_entry") {
+    if (
+      command === "/freeze" ||
+      command === "/unfreeze" ||
+      command === "/remove_entry" ||
+      command === "/frozen_list"
+    ) {
       await handleAdminCommand({
         command,
         args,

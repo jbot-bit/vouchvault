@@ -64,6 +64,18 @@ export async function getOrCreateBusinessProfile(username: string) {
   }
 }
 
+export async function listFrozenProfiles() {
+  return db
+    .select({
+      username: businessProfiles.username,
+      freezeReason: businessProfiles.freezeReason,
+      frozenAt: businessProfiles.frozenAt,
+    })
+    .from(businessProfiles)
+    .where(eq(businessProfiles.isFrozen, true))
+    .orderBy(desc(businessProfiles.frozenAt));
+}
+
 export async function setBusinessProfileFrozen(input: {
   username: string;
   isFrozen: boolean;

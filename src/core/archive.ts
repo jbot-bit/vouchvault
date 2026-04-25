@@ -379,3 +379,24 @@ export function buildBotShortDescription(): string {
 export function buildAdminOnlyText(): string {
   return "<b>Admin only.</b>";
 }
+
+export function buildFrozenListText(
+  rows: Array<{ username: string; freezeReason: string | null; frozenAt: Date | null }>,
+): string {
+  if (rows.length === 0) {
+    return "No frozen profiles.";
+  }
+  const lines = ["<b><u>Frozen profiles</u></b>", ""];
+  for (const row of rows.slice(0, 10)) {
+    const date = row.frozenAt ? fmtDate(row.frozenAt) : "unknown";
+    const reason = row.freezeReason
+      ? `<i>${escapeHtml(row.freezeReason)}</i>`
+      : "<i>no reason given</i>";
+    lines.push(`${fmtUser(row.username)} — frozen ${date} — ${reason}`);
+  }
+  if (rows.length > 10) {
+    lines.push("");
+    lines.push(`…and ${rows.length - 10} more — refine with /lookup @x`);
+  }
+  return lines.join("\n").trimEnd();
+}
