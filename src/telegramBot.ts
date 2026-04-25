@@ -1104,6 +1104,14 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
 
   if (command === "/profile") {
     if (!isAdmin(message.from?.id)) {
+      await recordAdminAction({
+        adminTelegramId: message.from?.id ?? 0,
+        adminUsername: message.from?.username ?? null,
+        command,
+        targetChatId: chatId,
+        targetUsername: args[0] ?? null,
+        denied: true,
+      });
       await sendTelegramMessage(
         {
           chatId,
@@ -1626,7 +1634,9 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
       await completeTelegramUpdate(updateId);
     }
 
-    return { handled: Boolean(payload.callback_query || payload.message) };
+    return {
+      handled: Boolean(payload.callback_query || payload.message || payload.my_chat_member),
+    };
   } catch (error) {
     if (updateId != null) {
       await releaseTelegramUpdate(updateId);

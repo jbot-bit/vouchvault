@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAdminHelpText,
   buildArchiveEntryText,
   buildBotDescriptionText,
   buildBotShortDescription,
+  buildFrozenListText,
   buildGroupLauncherReplyText,
   buildPinnedGuideText,
   buildPreviewText,
+  buildProfileText,
   buildWelcomeText,
 } from "./archive.ts";
 import {
@@ -152,4 +155,88 @@ test("telegram UX helpers favor threaded quiet replies", () => {
     input_field_placeholder: "Choose a target",
   });
   assert.deepEqual(buildReplyKeyboardRemove(), { remove_keyboard: true });
+});
+
+test("buildFrozenListText shows 'No frozen profiles.' when empty", () => {
+  assert.equal(buildFrozenListText([]), "No frozen profiles.");
+});
+
+test("buildFrozenListText renders rows with reason and dd/mm/yyyy date", () => {
+  const text = buildFrozenListText([
+    {
+      username: "scammer",
+      freezeReason: "ghosted multiple buyers",
+      frozenAt: new Date(Date.UTC(2026, 3, 5, 12)),
+    },
+    { username: "lurker", freezeReason: null, frozenAt: null },
+  ]);
+
+  assert.match(text, /<b><u>Frozen profiles<\/u><\/b>/);
+  assert.match(text, /<b>@scammer<\/b> — frozen 05\/04\/2026 — <i>ghosted multiple buyers<\/i>/);
+  assert.match(text, /<b>@lurker<\/b> — frozen unknown — <i>no reason given<\/i>/);
+});
+
+test("buildFrozenListText caps at 10 rows and notes the remainder", () => {
+  const rows = Array.from({ length: 13 }, (_, i) => ({
+    username: `user${i + 1}`,
+    freezeReason: null,
+    frozenAt: new Date(Date.UTC(2026, 0, 1, 12)),
+  }));
+  const text = buildFrozenListText(rows);
+
+  assert.match(text, /<b>@user1<\/b>/);
+  assert.match(text, /<b>@user10<\/b>/);
+  assert.doesNotMatch(text, /<b>@user11<\/b>/);
+  assert.match(text, /…and 3 more — refine with \/lookup @x/);
+});
+
+test("buildProfileText renders totals, status and last 5 entries", () => {
+  const text = buildProfileText({
+    targetUsername: "bobbiz",
+    totals: { positive: 4, mixed: 1, negative: 2 },
+    isFrozen: false,
+    freezeReason: null,
+    recent: [
+      { id: 42, result: "positive", createdAt: new Date(Date.UTC(2026, 3, 5, 12)) },
+      { id: 41, result: "negative", createdAt: new Date(Date.UTC(2026, 3, 4, 12)) },
+    ],
+  });
+
+  assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
+  assert.match(text, /Positive: 4 • Mixed: 1 • Negative: 2/);
+  assert.match(text, /Status: Active/);
+  assert.match(text, /<b>Last 5 entries<\/b>/);
+  assert.match(text, /<b>#42<\/b> — <b>Positive<\/b> • 05\/04\/2026/);
+  assert.match(text, /<b>#41<\/b> — <b>Negative<\/b> • 04\/04\/2026/);
+});
+
+test("buildProfileText shows Frozen status with reason when frozen, no recent block when none", () => {
+  const text = buildProfileText({
+    targetUsername: "icebox",
+    totals: { positive: 0, mixed: 0, negative: 1 },
+    isFrozen: true,
+    freezeReason: "scam attempt 2025-12",
+    recent: [],
+  });
+
+  assert.match(text, /Status: Frozen — <i>scam attempt 2025-12<\/i>/);
+  assert.doesNotMatch(text, /Last 5 entries/);
+});
+
+test("buildAdminHelpText lists every admin command", () => {
+  const text = buildAdminHelpText();
+  assert.match(text, /<b><u>Admin commands<\/u><\/b>/);
+  for (const cmd of [
+    "/freeze @x",
+    "/unfreeze @x",
+    "/frozen_list",
+    "/remove_entry",
+    "/recover_entry",
+    "/profile @x",
+    "/lookup @x",
+    "/pause",
+    "/unpause",
+  ]) {
+    assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
+  }
 });

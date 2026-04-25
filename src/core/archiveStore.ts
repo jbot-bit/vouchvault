@@ -150,6 +150,7 @@ export async function setBusinessProfileFrozen(input: {
     .where(eq(businessProfiles.id, profile.id))
     .returning();
 
+  // update().returning() always returns the updated row when the where clause matches
   return rows[0]!;
 }
 
