@@ -96,15 +96,15 @@ If you see all of that, the deploy works.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Fix |
-| --- | --- | --- |
-| `getWebhookInfo` shows a `last_error_message` | Deploy isn't reachable, or secret mismatch | Confirm `PUBLIC_BASE_URL` is exactly what Replit shows; re-run `npm run telegram:webhook`. |
-| Webhook returns 403 | `TELEGRAM_WEBHOOK_SECRET_TOKEN` header doesn't match env | Re-run `npm run telegram:webhook` — it writes the same secret to Telegram that the server verifies. |
-| Webhook returns 500 | Missing env var or Postgres unreachable | Tail logs for the specific `is required.` message; check deploy Secrets. |
-| Bot silently ignores messages | `TELEGRAM_ALLOWED_CHAT_IDS` doesn't include the group ID, or the user is DMing without a draft | Non-private chats outside the allowlist are dropped on purpose. Add the chat ID and redeploy (or restart the deploy to pick up the secret). |
-| "table does not exist" errors | `db:init` never ran on the prod database | `ensureDatabaseSchema()` runs automatically at server start, but if it was skipped for any reason, run `npm run db:init` in the shell with the prod `DATABASE_URL` in your environment. |
-| `DATABASE_URL` undefined on deploy | Postgres integration attached to workspace but not to Deployment | See Step 5.4 — Deploy Secrets is a separate tab. Copy the var over and redeploy. |
-| Autoscale cold-start lag annoying in practice | Feature, not a bug | Switch deployment type to Reserved VM, or set a warm-instance minimum in Autoscale settings. |
+| Symptom                                       | Likely cause                                                                                   | Fix                                                                                                                                                                                     |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getWebhookInfo` shows a `last_error_message` | Deploy isn't reachable, or secret mismatch                                                     | Confirm `PUBLIC_BASE_URL` is exactly what Replit shows; re-run `npm run telegram:webhook`.                                                                                              |
+| Webhook returns 403                           | `TELEGRAM_WEBHOOK_SECRET_TOKEN` header doesn't match env                                       | Re-run `npm run telegram:webhook` — it writes the same secret to Telegram that the server verifies.                                                                                     |
+| Webhook returns 500                           | Missing env var or Postgres unreachable                                                        | Tail logs for the specific `is required.` message; check deploy Secrets.                                                                                                                |
+| Bot silently ignores messages                 | `TELEGRAM_ALLOWED_CHAT_IDS` doesn't include the group ID, or the user is DMing without a draft | Non-private chats outside the allowlist are dropped on purpose. Add the chat ID and redeploy (or restart the deploy to pick up the secret).                                             |
+| "table does not exist" errors                 | `db:init` never ran on the prod database                                                       | `ensureDatabaseSchema()` runs automatically at server start, but if it was skipped for any reason, run `npm run db:init` in the shell with the prod `DATABASE_URL` in your environment. |
+| `DATABASE_URL` undefined on deploy            | Postgres integration attached to workspace but not to Deployment                               | See Step 5.4 — Deploy Secrets is a separate tab. Copy the var over and redeploy.                                                                                                        |
+| Autoscale cold-start lag annoying in practice | Feature, not a bug                                                                             | Switch deployment type to Reserved VM, or set a warm-instance minimum in Autoscale settings.                                                                                            |
 
 ## Already known, non-blocking
 

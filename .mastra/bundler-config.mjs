@@ -4,7 +4,7 @@ const bundler = {
   // entrypoint.
   externals: ["@slack/web-api", "inngest", "inngest/hono", "hono", "hono/streaming"],
   // sourcemaps are good for debugging.
-  sourcemap: true
+  sourcemap: true,
 };
 
 export { bundler };

@@ -114,13 +114,15 @@ async function main() {
   });
 
   server.listen(port, host, () => {
-    console.info(JSON.stringify({
-      ok: true,
-      port,
-      host,
-      webhookPath: "/webhooks/telegram/action",
-      healthPath: "/healthz",
-    }));
+    console.info(
+      JSON.stringify({
+        ok: true,
+        port,
+        host,
+        webhookPath: "/webhooks/telegram/action",
+        healthPath: "/healthz",
+      }),
+    );
   });
 }
 

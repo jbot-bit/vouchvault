@@ -3,7 +3,11 @@ import path from "node:path";
 
 import { parseSelectedTags } from "./archive.ts";
 import { publishArchiveEntryRecord } from "./archivePublishing.ts";
-import { getPrimaryGroupChatId, isAllowedGroupChatId, refreshGroupLauncher } from "./archiveLauncher.ts";
+import {
+  getPrimaryGroupChatId,
+  isAllowedGroupChatId,
+  refreshGroupLauncher,
+} from "./archiveLauncher.ts";
 import {
   createArchiveEntry,
   getArchiveEntryByLegacySource,
@@ -228,19 +232,21 @@ async function writeLegacyCheckpoint(input: {
   checkpoint: LegacyReplayCheckpoint;
 }) {
   await mkdir(path.dirname(input.checkpointPath), { recursive: true });
-  await writeFile(
-    input.checkpointPath,
-    JSON.stringify(input.checkpoint, null, 2),
-    "utf8",
-  );
+  await writeFile(input.checkpointPath, JSON.stringify(input.checkpoint, null, 2), "utf8");
 }
 
-export async function replayLegacyExport(input: ReplayLegacyExportInput): Promise<LegacyReplayResult> {
+export async function replayLegacyExport(
+  input: ReplayLegacyExportInput,
+): Promise<LegacyReplayResult> {
   const logger = input.logger ?? console;
   const dryRun = input.dryRun === true;
   const exportFilePath = path.resolve(input.exportFilePath);
-  const reviewReportPath = path.resolve(input.reviewReportPath ?? buildDefaultReviewReportPath(exportFilePath));
-  const checkpointPath = path.resolve(input.checkpointPath ?? buildDefaultCheckpointPath(exportFilePath));
+  const reviewReportPath = path.resolve(
+    input.reviewReportPath ?? buildDefaultReviewReportPath(exportFilePath),
+  );
+  const checkpointPath = path.resolve(
+    input.checkpointPath ?? buildDefaultCheckpointPath(exportFilePath),
+  );
 
   const exportData = JSON.parse(await readFile(exportFilePath, "utf8"));
   const sourceChatId = resolveLegacySourceChatId(exportData, input.sourceChatId ?? null);

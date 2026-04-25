@@ -126,23 +126,29 @@ function isDraftExpired(draft: { updatedAt: Date }) {
 
 function buildStartKeyboard(targetGroupChatId?: number | null) {
   return buildInlineKeyboard([
-    [{
-      text: "Start a Vouch",
-      callback_data: targetGroupChatId != null && isAllowedGroupChatId(targetGroupChatId)
-        ? `archive:start:${targetGroupChatId}`
-        : "archive:start",
-    }],
+    [
+      {
+        text: "Start a Vouch",
+        callback_data:
+          targetGroupChatId != null && isAllowedGroupChatId(targetGroupChatId)
+            ? `archive:start:${targetGroupChatId}`
+            : "archive:start",
+      },
+    ],
   ]);
 }
 
 function buildRestartKeyboard(targetGroupChatId?: number | null) {
   return buildInlineKeyboard([
-    [{
-      text: "Start Another Vouch",
-      callback_data: targetGroupChatId != null && isAllowedGroupChatId(targetGroupChatId)
-        ? `archive:start:${targetGroupChatId}`
-        : "archive:start",
-    }],
+    [
+      {
+        text: "Start Another Vouch",
+        callback_data:
+          targetGroupChatId != null && isAllowedGroupChatId(targetGroupChatId)
+            ? `archive:start:${targetGroupChatId}`
+            : "archive:start",
+      },
+    ],
   ]);
 }
 
@@ -194,14 +200,10 @@ async function sendGroupLauncherReply(input: {
   logger?: LoggerLike;
   text?: string;
 }) {
-  return sendLauncherPrompt(
-    input.chatId,
-    input.logger,
-    {
-      text: input.text ?? buildGroupLauncherReplyText(),
-      ...buildThreadedGroupReplyOptions(input.replyToMessageId),
-    },
-  );
+  return sendLauncherPrompt(input.chatId, input.logger, {
+    text: input.text ?? buildGroupLauncherReplyText(),
+    ...buildThreadedGroupReplyOptions(input.replyToMessageId),
+  });
 }
 
 async function startDraftFlow(input: {
@@ -210,11 +212,12 @@ async function startDraftFlow(input: {
   targetGroupChatId?: number | null;
   logger?: LoggerLike;
 }) {
-  const resolvedTargetGroupChatId = input.targetGroupChatId == null
-    ? getPrimaryGroupChatId()
-    : isAllowedGroupChatId(input.targetGroupChatId)
-      ? input.targetGroupChatId
-      : null;
+  const resolvedTargetGroupChatId =
+    input.targetGroupChatId == null
+      ? getPrimaryGroupChatId()
+      : isAllowedGroupChatId(input.targetGroupChatId)
+        ? input.targetGroupChatId
+        : null;
 
   if (resolvedTargetGroupChatId == null) {
     await sendTelegramMessage(
@@ -241,12 +244,15 @@ async function startDraftFlow(input: {
       return;
     }
 
-    await createOrUpdateUser({
-      telegramId: input.from.id,
-      username: reviewerUsername,
-      firstName: input.from.first_name ?? null,
-      lastName: input.from.last_name ?? null,
-    }, input.logger);
+    await createOrUpdateUser(
+      {
+        telegramId: input.from.id,
+        username: reviewerUsername,
+        firstName: input.from.first_name ?? null,
+        lastName: input.from.last_name ?? null,
+      },
+      input.logger,
+    );
 
     await createOrResetDraft({
       reviewerTelegramId: input.from.id,
@@ -562,7 +568,9 @@ async function handleSharedTargetSelection(message: any, logger?: LoggerLike) {
     }
 
     const sharedUser = Array.isArray(usersShared.users) ? usersShared.users[0] : null;
-    const reviewerUsername = normalizeUsername(draft.reviewerUsername || message.from?.username || "");
+    const reviewerUsername = normalizeUsername(
+      draft.reviewerUsername || message.from?.username || "",
+    );
     if (!reviewerUsername) {
       await sendTelegramMessage(
         {
@@ -726,7 +734,9 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     }
 
     if (draft.step === "awaiting_target") {
-      const reviewerUsername = normalizeUsername(draft.reviewerUsername || message.from?.username || "");
+      const reviewerUsername = normalizeUsername(
+        draft.reviewerUsername || message.from?.username || "",
+      );
       if (!reviewerUsername) {
         await sendTelegramMessage(
           {
@@ -857,7 +867,11 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     }
 
     const requestedTargetGroupChatId = value ? Number(value) : null;
-    if (value && (!Number.isSafeInteger(requestedTargetGroupChatId) || !isAllowedGroupChatId(requestedTargetGroupChatId))) {
+    if (
+      value &&
+      (!Number.isSafeInteger(requestedTargetGroupChatId) ||
+        !isAllowedGroupChatId(requestedTargetGroupChatId))
+    ) {
       await answerTelegramCallbackQuery(
         {
           callbackQueryId: callbackQuery.id,
@@ -920,7 +934,10 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
 
     if (action === "cancel") {
       await clearDraftByReviewerTelegramId(reviewerTelegramId);
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, text: "Cancelled." }, logger);
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, text: "Cancelled." },
+        logger,
+      );
       await editTelegramMessage(
         {
           chatId,
@@ -935,7 +952,10 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
 
     if (action === "result") {
       if (!value || !isEntryResult(value) || !targetUsername) {
-        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, text: "Choose a target first." }, logger);
+        await answerTelegramCallbackQuery(
+          { callbackQueryId: callbackQuery.id, text: "Choose a target first." },
+          logger,
+        );
         return;
       }
 
@@ -962,11 +982,22 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     if (action === "tag") {
       const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
       const latestTargetUsername = latestDraft?.targetUsername ?? targetUsername;
-      const latestResult = latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = latestDraft ? parseSelectedTags(latestDraft.selectedTags) : selectedTags;
+      const latestResult =
+        latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
+      const latestSelectedTags = latestDraft
+        ? parseSelectedTags(latestDraft.selectedTags)
+        : selectedTags;
 
-      if (!value || !latestResult || !latestTargetUsername || !getAllowedTagsForResult(latestResult).includes(value as EntryTag)) {
-        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, text: "Choose a result first." }, logger);
+      if (
+        !value ||
+        !latestResult ||
+        !latestTargetUsername ||
+        !getAllowedTagsForResult(latestResult).includes(value as EntryTag)
+      ) {
+        await answerTelegramCallbackQuery(
+          { callbackQueryId: callbackQuery.id, text: "Choose a result first." },
+          logger,
+        );
         return;
       }
 
@@ -992,8 +1023,11 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     if (action === "done") {
       const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
       const latestTargetUsername = latestDraft?.targetUsername ?? targetUsername;
-      const latestResult = latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = latestDraft ? parseSelectedTags(latestDraft.selectedTags) : selectedTags;
+      const latestResult =
+        latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
+      const latestSelectedTags = latestDraft
+        ? parseSelectedTags(latestDraft.selectedTags)
+        : selectedTags;
 
       if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
         await answerTelegramCallbackQuery(
@@ -1029,9 +1063,13 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     if (action === "confirm") {
       const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
       const latestTargetUsername = latestDraft?.targetUsername ?? targetUsername;
-      const latestResult = latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = latestDraft ? parseSelectedTags(latestDraft.selectedTags) : selectedTags;
-      const latestTargetGroupChatId = latestDraft?.targetGroupChatId ?? draft.targetGroupChatId ?? null;
+      const latestResult =
+        latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
+      const latestSelectedTags = latestDraft
+        ? parseSelectedTags(latestDraft.selectedTags)
+        : selectedTags;
+      const latestTargetGroupChatId =
+        latestDraft?.targetGroupChatId ?? draft.targetGroupChatId ?? null;
 
       if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
         await answerTelegramCallbackQuery(
@@ -1065,7 +1103,9 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         return;
       }
 
-      const reviewerUsername = normalizeUsername(draft.reviewerUsername || callbackQuery.from?.username || "");
+      const reviewerUsername = normalizeUsername(
+        draft.reviewerUsername || callbackQuery.from?.username || "",
+      );
       if (!reviewerUsername) {
         await answerTelegramCallbackQuery(
           {
@@ -1107,14 +1147,18 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         return;
       }
 
-      const reviewer = await createOrUpdateUser({
-        telegramId: reviewerTelegramId,
-        username: reviewerUsername,
-        firstName: callbackQuery.from?.first_name ?? null,
-        lastName: callbackQuery.from?.last_name ?? null,
-      }, logger);
+      const reviewer = await createOrUpdateUser(
+        {
+          telegramId: reviewerTelegramId,
+          username: reviewerUsername,
+          firstName: callbackQuery.from?.first_name ?? null,
+          lastName: callbackQuery.from?.last_name ?? null,
+        },
+        logger,
+      );
 
-      const businessProfile = targetProfile ?? await getOrCreateBusinessProfile(latestTargetUsername);
+      const businessProfile =
+        targetProfile ?? (await getOrCreateBusinessProfile(latestTargetUsername));
       const createdEntry = await createArchiveEntry({
         reviewerUserId: reviewer.id,
         reviewerTelegramId,
@@ -1150,7 +1194,11 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           logger,
         );
       } catch (error) {
-        logger?.warn("Failed to answer publish callback", { error, reviewerTelegramId, entryId: createdEntry.id });
+        logger?.warn("Failed to answer publish callback", {
+          error,
+          reviewerTelegramId,
+          entryId: createdEntry.id,
+        });
       }
 
       try {
@@ -1164,7 +1212,11 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           logger,
         );
       } catch (error) {
-        logger?.warn("Failed to edit published draft message", { error, reviewerTelegramId, entryId: createdEntry.id });
+        logger?.warn("Failed to edit published draft message", {
+          error,
+          reviewerTelegramId,
+          entryId: createdEntry.id,
+        });
       }
       return;
     }

@@ -30,13 +30,16 @@ test("buildArchiveEntryText renders compact live entries with HTML formatting", 
     source: "live",
   });
 
-  assert.equal(text, [
-    "🧾 <b>Entry #42</b>",
-    "",
-    "OP: <b>@alice</b>",
-    "Target: <b>@bobbiz</b>",
-    "Result: <b>Positive</b>",
-  ].join("\n"));
+  assert.equal(
+    text,
+    [
+      "🧾 <b>Entry #42</b>",
+      "",
+      "OP: <b>@alice</b>",
+      "Target: <b>@bobbiz</b>",
+      "Result: <b>Positive</b>",
+    ].join("\n"),
+  );
 });
 
 test("buildArchiveEntryText renders compact legacy entries with HTML formatting", () => {
@@ -52,14 +55,17 @@ test("buildArchiveEntryText renders compact legacy entries with HTML formatting"
     legacySourceTimestamp: new Date("2025-11-02T00:00:00.000Z"),
   });
 
-  assert.equal(text, [
-    "🧾 <b>Legacy Entry #7</b>",
-    "",
-    "OP: <b>@legacyop</b>",
-    "Target: <b>@oldvendor</b>",
-    "Result: <b>Negative</b>",
-    "Original: 2025-11-02",
-  ].join("\n"));
+  assert.equal(
+    text,
+    [
+      "🧾 <b>Legacy Entry #7</b>",
+      "",
+      "OP: <b>@legacyop</b>",
+      "Target: <b>@oldvendor</b>",
+      "Result: <b>Negative</b>",
+      "Original: 2025-11-02",
+    ].join("\n"),
+  );
 });
 
 test("buildPreviewText renders the DM review screen with a bold heading", () => {
@@ -70,14 +76,17 @@ test("buildPreviewText renders the DM review screen with a bold heading", () => 
     tags: ["good_comms", "on_time"],
   });
 
-  assert.equal(text, [
-    "<b><u>Preview</u></b>",
-    "",
-    "OP: <b>@alice</b>",
-    "Target: <b>@bobbiz</b>",
-    "Result: <b>Positive</b>",
-    "Tags: Good Comms, On Time",
-  ].join("\n"));
+  assert.equal(
+    text,
+    [
+      "<b><u>Preview</u></b>",
+      "",
+      "OP: <b>@alice</b>",
+      "Target: <b>@bobbiz</b>",
+      "Result: <b>Positive</b>",
+      "Tags: Good Comms, On Time",
+    ].join("\n"),
+  );
 });
 
 test("welcome and pinned guide use the business-hub framing and How to Vouch walkthrough", () => {
@@ -120,16 +129,20 @@ test("telegram UX helpers favor threaded quiet replies", () => {
     disableNotification: true,
   });
   assert.deepEqual(buildTargetRequestReplyMarkup(), {
-    keyboard: [[{
-      text: "Choose Target",
-      request_users: {
-        request_id: TARGET_USER_REQUEST_ID,
-        user_is_bot: false,
-        max_quantity: 1,
-        request_name: true,
-        request_username: true,
-      },
-    }]],
+    keyboard: [
+      [
+        {
+          text: "Choose Target",
+          request_users: {
+            request_id: TARGET_USER_REQUEST_ID,
+            user_is_bot: false,
+            max_quantity: 1,
+            request_name: true,
+            request_username: true,
+          },
+        },
+      ],
+    ],
     resize_keyboard: true,
     one_time_keyboard: true,
     input_field_placeholder: "Choose a target",

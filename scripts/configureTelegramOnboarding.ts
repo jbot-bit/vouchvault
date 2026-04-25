@@ -178,21 +178,31 @@ async function main() {
   const shortDescription = buildBotShortDescription();
 
   if (options.dryRun) {
-    const botUsername = options.botUsername ?? process.env.TELEGRAM_BOT_USERNAME?.replace(/^@+/, "") ?? "your_bot_username";
-    const guideUrl = options.guideChatId == null ? null : buildLauncherUrl(botUsername, options.guideChatId);
+    const botUsername =
+      options.botUsername ??
+      process.env.TELEGRAM_BOT_USERNAME?.replace(/^@+/, "") ??
+      "your_bot_username";
+    const guideUrl =
+      options.guideChatId == null ? null : buildLauncherUrl(botUsername, options.guideChatId);
 
-    console.info(JSON.stringify({
-      description,
-      shortDescription,
-      commands: {
-        default: DEFAULT_COMMANDS,
-        private: PRIVATE_COMMANDS,
-        groups: DEFAULT_COMMANDS,
-        admins: ADMIN_COMMANDS,
-      },
-      pinnedGuideText: buildPinnedGuideText(),
-      launcherUrl: guideUrl,
-    }, null, 2));
+    console.info(
+      JSON.stringify(
+        {
+          description,
+          shortDescription,
+          commands: {
+            default: DEFAULT_COMMANDS,
+            private: PRIVATE_COMMANDS,
+            groups: DEFAULT_COMMANDS,
+            admins: ADMIN_COMMANDS,
+          },
+          pinnedGuideText: buildPinnedGuideText(),
+          launcherUrl: guideUrl,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -235,13 +245,19 @@ async function main() {
     }
   }
 
-  console.info(JSON.stringify({
-    ok: true,
-    botUsername,
-    guideChatId: options.guideChatId,
-    guideMessageId,
-    pinnedGuide: options.pinGuide && guideMessageId != null,
-  }, null, 2));
+  console.info(
+    JSON.stringify(
+      {
+        ok: true,
+        botUsername,
+        guideChatId: options.guideChatId,
+        guideMessageId,
+        pinnedGuide: options.pinGuide && guideMessageId != null,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 main().catch((error) => {

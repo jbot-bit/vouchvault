@@ -39,35 +39,42 @@ export function buildTelegramSendMessageParams(input: {
     text: input.text,
     parse_mode: input.parseMode ?? "HTML",
     disable_notification: input.disableNotification,
-    reply_parameters: input.replyToMessageId == null
-      ? undefined
-      : {
-          message_id: input.replyToMessageId,
-          allow_sending_without_reply: input.allowSendingWithoutReply,
-        },
+    reply_parameters:
+      input.replyToMessageId == null
+        ? undefined
+        : {
+            message_id: input.replyToMessageId,
+            allow_sending_without_reply: input.allowSendingWithoutReply,
+          },
     reply_markup: input.replyMarkup,
   };
 }
 
-export async function sendTelegramMessage(input: {
-  chatId: number;
-  text: string;
-  parseMode?: "Markdown" | "HTML" | "MarkdownV2";
-  replyToMessageId?: number;
-  allowSendingWithoutReply?: boolean;
-  disableNotification?: boolean;
-  replyMarkup?: Record<string, unknown>;
-}, logger?: any) {
+export async function sendTelegramMessage(
+  input: {
+    chatId: number;
+    text: string;
+    parseMode?: "Markdown" | "HTML" | "MarkdownV2";
+    replyToMessageId?: number;
+    allowSendingWithoutReply?: boolean;
+    disableNotification?: boolean;
+    replyMarkup?: Record<string, unknown>;
+  },
+  logger?: any,
+) {
   return callTelegramAPI("sendMessage", buildTelegramSendMessageParams(input), logger);
 }
 
-export async function editTelegramMessage(input: {
-  chatId: number;
-  messageId: number;
-  text: string;
-  parseMode?: "Markdown" | "HTML" | "MarkdownV2";
-  replyMarkup?: Record<string, unknown>;
-}, logger?: any) {
+export async function editTelegramMessage(
+  input: {
+    chatId: number;
+    messageId: number;
+    text: string;
+    parseMode?: "Markdown" | "HTML" | "MarkdownV2";
+    replyMarkup?: Record<string, unknown>;
+  },
+  logger?: any,
+) {
   return callTelegramAPI(
     "editMessageText",
     {
@@ -81,10 +88,13 @@ export async function editTelegramMessage(input: {
   );
 }
 
-export async function deleteTelegramMessage(input: {
-  chatId: number;
-  messageId: number;
-}, logger?: any) {
+export async function deleteTelegramMessage(
+  input: {
+    chatId: number;
+    messageId: number;
+  },
+  logger?: any,
+) {
   return callTelegramAPI(
     "deleteMessage",
     {
@@ -95,11 +105,14 @@ export async function deleteTelegramMessage(input: {
   );
 }
 
-export async function answerTelegramCallbackQuery(input: {
-  callbackQueryId: string;
-  text?: string;
-  showAlert?: boolean;
-}, logger?: any) {
+export async function answerTelegramCallbackQuery(
+  input: {
+    callbackQueryId: string;
+    text?: string;
+    showAlert?: boolean;
+  },
+  logger?: any,
+) {
   return callTelegramAPI(
     "answerCallbackQuery",
     {
@@ -121,9 +134,8 @@ export async function getTelegramBotUsername(logger?: any): Promise<string | nul
   }
 
   const result = await callTelegramAPI("getMe", {}, logger);
-  cachedBotUsername = typeof result?.username === "string"
-    ? result.username.replace(/^@+/, "")
-    : null;
+  cachedBotUsername =
+    typeof result?.username === "string" ? result.username.replace(/^@+/, "") : null;
 
   return cachedBotUsername;
 }
@@ -134,21 +146,35 @@ export function buildUrlInlineKeyboard(text: string, url: string) {
   };
 }
 
-export function buildInlineKeyboard(buttons: Array<Array<{ text: string; callback_data: string }>>) {
+export function buildInlineKeyboard(
+  buttons: Array<Array<{ text: string; callback_data: string }>>,
+) {
   return {
     inline_keyboard: buttons,
   };
 }
 
 export const sendTelegramMessageTool = {
-  execute: async ({ context, mastra }: { context: Parameters<typeof sendTelegramMessage>[0]; mastra?: any }) => {
+  execute: async ({
+    context,
+    mastra,
+  }: {
+    context: Parameters<typeof sendTelegramMessage>[0];
+    mastra?: any;
+  }) => {
     const result = await sendTelegramMessage(context, mastra?.getLogger?.());
     return { messageId: result.message_id, success: true };
   },
 };
 
 export const editTelegramMessageTool = {
-  execute: async ({ context, mastra }: { context: Parameters<typeof editTelegramMessage>[0]; mastra?: any }) => {
+  execute: async ({
+    context,
+    mastra,
+  }: {
+    context: Parameters<typeof editTelegramMessage>[0];
+    mastra?: any;
+  }) => {
     await editTelegramMessage(context, mastra?.getLogger?.());
     return { success: true };
   },

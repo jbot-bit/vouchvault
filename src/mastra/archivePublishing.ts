@@ -80,11 +80,15 @@ export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, 
   }
 
   if (currentEntry.status === "publishing") {
-    throw new Error(`Archive entry #${entry.id} is already in publishing state. Check Telegram before retrying this replay step.`);
+    throw new Error(
+      `Archive entry #${entry.id} is already in publishing state. Check Telegram before retrying this replay step.`,
+    );
   }
 
   if (currentEntry.status != null && currentEntry.status !== "pending") {
-    throw new Error(`Archive entry #${entry.id} is not publishable from status "${currentEntry.status}".`);
+    throw new Error(
+      `Archive entry #${entry.id} is not publishable from status "${currentEntry.status}".`,
+    );
   }
 
   const reserved = await markArchiveEntryPublishing(entry.id);
@@ -95,7 +99,9 @@ export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, 
     }
 
     if (refreshed?.status === "publishing") {
-      throw new Error(`Archive entry #${entry.id} is already in publishing state. Check Telegram before retrying this replay step.`);
+      throw new Error(
+        `Archive entry #${entry.id} is already in publishing state. Check Telegram before retrying this replay step.`,
+      );
     }
 
     throw new Error(`Failed to reserve archive entry #${entry.id} for publishing.`);

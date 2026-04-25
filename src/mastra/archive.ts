@@ -8,28 +8,12 @@ export const ENTRY_SOURCES = ["live", "legacy_import"] as const;
 export type EntrySource = (typeof ENTRY_SOURCES)[number];
 
 export const TAG_OPTIONS_BY_RESULT = {
-  positive: [
-    "good_comms",
-    "efficient",
-    "on_time",
-    "good_quality",
-  ],
-  mixed: [
-    "mixed_comms",
-    "some_delays",
-    "acceptable_quality",
-    "minor_issue",
-  ],
-  negative: [
-    "poor_comms",
-    "late",
-    "quality_issue",
-    "item_mismatch",
-  ],
+  positive: ["good_comms", "efficient", "on_time", "good_quality"],
+  mixed: ["mixed_comms", "some_delays", "acceptable_quality", "minor_issue"],
+  negative: ["poor_comms", "late", "quality_issue", "item_mismatch"],
 } as const;
 
-export type EntryTag =
-  (typeof TAG_OPTIONS_BY_RESULT)[keyof typeof TAG_OPTIONS_BY_RESULT][number];
+export type EntryTag = (typeof TAG_OPTIONS_BY_RESULT)[keyof typeof TAG_OPTIONS_BY_RESULT][number];
 
 export const DRAFT_STEPS = [
   "awaiting_target",
@@ -132,7 +116,10 @@ export function isEntrySource(value: string | null | undefined): value is EntryS
 }
 
 export function isEntryTag(value: unknown): value is EntryTag {
-  return typeof value === "string" && Object.values(TAG_OPTIONS_BY_RESULT).some((tags) => (tags as readonly string[]).includes(value));
+  return (
+    typeof value === "string" &&
+    Object.values(TAG_OPTIONS_BY_RESULT).some((tags) => (tags as readonly string[]).includes(value))
+  );
 }
 
 export function getAllowedTagsForResult(result: EntryResult): readonly EntryTag[] {
@@ -140,9 +127,7 @@ export function getAllowedTagsForResult(result: EntryResult): readonly EntryTag[
 }
 
 export function toggleTag(tags: EntryTag[], tag: EntryTag): EntryTag[] {
-  return tags.includes(tag)
-    ? tags.filter((value) => value !== tag)
-    : [...tags, tag];
+  return tags.includes(tag) ? tags.filter((value) => value !== tag) : [...tags, tag];
 }
 
 export function formatTagList(tags: EntryTag[]): string {
@@ -154,10 +139,7 @@ export function formatTagList(tags: EntryTag[]): string {
 }
 
 export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function fmtUser(username: string): string {
@@ -195,9 +177,10 @@ export function buildArchiveEntryText(input: {
   source?: EntrySource;
   legacySourceTimestamp?: Date | null;
 }): string {
-  const heading = input.source === "legacy_import"
-    ? `🧾 <b>Legacy Entry #${input.entryId}</b>`
-    : `🧾 <b>Entry #${input.entryId}</b>`;
+  const heading =
+    input.source === "legacy_import"
+      ? `🧾 <b>Legacy Entry #${input.entryId}</b>`
+      : `🧾 <b>Entry #${input.entryId}</b>`;
 
   const lines = [
     heading,
@@ -258,11 +241,7 @@ export function buildTargetPromptText(): string {
 }
 
 export function buildTypePromptText(targetUsername: string): string {
-  return [
-    `Target saved: ${fmtUser(targetUsername)}`,
-    "",
-    "What are you vouching for?",
-  ].join("\n");
+  return [`Target saved: ${fmtUser(targetUsername)}`, "", "What are you vouching for?"].join("\n");
 }
 
 export function buildResultPromptText(targetUsername: string): string {
@@ -275,7 +254,11 @@ export function buildResultPromptText(targetUsername: string): string {
   ].join("\n");
 }
 
-export function buildTagPromptText(targetUsername: string, result: EntryResult, tags: EntryTag[]): string {
+export function buildTagPromptText(
+  targetUsername: string,
+  result: EntryResult,
+  tags: EntryTag[],
+): string {
   return [
     "<b>Step 3 of 3 — Tags</b>",
     "",
@@ -314,15 +297,17 @@ export function buildLookupText(input: {
   return lines.join("\n").trimEnd();
 }
 
-export function buildRecentEntriesText(entries: Array<{
-  id: number;
-  reviewerUsername: string;
-  targetUsername: string;
-  entryType: EntryType;
-  result: EntryResult;
-  createdAt: Date;
-  source?: EntrySource;
-}>): string {
+export function buildRecentEntriesText(
+  entries: Array<{
+    id: number;
+    reviewerUsername: string;
+    targetUsername: string;
+    entryType: EntryType;
+    result: EntryResult;
+    createdAt: Date;
+    source?: EntrySource;
+  }>,
+): string {
   if (entries.length === 0) {
     return "No entries yet.";
   }
@@ -331,7 +316,9 @@ export function buildRecentEntriesText(entries: Array<{
   for (const entry of entries) {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
-    lines.push(`${fmtUser(entry.reviewerUsername)} → ${fmtUser(entry.targetUsername)} • ${fmtDate(entry.createdAt)}`);
+    lines.push(
+      `${fmtUser(entry.reviewerUsername)} → ${fmtUser(entry.targetUsername)} • ${fmtDate(entry.createdAt)}`,
+    );
     lines.push("");
   }
 
@@ -339,10 +326,7 @@ export function buildRecentEntriesText(entries: Array<{
 }
 
 export function buildLauncherText(): string {
-  return [
-    "<b>Submit a vouch</b>",
-    "Tap below to open the short DM form.",
-  ].join("\n");
+  return ["<b>Submit a vouch</b>", "Tap below to open the short DM form."].join("\n");
 }
 
 export function buildPinnedGuideText(): string {

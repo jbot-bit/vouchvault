@@ -11,6 +11,7 @@
 **Spec reference:** `docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md` v3.
 
 **Conventions every task uses:**
+
 - Tests live alongside the code under test (existing convention; e.g. `src/core/legacyImport.test.ts`).
 - After §13.1 rename, all paths are `src/core/...`. Tasks before chunk 5 reference `src/mastra/...`; tasks from chunk 5 onward use `src/core/...`. Where a task lands BEFORE chunk 5 in the order, it uses the pre-rename path; where it lands AFTER, it uses the post-rename path. Each task spells out the exact path it expects.
 - Run a single test file with `node --test --experimental-strip-types <path>`.
@@ -23,6 +24,7 @@
 ## File map (responsibility per file)
 
 **New files:**
+
 - `.gitattributes` — line-ending normalisation
 - `README.md` — quickstart pointer
 - `.github/workflows/test.yml` — CI
@@ -44,12 +46,15 @@
 - `DEPLOY.md` — Railway deploy doc (replaces `DEPLOY_REPLIT.md`)
 
 **Renamed (chunk 5):**
+
 - `src/mastra/**` → `src/core/**`
 
 **Deleted (chunk 5+):**
+
 - `DEPLOY_REPLIT.md` (replaced by `DEPLOY.md`)
 
 **Heavily modified:**
+
 - `src/telegramBot.ts` — DM flow polish, admin commands, paused state, rate limit, draft revalidation
 - `src/server.ts` — boot validation, graceful shutdown, `/readyz`
 - `src/core/archive.ts` (post-rename) — copy updates, formatTagList ceiling
@@ -70,6 +75,7 @@
 ### Task 1.1: Add `.gitattributes`
 
 **Files:**
+
 - Create: `.gitattributes`
 
 - [ ] **Step 1: Create `.gitattributes`**
@@ -97,6 +103,7 @@ git commit -m "chore: add .gitattributes to normalise line endings to LF"
 ### Task 1.2: Add `README.md`
 
 **Files:**
+
 - Create: `README.md`
 
 - [ ] **Step 1: Create `README.md`**
@@ -118,16 +125,16 @@ A plain Node Telegram bot that runs a structured vouch archive for a locked grou
 
 ## Common commands
 
-| Command | What it does |
-| --- | --- |
-| `npm install` | Install dependencies |
-| `npm test` | Run the test suite (Node `node:test` runner) |
-| `npm start` | Run the webhook server |
-| `npm run dev` | Run the server with `--watch` |
-| `npm run db:migrate` | Apply pending Drizzle migrations |
-| `npm run telegram:webhook` | Register the Telegram webhook URL |
-| `npm run telegram:onboarding -- --guide-chat-id <id> --pin-guide` | Set bot identity, commands, and pin the group guide |
-| `npm run replay:legacy <export.json> [--dry-run] [--max-imports N] [--throttle-ms N]` | Replay legacy Telegram export into the archive |
+| Command                                                                               | What it does                                        |
+| ------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `npm install`                                                                         | Install dependencies                                |
+| `npm test`                                                                            | Run the test suite (Node `node:test` runner)        |
+| `npm start`                                                                           | Run the webhook server                              |
+| `npm run dev`                                                                         | Run the server with `--watch`                       |
+| `npm run db:migrate`                                                                  | Apply pending Drizzle migrations                    |
+| `npm run telegram:webhook`                                                            | Register the Telegram webhook URL                   |
+| `npm run telegram:onboarding -- --guide-chat-id <id> --pin-guide`                     | Set bot identity, commands, and pin the group guide |
+| `npm run replay:legacy <export.json> [--dry-run] [--max-imports N] [--throttle-ms N]` | Replay legacy Telegram export into the archive      |
 
 ## Environment
 
@@ -152,6 +159,7 @@ git commit -m "docs: add README quickstart"
 ### Task 1.3: Add GitHub Actions CI
 
 **Files:**
+
 - Create: `.github/workflows/test.yml`
 
 - [ ] **Step 1: Create the workflow file**
@@ -194,6 +202,7 @@ git commit -m "ci: add GitHub Actions test workflow on push and PR"
 ### Task 2.1: Tighten `tsconfig.json`
 
 **Files:**
+
 - Modify: `tsconfig.json`
 
 - [ ] **Step 1: Read the current `tsconfig.json`**
@@ -219,9 +228,9 @@ Run: `cat tsconfig.json`
     "esModuleInterop": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    "noEmit": true
+    "noEmit": true,
   },
-  "include": ["src/**/*", "scripts/**/*"]
+  "include": ["src/**/*", "scripts/**/*"],
 }
 ```
 
@@ -229,6 +238,7 @@ Run: `cat tsconfig.json`
 
 Run: `npx tsc --noEmit`
 Expected: clean. If errors, fix them. Common fixes for `noUncheckedIndexedAccess`:
+
 - `array[i]` becomes `array[i]!` only when proven safe; otherwise add an explicit length check.
 - `record[key]` returns `T | undefined` — narrow before use.
 
@@ -249,6 +259,7 @@ git commit -m "refactor: enable TS strict + noUncheckedIndexedAccess + noImplici
 ### Task 2.2: Add Prettier
 
 **Files:**
+
 - Create: `.prettierrc.json`
 - Create: `.prettierignore`
 - Modify: `package.json`
@@ -313,6 +324,7 @@ git commit -m "chore: add prettier and reformat tree"
 ### Task 3.1: Install drizzle-kit and add config
 
 **Files:**
+
 - Modify: `package.json`
 - Create: `drizzle.config.ts`
 
@@ -357,6 +369,7 @@ git commit -m "chore: add drizzle-kit + db:generate / db:migrate scripts"
 ### Task 3.2: Generate the baseline migration
 
 **Files:**
+
 - Create: `migrations/0000_baseline.sql` (generated)
 - Create: `migrations/meta/_journal.json` (generated)
 
@@ -380,6 +393,7 @@ git commit -m "feat(db): add 0000_baseline migration capturing current schema"
 ### Task 3.3: Migration runner script
 
 **Files:**
+
 - Create: `scripts/runMigrations.ts`
 
 - [ ] **Step 1: Write the runner**
@@ -435,6 +449,7 @@ git commit -m "feat(db): add runMigrations script using drizzle-orm migrator"
 ### Task 3.4: Switch boot to use migrations instead of `ensureDatabaseSchema`
 
 **Files:**
+
 - Modify: `src/server.ts`
 - Modify: `src/mastra/storage/bootstrap.ts` (delete `ensureDatabaseSchema` body — replace with a no-op kept for one release, then deletable)
 
@@ -463,7 +478,9 @@ await migrate(drizzle(sharedPostgresPool), { migrationsFolder: "./migrations" })
 
 ```ts
 export async function ensureDatabaseSchema(): Promise<void> {
-  console.warn("[bootstrap] ensureDatabaseSchema() is deprecated; migrations now run via drizzle-orm/node-postgres/migrator.");
+  console.warn(
+    "[bootstrap] ensureDatabaseSchema() is deprecated; migrations now run via drizzle-orm/node-postgres/migrator.",
+  );
 }
 ```
 
@@ -482,11 +499,12 @@ git commit -m "refactor(db): boot via migrate() instead of ensureDatabaseSchema"
 ### Task 3.5: Document the prod baseline-applied insertion in DEPLOY.md (preview)
 
 **Files:**
+
 - Modify: `DEPLOY_REPLIT.md` (will be replaced wholesale in Task 16; here we add a minimal note as a forward-pointer)
 
 - [ ] **Step 1: Append a section to `DEPLOY_REPLIT.md`**
 
-```markdown
+````markdown
 ## Baseline migration applied marker (one-time, prod only)
 
 Existing prod DBs already have every table created by the legacy `ensureDatabaseSchema()` boot DDL. Tell drizzle-kit the baseline migration is already applied so it does not try to re-create those tables:
@@ -495,15 +513,19 @@ Existing prod DBs already have every table created by the legacy `ensureDatabase
 INSERT INTO __drizzle_migrations (hash, created_at)
 VALUES ('<paste hash from migrations/meta/_journal.json>', extract(epoch from now()) * 1000);
 ```
+````
 
 Hash is `migrations/meta/_journal.json`'s `entries[0].tag` value. After this insert, `npm run db:migrate` skips 0000 and applies 0001 onward.
+
 ```
 
 - [ ] **Step 2: Commit**
 
 ```
+
 git add DEPLOY_REPLIT.md
 git commit -m "docs: note baseline-applied insertion for existing prod DBs"
+
 ```
 
 ---
@@ -536,10 +558,12 @@ Expected: only DROP TABLE for `polls`, `votes`; only DROP COLUMN for the four de
 - [ ] **Step 4: Verify against a clean Postgres**
 
 ```
+
 docker run --rm -d --name vv-test-pg -p 55432:5432 -e POSTGRES_PASSWORD=test -e POSTGRES_DB=vouchvault postgres:16
 sleep 3
 DATABASE_URL=postgresql://postgres:test@localhost:55432/vouchvault npm run db:migrate
 docker rm -f vv-test-pg
+
 ```
 
 Expected: `{"ok": true, "migrations": "applied"}`.
@@ -552,9 +576,11 @@ Expected: `pass 22`.
 - [ ] **Step 6: Commit**
 
 ```
+
 git add src/mastra/storage/schema.ts migrations/
 git commit -m "feat(db): drop dead polls/votes tables and reputation cols on users"
-```
+
+````
 
 ### Task 4.2: Add `chat_settings` table (migration 0002)
 
@@ -575,7 +601,7 @@ export const chatSettings = pgTable("chat_settings", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
-```
+````
 
 - [ ] **Step 2: Generate migration**
 
@@ -596,6 +622,7 @@ git commit -m "feat(db): add chat_settings table for pause and group lifecycle"
 ### Task 4.3: Add `admin_audit_log` table (migration 0003)
 
 **Files:**
+
 - Modify: `src/mastra/storage/schema.ts`
 - Create: `migrations/0003_admin_audit_log.sql` (generated)
 
@@ -635,6 +662,7 @@ git commit -m "feat(db): add admin_audit_log table"
 ### Task 4.4: Add freeze-reason cols + telegram_id to `business_profiles` (migration 0004)
 
 **Files:**
+
 - Modify: `src/mastra/storage/schema.ts`
 - Create: `migrations/0004_business_profiles_freeze_reason.sql` (generated)
 
@@ -665,6 +693,7 @@ git commit -m "feat(db): add freeze_reason and telegram_id to business_profiles"
 ### Task 4.5: Add `target_telegram_id` to `vouch_entries` (migration 0005)
 
 **Files:**
+
 - Modify: `src/mastra/storage/schema.ts`
 - Create: `migrations/0005_vouch_entries_target_telegram_id.sql` (generated)
 
@@ -688,6 +717,7 @@ git commit -m "feat(db): add target_telegram_id to vouch_entries"
 ### Task 4.6: Add `status` CHECK constraint (migration 0006)
 
 **Files:**
+
 - Create: `migrations/0006_vouch_entries_status_check.sql` (hand-written)
 - Modify: `migrations/meta/_journal.json` (regenerate or extend)
 
@@ -729,6 +759,7 @@ git commit -m "feat(db): add CHECK constraint on vouch_entries.status"
 ### Task 5.1: Move all files
 
 **Files:**
+
 - Move: `src/mastra/**` → `src/core/**`
 - Modify: every `src/**.ts` import that references `./mastra/...` or `../mastra/...`
 - Modify: `scripts/configureTelegramOnboarding.ts:7` import path
@@ -744,7 +775,7 @@ Expected: `OK`.
 Run: `git mv src/mastra src/core`
 Expected: succeeds.
 
-- [ ] **Step 3: Update every import in `src/**.ts` and `scripts/**.ts`**
+- [ ] **Step 3: Update every import in `src/**.ts`and`scripts/**.ts`**
 
 Run: `grep -rln "from \"\./mastra/" src scripts && grep -rln "from \"\.\./mastra/" src scripts && grep -rln "from \"\.\.\/\.\.\/mastra\/" src scripts`
 
@@ -780,6 +811,7 @@ git commit -m "refactor: rename src/mastra/ to src/core/ (cosmetic only)"
 ### Task 6.1: Add `bot_sender` skip reason and bucket
 
 **Files:**
+
 - Modify: `src/core/legacyImportParser.ts`
 - Modify: `src/core/legacyImport.test.ts`
 - Modify: `src/core/legacyImport.ts` (summary increment dispatch)
@@ -900,6 +932,7 @@ git commit -m "feat(parser): add bot_sender skip bucket"
 ### Task 6.2: Numeric `from_id` reviewer fallback
 
 **Files:**
+
 - Modify: `src/core/legacyImportParser.ts`
 - Modify: `src/core/legacyImport.test.ts`
 
@@ -957,7 +990,9 @@ In `src/core/legacyImportParser.ts`, add a helper:
 const FROM_ID_USER_PREFIX = /^user(\d+)$/;
 const FROM_ID_CHAT_OR_CHANNEL_PREFIX = /^(chat|channel)\d+$/;
 
-function extractFromIdNumeric(message: unknown): { kind: "user"; numericId: number } | { kind: "non_user" } | null {
+function extractFromIdNumeric(
+  message: unknown,
+): { kind: "user"; numericId: number } | { kind: "non_user" } | null {
   if (!isRecord(message)) {
     return null;
   }
@@ -1003,9 +1038,10 @@ Then update the candidate construction to use `fromId.numericId` instead of `get
 
 ```ts
 const reviewerNumericId = extractFromIdNumeric(input.message);
-const reviewerTelegramId = reviewerNumericId?.kind === "user"
-  ? reviewerNumericId.numericId
-  : getSyntheticLegacyReviewerTelegramId(reviewerUsername);
+const reviewerTelegramId =
+  reviewerNumericId?.kind === "user"
+    ? reviewerNumericId.numericId
+    : getSyntheticLegacyReviewerTelegramId(reviewerUsername);
 ```
 
 Use `reviewerTelegramId` in the import decision's `candidate.reviewerTelegramId`.
@@ -1025,6 +1061,7 @@ git commit -m "feat(parser): fall back to numeric from_id when @username missing
 ### Task 6.3: Multiple-targets bucket split
 
 **Files:**
+
 - Modify: `src/core/legacyImportParser.ts:430-437` (the `multiple_targets` branch)
 - Modify: `src/core/legacyImport.ts` (`incrementSummary`)
 - Modify: `src/core/legacyImport.test.ts`
@@ -1079,6 +1116,7 @@ git commit -m "feat(parser): split multiple_targets into its own summary bucket"
 ### Task 6.4: Expanded sentiment patterns
 
 **Files:**
+
 - Modify: `src/core/legacyImportParser.ts` (POSITIVE_PATTERNS, NEGATIVE_PATTERNS)
 - Modify: `src/core/legacyImport.test.ts`
 
@@ -1231,6 +1269,7 @@ git commit -m "feat(parser): expand sentiment patterns with group's actual regis
 ### Task 6.5: Caption support
 
 **Files:**
+
 - Modify: `src/core/legacyImportParser.ts` (`flattenLegacyMessageText` callers)
 - Modify: `src/core/legacyImport.test.ts`
 
@@ -1290,6 +1329,7 @@ git commit -m "feat(parser): fall back to caption when text is empty"
 ### Task 6.6: Wire `botSenders` config from env into `replayLegacyExport`
 
 **Files:**
+
 - Create: `src/core/legacyBotSenders.ts`
 - Modify: `src/core/legacyImport.ts`
 
@@ -1300,7 +1340,12 @@ const DEFAULT_BOT_SENDERS = ["combot", "grouphelpbot", "groupanonymousbot"];
 
 export function getLegacyBotSenders(): Set<string> {
   const raw = process.env.LEGACY_BOT_SENDERS?.trim();
-  const list = raw ? raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) : DEFAULT_BOT_SENDERS;
+  const list = raw
+    ? raw
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    : DEFAULT_BOT_SENDERS;
   return new Set(list);
 }
 ```
@@ -1341,6 +1386,7 @@ git commit -m "feat(parser): wire LEGACY_BOT_SENDERS env config into replay"
 ### Task 7.1: Token bucket helper
 
 **Files:**
+
 - Create: `src/core/tokenBucket.ts`
 - Create: `src/core/tokenBucket.test.ts`
 
@@ -1413,6 +1459,7 @@ git commit -m "feat: add token bucket helper"
 ### Task 7.2: Add `--max-imports` and `--throttle-ms` CLI flags
 
 **Files:**
+
 - Modify: `scripts/replayLegacyTelegramExport.ts`
 
 - [ ] **Step 1: Extend `CliOptions`**
@@ -1473,6 +1520,7 @@ git commit -m "feat(replay): add --max-imports and --throttle-ms flags"
 ### Task 7.3: Wire the throttle and max-imports into `replayLegacyExport`
 
 **Files:**
+
 - Modify: `src/core/legacyImport.ts`
 
 - [ ] **Step 1: Extend `ReplayLegacyExportInput`**
@@ -1543,6 +1591,7 @@ git commit -m "feat(replay): apply throttle and max-imports inside replay loop"
 ### Task 8.1: Boot env validation
 
 **Files:**
+
 - Create: `src/core/bootValidation.ts`
 - Create: `src/core/bootValidation.test.ts`
 - Modify: `src/server.ts`
@@ -1556,54 +1605,58 @@ import { validateBootEnv } from "./bootValidation.ts";
 
 test("rejects missing TELEGRAM_BOT_TOKEN", () => {
   assert.throws(
-    () => validateBootEnv({
-      DATABASE_URL: "postgres://x",
-      TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
-      TELEGRAM_ADMIN_IDS: "1",
-      TELEGRAM_WEBHOOK_SECRET_TOKEN: "abc",
-      NODE_ENV: "production",
-    }),
+    () =>
+      validateBootEnv({
+        DATABASE_URL: "postgres://x",
+        TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+        TELEGRAM_ADMIN_IDS: "1",
+        TELEGRAM_WEBHOOK_SECRET_TOKEN: "abc",
+        NODE_ENV: "production",
+      }),
     /TELEGRAM_BOT_TOKEN/,
   );
 });
 
 test("rejects malformed TELEGRAM_BOT_TOKEN", () => {
   assert.throws(
-    () => validateBootEnv({
-      DATABASE_URL: "postgres://x",
-      TELEGRAM_BOT_TOKEN: "not-a-token",
-      TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
-      TELEGRAM_ADMIN_IDS: "1",
-      TELEGRAM_WEBHOOK_SECRET_TOKEN: "abc",
-      NODE_ENV: "production",
-    }),
+    () =>
+      validateBootEnv({
+        DATABASE_URL: "postgres://x",
+        TELEGRAM_BOT_TOKEN: "not-a-token",
+        TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+        TELEGRAM_ADMIN_IDS: "1",
+        TELEGRAM_WEBHOOK_SECRET_TOKEN: "abc",
+        NODE_ENV: "production",
+      }),
     /TELEGRAM_BOT_TOKEN.*shape/i,
   );
 });
 
 test("rejects empty TELEGRAM_ADMIN_IDS", () => {
   assert.throws(
-    () => validateBootEnv({
-      DATABASE_URL: "postgres://x",
-      TELEGRAM_BOT_TOKEN: "12345:abcdef",
-      TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
-      TELEGRAM_ADMIN_IDS: "",
-      TELEGRAM_WEBHOOK_SECRET_TOKEN: "abc",
-      NODE_ENV: "production",
-    }),
+    () =>
+      validateBootEnv({
+        DATABASE_URL: "postgres://x",
+        TELEGRAM_BOT_TOKEN: "12345:abcdef",
+        TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+        TELEGRAM_ADMIN_IDS: "",
+        TELEGRAM_WEBHOOK_SECRET_TOKEN: "abc",
+        NODE_ENV: "production",
+      }),
     /TELEGRAM_ADMIN_IDS/,
   );
 });
 
 test("rejects missing TELEGRAM_WEBHOOK_SECRET_TOKEN in production", () => {
   assert.throws(
-    () => validateBootEnv({
-      DATABASE_URL: "postgres://x",
-      TELEGRAM_BOT_TOKEN: "12345:abcdef",
-      TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
-      TELEGRAM_ADMIN_IDS: "1",
-      NODE_ENV: "production",
-    }),
+    () =>
+      validateBootEnv({
+        DATABASE_URL: "postgres://x",
+        TELEGRAM_BOT_TOKEN: "12345:abcdef",
+        TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+        TELEGRAM_ADMIN_IDS: "1",
+        NODE_ENV: "production",
+      }),
     /TELEGRAM_WEBHOOK_SECRET_TOKEN.*production/i,
   );
 });
@@ -1655,9 +1708,15 @@ function require(env: Env, name: string): string {
 
 function parseIntegerList(env: Env, name: string): number[] {
   const raw = require(env, name);
-  const list = raw.split(",").map((p) => p.trim()).filter(Boolean).map((p) => Number(p));
+  const list = raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => Number(p));
   if (list.length === 0 || list.some((n) => !Number.isSafeInteger(n))) {
-    throw new Error(`${name} must be a comma-separated list of integers; got ${JSON.stringify(raw)}.`);
+    throw new Error(
+      `${name} must be a comma-separated list of integers; got ${JSON.stringify(raw)}.`,
+    );
   }
   return list;
 }
@@ -1666,7 +1725,9 @@ export function validateBootEnv(env: Env = process.env): void {
   require(env, "DATABASE_URL");
   const token = require(env, "TELEGRAM_BOT_TOKEN");
   if (!BOT_TOKEN_RE.test(token)) {
-    throw new Error("TELEGRAM_BOT_TOKEN does not match the expected token shape '<digits>:<alnum_-+>'.");
+    throw new Error(
+      "TELEGRAM_BOT_TOKEN does not match the expected token shape '<digits>:<alnum_-+>'.",
+    );
   }
   parseIntegerList(env, "TELEGRAM_ALLOWED_CHAT_IDS");
   parseIntegerList(env, "TELEGRAM_ADMIN_IDS");
@@ -1675,7 +1736,8 @@ export function validateBootEnv(env: Env = process.env): void {
   const secret = env.TELEGRAM_WEBHOOK_SECRET_TOKEN?.trim();
   if (isProd) {
     if (!secret) throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN is required in production.");
-    if (!SECRET_TOKEN_RE.test(secret)) throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
+    if (!SECRET_TOKEN_RE.test(secret))
+      throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
   } else if (secret && !SECRET_TOKEN_RE.test(secret)) {
     throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
   }
@@ -1709,6 +1771,7 @@ git commit -m "feat(boot): validate every required env var at startup"
 ### Task 8.2: Graceful shutdown
 
 **Files:**
+
 - Create: `src/core/gracefulShutdown.ts`
 - Create: `src/core/gracefulShutdown.test.ts`
 - Modify: `src/server.ts`
@@ -1724,9 +1787,24 @@ import { installGracefulShutdown } from "./gracefulShutdown.ts";
 test("close() resolves once server stops accepting and pool is closed", async () => {
   let serverClosed = false;
   let poolClosed = false;
-  const fakeServer = { close: (cb: () => void) => { serverClosed = true; cb(); } };
-  const fakePool = { end: async () => { poolClosed = true; } };
-  const shutdown = installGracefulShutdown({ server: fakeServer, dbPool: fakePool, drainMs: 50, hardCeilingMs: 200, logger: { info: () => {}, warn: () => {}, error: () => {} } });
+  const fakeServer = {
+    close: (cb: () => void) => {
+      serverClosed = true;
+      cb();
+    },
+  };
+  const fakePool = {
+    end: async () => {
+      poolClosed = true;
+    },
+  };
+  const shutdown = installGracefulShutdown({
+    server: fakeServer,
+    dbPool: fakePool,
+    drainMs: 50,
+    hardCeilingMs: 200,
+    logger: { info: () => {}, warn: () => {}, error: () => {} },
+  });
   await shutdown.runOnce("TEST");
   assert.equal(serverClosed, true);
   assert.equal(poolClosed, true);
@@ -1743,7 +1821,11 @@ Expected: FAIL.
 ```ts
 type ServerLike = { close(cb: () => void): void };
 type PoolLike = { end(): Promise<void> };
-type LoggerLike = { info: (...a: unknown[]) => void; warn: (...a: unknown[]) => void; error: (...a: unknown[]) => void };
+type LoggerLike = {
+  info: (...a: unknown[]) => void;
+  warn: (...a: unknown[]) => void;
+  error: (...a: unknown[]) => void;
+};
 
 export function installGracefulShutdown(opts: {
   server: ServerLike;
@@ -1771,8 +1853,12 @@ export function installGracefulShutdown(opts: {
     opts.logger.info({ signal }, "graceful shutdown complete");
   }
 
-  process.on("SIGTERM", () => { void runOnce("SIGTERM").then(() => process.exit(0)); });
-  process.on("SIGINT", () => { void runOnce("SIGINT").then(() => process.exit(0)); });
+  process.on("SIGTERM", () => {
+    void runOnce("SIGTERM").then(() => process.exit(0));
+  });
+  process.on("SIGINT", () => {
+    void runOnce("SIGINT").then(() => process.exit(0));
+  });
 
   return { runOnce };
 }
@@ -1812,6 +1898,7 @@ git commit -m "feat(server): graceful SIGTERM shutdown with drain and pool close
 ### Task 8.3: Add `/readyz` endpoint
 
 **Files:**
+
 - Modify: `src/server.ts`
 
 - [ ] **Step 1: Add to the request handler**
@@ -1827,7 +1914,10 @@ if (req.method === "GET" && req.url === "/readyz") {
     res.writeHead(response.statusCode, response.headers);
     res.end(response.body);
   } catch (error) {
-    const response = jsonResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }, 503);
+    const response = jsonResponse(
+      { ok: false, error: error instanceof Error ? error.message : String(error) },
+      503,
+    );
     res.writeHead(response.statusCode, response.headers);
     res.end(response.body);
   }
@@ -1854,6 +1944,7 @@ git commit -m "feat(server): add /readyz endpoint that checks DB pool"
 ### Task 9.1: Update bot description and short description
 
 **Files:**
+
 - Modify: `src/core/archive.ts` (`buildBotDescriptionText`, `buildBotShortDescription`)
 - Modify: `src/core/archiveUx.test.ts` (existing test updates)
 
@@ -1914,6 +2005,7 @@ git commit -m "feat(copy): update bot description and short description per spec
 ### Task 9.2: Update onboarding script with new commands
 
 **Files:**
+
 - Modify: `scripts/configureTelegramOnboarding.ts`
 
 - [ ] **Step 1: Replace the command lists**
@@ -1970,6 +2062,7 @@ git commit -m "feat(onboarding): add new commands and set bot name to Vouch Hub"
 ### Task 9.3: Update step prompts and error copy
 
 **Files:**
+
 - Modify: `src/core/archive.ts` (welcome, step prompts, errors, etc.)
 - Modify: `src/core/archiveUx.test.ts`
 
@@ -2047,6 +2140,7 @@ git commit -m "feat(copy): update welcome and pinned guide to locked v3 copy"
 ### Task 9.4: Bump `MAX_RECENT_ENTRIES` from 5 to 10
 
 **Files:**
+
 - Modify: `src/core/archive.ts`
 
 - [ ] **Step 1: Change the constant**
@@ -2074,16 +2168,13 @@ git commit -m "feat: bump /recent default to 10 entries"
 ### Task 10.1: Drop `/verify` from threaded launcher commands
 
 **Files:**
+
 - Modify: `src/core/telegramUx.ts`
 
 - [ ] **Step 1: Remove from the set**
 
 ```ts
-const THREADED_LAUNCHER_COMMANDS = new Set([
-  "/start",
-  "/help",
-  "/vouch",
-]);
+const THREADED_LAUNCHER_COMMANDS = new Set(["/start", "/help", "/vouch"]);
 ```
 
 - [ ] **Step 2: Test**
@@ -2101,6 +2192,7 @@ git commit -m "fix: drop /verify from threaded-launcher reply set (never registe
 ### Task 10.2: Fix `/lookup` admin-only error string
 
 **Files:**
+
 - Modify: `src/telegramBot.ts` (`handleLookupCommand` at line 267 area)
 
 - [ ] **Step 1: Change the message**
@@ -2119,6 +2211,7 @@ git commit -m "fix: correct /lookup usage hint (was falsely claiming admin-only)
 ### Task 10.3: Add `/cancel` command
 
 **Files:**
+
 - Modify: `src/telegramBot.ts` (in `handlePrivateMessage`)
 
 - [ ] **Step 1: Add the handler**
@@ -2130,10 +2223,7 @@ if (command === "/cancel") {
   await withReviewerDraftLock(message.from.id, async () => {
     const draft = await getDraftByReviewerTelegramId(message.from.id);
     if (!draft) {
-      await sendTelegramMessage(
-        { chatId, text: "No active draft." },
-        logger,
-      );
+      await sendTelegramMessage({ chatId, text: "No active draft." }, logger);
       return;
     }
     await clearDraftByReviewerTelegramId(message.from.id);
@@ -2164,6 +2254,7 @@ git commit -m "feat(dm): add /cancel command"
 ### Task 10.4: Reviewer rate limit (5/24h)
 
 **Files:**
+
 - Create: `src/core/rateLimiter.ts`
 - Create: `src/core/rateLimiter.test.ts`
 - Modify: `src/telegramBot.ts` (call from `applySelectedTarget`)
@@ -2184,7 +2275,10 @@ export async function countRecentEntriesByReviewer(input: {
     .where(
       and(
         eq(vouchEntries.reviewerTelegramId, input.reviewerTelegramId),
-        gte(vouchEntries.createdAt, sql`now() - interval '${sql.raw(String(input.withinHours))} hours'`),
+        gte(
+          vouchEntries.createdAt,
+          sql`now() - interval '${sql.raw(String(input.withinHours))} hours'`,
+        ),
         ne(vouchEntries.status, "removed"),
       ),
     );
@@ -2229,6 +2323,7 @@ git commit -m "feat(dm): rate-limit reviewers to 5 vouches per 24h"
 ### Task 10.5: Paused-state gating
 
 **Files:**
+
 - Create: `src/core/chatSettingsStore.ts`
 - Modify: `src/telegramBot.ts`
 - Modify: `src/core/storage/schema.ts` (already has `chatSettings` from chunk 4 — no change here)
@@ -2241,7 +2336,10 @@ import { db } from "./storage/db.ts";
 import { chatSettings } from "./storage/schema.ts";
 
 export async function isChatPaused(chatId: number): Promise<boolean> {
-  const rows = await db.select({ paused: chatSettings.paused }).from(chatSettings).where(eq(chatSettings.chatId, chatId));
+  const rows = await db
+    .select({ paused: chatSettings.paused })
+    .from(chatSettings)
+    .where(eq(chatSettings.chatId, chatId));
   return rows[0]?.paused === true;
 }
 
@@ -2318,6 +2416,7 @@ git commit -m "feat(dm): block new drafts and Publish when chat is paused"
 ### Task 10.6: View-this-entry deep link in confirmation
 
 **Files:**
+
 - Modify: `src/telegramBot.ts` (`handleCallbackQuery` confirm branch)
 
 - [ ] **Step 1: Build the URL helper**
@@ -2383,6 +2482,7 @@ git commit -m "feat(dm): add View this entry URL button to Posted confirmation"
 ### Task 10.7: Callback data length test
 
 **Files:**
+
 - Create: `src/core/callbackData.test.ts`
 
 - [ ] **Step 1: Write the test**
@@ -2442,6 +2542,7 @@ git commit -m "test: assert every callback_data string is <= 64 bytes"
 ### Task 11.1: Admin audit log writer
 
 **Files:**
+
 - Create: `src/core/adminAuditStore.ts`
 
 - [ ] **Step 1: Implement**
@@ -2485,6 +2586,7 @@ git commit -m "feat(admin): add admin audit log writer"
 ### Task 11.2: Wire audit logging into existing admin commands + denied attempts
 
 **Files:**
+
 - Modify: `src/telegramBot.ts` (`handleAdminCommand`)
 
 - [ ] **Step 1: At the top of `handleAdminCommand`**
@@ -2503,7 +2605,11 @@ if (!isAdmin(input.from?.id)) {
     denied: true,
   });
   await sendTelegramMessage(
-    { chatId: input.chatId, text: buildAdminOnlyText(), ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: buildAdminOnlyText(),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
   return;
@@ -2535,6 +2641,7 @@ git commit -m "feat(admin): write every admin action and denial to admin_audit_l
 ### Task 11.3: `/freeze` with reason
 
 **Files:**
+
 - Modify: `src/telegramBot.ts`
 - Modify: `src/core/archiveStore.ts` (`setBusinessProfileFrozen`)
 
@@ -2575,7 +2682,11 @@ if (input.command === "/freeze" || input.command === "/unfreeze") {
   const targetUsername = normalizeUsername(input.args[0] ?? "");
   if (!targetUsername) {
     await sendTelegramMessage(
-      { chatId: input.chatId, text: `Use: ${input.command} @username${input.command === "/freeze" ? " [reason]" : ""}.`, ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+      {
+        chatId: input.chatId,
+        text: `Use: ${input.command} @username${input.command === "/freeze" ? " [reason]" : ""}.`,
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
       input.logger,
     );
     return;
@@ -2590,7 +2701,11 @@ if (input.command === "/freeze" || input.command === "/unfreeze") {
   });
 
   await sendTelegramMessage(
-    { chatId: input.chatId, text: `${formatUsername(updated.username)} is now ${updated.isFrozen ? "frozen" : "active"}.`, ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: `${formatUsername(updated.username)} is now ${updated.isFrozen ? "frozen" : "active"}.`,
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
   return;
@@ -2607,6 +2722,7 @@ git commit -m "feat(admin): /freeze accepts an optional reason and stores it"
 ### Task 11.4: `/frozen_list`
 
 **Files:**
+
 - Modify: `src/telegramBot.ts`
 - Modify: `src/core/archiveStore.ts` (`listFrozenProfiles`)
 - Modify: `src/core/archive.ts` (`buildFrozenListText`)
@@ -2614,11 +2730,13 @@ git commit -m "feat(admin): /freeze accepts an optional reason and stores it"
 - [ ] **Step 1: Add `listFrozenProfiles`**
 
 ```ts
-export async function listFrozenProfiles(): Promise<Array<{
-  username: string;
-  freezeReason: string | null;
-  frozenAt: Date | null;
-}>> {
+export async function listFrozenProfiles(): Promise<
+  Array<{
+    username: string;
+    freezeReason: string | null;
+    frozenAt: Date | null;
+  }>
+> {
   return db
     .select({
       username: businessProfiles.username,
@@ -2634,7 +2752,9 @@ export async function listFrozenProfiles(): Promise<Array<{
 - [ ] **Step 2: Add `buildFrozenListText` in `archive.ts`**
 
 ```ts
-export function buildFrozenListText(rows: Array<{ username: string; freezeReason: string | null; frozenAt: Date | null }>): string {
+export function buildFrozenListText(
+  rows: Array<{ username: string; freezeReason: string | null; frozenAt: Date | null }>,
+): string {
   if (rows.length === 0) {
     return "No frozen profiles.";
   }
@@ -2643,7 +2763,9 @@ export function buildFrozenListText(rows: Array<{ username: string; freezeReason
   let total = lines.join("\n").length;
   for (const row of rows.slice(0, 10)) {
     const date = row.frozenAt ? row.frozenAt.toISOString().slice(0, 10) : "unknown";
-    const reason = row.freezeReason ? `<i>${escapeHtml(row.freezeReason)}</i>` : "<i>no reason given</i>";
+    const reason = row.freezeReason
+      ? `<i>${escapeHtml(row.freezeReason)}</i>`
+      : "<i>no reason given</i>";
     const line = `${fmtUser(row.username)} — frozen ${escapeHtml(date)} — ${reason}`;
     if (total + line.length + 1 > 3900) {
       truncated = rows.length - lines.length + 2;
@@ -2666,7 +2788,11 @@ export function buildFrozenListText(rows: Array<{ username: string; freezeReason
 if (input.command === "/frozen_list") {
   const rows = await listFrozenProfiles();
   await sendTelegramMessage(
-    { chatId: input.chatId, text: buildFrozenListText(rows), ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: buildFrozenListText(rows),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
   return;
@@ -2688,6 +2814,7 @@ git commit -m "feat(admin): /frozen_list lists frozen profiles with reason"
 ### Task 11.5: `/recover_entry`, `/pause`, `/unpause`
 
 **Files:**
+
 - Modify: `src/telegramBot.ts`
 - Modify: `src/core/archiveStore.ts` (add `setArchiveEntryStatus` already exists; add `recoverArchiveEntry` if missing)
 
@@ -2698,7 +2825,11 @@ if (input.command === "/recover_entry") {
   const entryId = Number(input.args[0]);
   if (!Number.isInteger(entryId)) {
     await sendTelegramMessage(
-      { chatId: input.chatId, text: "Use: /recover_entry &lt;id&gt;.", ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+      {
+        chatId: input.chatId,
+        text: "Use: /recover_entry &lt;id&gt;.",
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
       input.logger,
     );
     return;
@@ -2706,21 +2837,33 @@ if (input.command === "/recover_entry") {
   const entry = await getArchiveEntryById(entryId);
   if (!entry) {
     await sendTelegramMessage(
-      { chatId: input.chatId, text: `Entry #${entryId} not found.`, ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+      {
+        chatId: input.chatId,
+        text: `Entry #${entryId} not found.`,
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
       input.logger,
     );
     return;
   }
   if (entry.status !== "publishing") {
     await sendTelegramMessage(
-      { chatId: input.chatId, text: `Entry #${entryId} is in status="${entry.status}", no recovery needed.`, ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+      {
+        chatId: input.chatId,
+        text: `Entry #${entryId} is in status="${entry.status}", no recovery needed.`,
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
       input.logger,
     );
     return;
   }
   await setArchiveEntryStatus(entryId, "pending");
   await sendTelegramMessage(
-    { chatId: input.chatId, text: `Entry #${entryId} reset to pending.`, ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: `Entry #${entryId} reset to pending.`,
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
   return;
@@ -2733,7 +2876,11 @@ if (input.command === "/pause" || input.command === "/unpause") {
     byTelegramId: input.from.id,
   });
   await sendTelegramMessage(
-    { chatId: input.chatId, text: input.command === "/pause" ? "Vouching paused." : "Vouching resumed.", ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: input.command === "/pause" ? "Vouching paused." : "Vouching resumed.",
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
   return;
@@ -2754,6 +2901,7 @@ git commit -m "feat(admin): /recover_entry, /pause, /unpause"
 ### Task 11.6: `/profile @x`
 
 **Files:**
+
 - Modify: `src/telegramBot.ts`
 - Modify: `src/core/archiveStore.ts` (`getProfileSummary`)
 - Modify: `src/core/archive.ts` (`buildProfileText`)
@@ -2767,16 +2915,23 @@ export async function getProfileSummary(targetUsername: string): Promise<{
   freezeReason: string | null;
   recent: Array<{ id: number; result: string; createdAt: Date }>;
 }> {
-  const profile = await db.select({ isFrozen: businessProfiles.isFrozen, freezeReason: businessProfiles.freezeReason }).from(businessProfiles).where(eq(businessProfiles.username, targetUsername));
+  const profile = await db
+    .select({ isFrozen: businessProfiles.isFrozen, freezeReason: businessProfiles.freezeReason })
+    .from(businessProfiles)
+    .where(eq(businessProfiles.username, targetUsername));
   const counts = await db
     .select({ result: vouchEntries.result, count: sql<number>`count(*)::int` })
     .from(vouchEntries)
-    .where(and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")))
+    .where(
+      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
+    )
     .groupBy(vouchEntries.result);
   const recent = await db
     .select({ id: vouchEntries.id, result: vouchEntries.result, createdAt: vouchEntries.createdAt })
     .from(vouchEntries)
-    .where(and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")))
+    .where(
+      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
+    )
     .orderBy(desc(vouchEntries.createdAt))
     .limit(5);
   const totals = { positive: 0, mixed: 0, negative: 0 };
@@ -2816,7 +2971,9 @@ export function buildProfileText(input: {
     lines.push("");
     lines.push("<b>Last 5 entries</b>");
     for (const r of input.recent) {
-      lines.push(`<b>#${r.id}</b> — <b>${escapeHtml(RESULT_LABELS[r.result as keyof typeof RESULT_LABELS] ?? r.result)}</b> • ${escapeHtml(r.createdAt.toISOString().slice(0, 10))}`);
+      lines.push(
+        `<b>#${r.id}</b> — <b>${escapeHtml(RESULT_LABELS[r.result as keyof typeof RESULT_LABELS] ?? r.result)}</b> • ${escapeHtml(r.createdAt.toISOString().slice(0, 10))}`,
+      );
     }
   }
   return lines.join("\n");
@@ -2836,14 +2993,22 @@ async function handleProfileCommand(input: {
   const targetUsername = normalizeUsername(input.rawUsername ?? "");
   if (!targetUsername) {
     await sendTelegramMessage(
-      { chatId: input.chatId, text: "Use: /profile @username.", ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+      {
+        chatId: input.chatId,
+        text: "Use: /profile @username.",
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      },
       input.logger,
     );
     return;
   }
   const summary = await getProfileSummary(targetUsername);
   await sendTelegramMessage(
-    { chatId: input.chatId, text: buildProfileText({ targetUsername, ...summary }), ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: buildProfileText({ targetUsername, ...summary }),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
 }
@@ -2867,7 +3032,13 @@ if (command === "/profile") {
     );
     return;
   }
-  await handleProfileCommand({ chatId, rawUsername: args[0], replyToMessageId: message.message_id, disableNotification: true, logger });
+  await handleProfileCommand({
+    chatId,
+    rawUsername: args[0],
+    replyToMessageId: message.message_id,
+    disableNotification: true,
+    logger,
+  });
   return;
 }
 ```
@@ -2887,6 +3058,7 @@ git commit -m "feat(admin): /profile @x shows totals and last 5 entries"
 ### Task 11.7: `/admin_help`
 
 **Files:**
+
 - Modify: `src/telegramBot.ts`
 - Modify: `src/core/archive.ts` (`buildAdminHelpText`)
 
@@ -2915,7 +3087,11 @@ export function buildAdminHelpText(): string {
 ```ts
 if (input.command === "/admin_help") {
   await sendTelegramMessage(
-    { chatId: input.chatId, text: buildAdminHelpText(), ...buildReplyOptions(input.replyToMessageId, input.disableNotification) },
+    {
+      chatId: input.chatId,
+      text: buildAdminHelpText(),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+    },
     input.logger,
   );
   return;
@@ -2938,6 +3114,7 @@ git commit -m "feat(admin): /admin_help reference list"
 ### Task 12.1: Launcher debounce
 
 **Files:**
+
 - Modify: `src/core/archiveLauncher.ts`
 - Modify: `src/core/archiveStore.ts` (helper to read `chat_launchers.updatedAt`)
 
@@ -2950,7 +3127,10 @@ export async function refreshGroupLauncher(chatId: number, logger?: any) {
   await withChatLauncherLock(chatId, async () => {
     const existing = await getLauncherByChatId(chatId);
     if (existing && Date.now() - existing.updatedAt.getTime() < DEBOUNCE_MS) {
-      logger?.info?.("[Archive] Launcher refresh debounced", { chatId, ageMs: Date.now() - existing.updatedAt.getTime() });
+      logger?.info?.("[Archive] Launcher refresh debounced", {
+        chatId,
+        ageMs: Date.now() - existing.updatedAt.getTime(),
+      });
       return;
     }
 
@@ -2958,7 +3138,11 @@ export async function refreshGroupLauncher(chatId: number, logger?: any) {
       try {
         await deleteTelegramMessage({ chatId, messageId: existing.messageId }, logger);
       } catch (error) {
-        logger?.warn?.("⚠️ [Archive] Failed to delete previous launcher", { error, chatId, messageId: existing.messageId });
+        logger?.warn?.("⚠️ [Archive] Failed to delete previous launcher", {
+          error,
+          chatId,
+          messageId: existing.messageId,
+        });
       }
     }
 
@@ -2982,6 +3166,7 @@ git commit -m "feat(group): debounce launcher refresh to 30 sec"
 ### Task 12.2: Subscribe to `my_chat_member` updates
 
 **Files:**
+
 - Modify: `src/telegramBot.ts` (in `processTelegramUpdate`)
 - Modify: `scripts/setTelegramWebhook.ts` (to include `my_chat_member` in `allowed_updates` — done in chunk 13)
 
@@ -3009,7 +3194,10 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
     await db
       .insert(chatSettings)
       .values({ chatId, status: "kicked" })
-      .onConflictDoUpdate({ target: chatSettings.chatId, set: { status: "kicked", updatedAt: new Date() } });
+      .onConflictDoUpdate({
+        target: chatSettings.chatId,
+        set: { status: "kicked", updatedAt: new Date() },
+      });
     logger?.info?.("[Group] Bot lost access", { chatId, newStatus });
   }
 }
@@ -3022,7 +3210,10 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
 In `refreshGroupLauncher`, before any send, check `chat_settings.status`:
 
 ```ts
-const settings = await db.select({ status: chatSettings.status }).from(chatSettings).where(eq(chatSettings.chatId, chatId));
+const settings = await db
+  .select({ status: chatSettings.status })
+  .from(chatSettings)
+  .where(eq(chatSettings.chatId, chatId));
 if (settings[0]?.status === "kicked") {
   logger?.info?.("[Archive] Skipping launcher refresh for kicked chat", { chatId });
   return;
@@ -3039,6 +3230,7 @@ git commit -m "feat(group): handle my_chat_member kicked/left and skip dead chat
 ### Task 12.3: Supergroup migration
 
 **Files:**
+
 - Modify: `src/telegramBot.ts` (in `handleGroupMessage`)
 
 - [ ] **Step 1: Detect `migrate_to_chat_id`**
@@ -3053,7 +3245,10 @@ if (message.migrate_to_chat_id) {
     await db
       .insert(chatSettings)
       .values({ chatId: oldId, status: "migrated_away", migratedToChatId: newId })
-      .onConflictDoUpdate({ target: chatSettings.chatId, set: { status: "migrated_away", migratedToChatId: newId, updatedAt: new Date() } });
+      .onConflictDoUpdate({
+        target: chatSettings.chatId,
+        set: { status: "migrated_away", migratedToChatId: newId, updatedAt: new Date() },
+      });
     logger?.info?.("[Group] Chat migrated to supergroup", { oldId, newId });
   }
   return;
@@ -3074,6 +3269,7 @@ git commit -m "feat(group): record supergroup migration to chat_settings"
 ### Task 13.1: Update `setTelegramWebhook` script
 
 **Files:**
+
 - Modify: `scripts/setTelegramWebhook.ts`
 
 - [ ] **Step 1: Read the current script**
@@ -3115,6 +3311,7 @@ git commit -m "feat(webhook): set allowed_updates, max_connections=10, drop_pend
 ### Task 13.2: 25-sec safety on the webhook handler
 
 **Files:**
+
 - Modify: `src/server.ts`
 
 - [ ] **Step 1: Wrap `processTelegramUpdate` in a timeout**
@@ -3154,6 +3351,7 @@ git commit -m "feat(server): 25s safety on webhook processing"
 ### Task 14.1: Add pino with redact paths
 
 **Files:**
+
 - Create: `src/core/logger.ts`
 - Modify: `package.json` (add pino)
 - Modify: `src/server.ts` (use logger)
@@ -3213,6 +3411,7 @@ git commit -m "feat(obs): adopt pino with redact paths for tokens and secrets"
 ### Task 15.1: Configure `pg.Pool` max:5
 
 **Files:**
+
 - Modify: `src/core/storage/db.ts`
 
 - [ ] **Step 1: Read the current db.ts**
@@ -3251,6 +3450,7 @@ git commit -m "perf(db): cap pg.Pool max at 5 to match webhook concurrency"
 ### Task 16.1: Replace `DEPLOY_REPLIT.md` with `DEPLOY.md`
 
 **Files:**
+
 - Delete: `DEPLOY_REPLIT.md`
 - Create: `DEPLOY.md`
 
@@ -3285,21 +3485,23 @@ Install the Railway GitHub app and grant access to the `vouchvault` repo. (https
 In the same project: **+ New** → GitHub Repo → `jbot-bit/vouchvault`.
 
 Service Settings:
+
 - **Build Command**: leave empty.
 - **Start Command**: `npm start`
 - **Service Variables** (under Environment tab):
   - `NIXPACKS_NODE_VERSION=22`
 
 ## Step 5 — Set secrets (Variables tab on the bot service)
-
 ```
+
 DATABASE_URL=${{Postgres.DATABASE_URL}}
 TELEGRAM_BOT_TOKEN=<from @BotFather>
 TELEGRAM_ALLOWED_CHAT_IDS=<comma list>
 TELEGRAM_ADMIN_IDS=<comma list>
 TELEGRAM_WEBHOOK_SECRET_TOKEN=<openssl rand -hex 32>
 NODE_ENV=production
-```
+
+````
 
 Optional: `TELEGRAM_BOT_USERNAME`, `LEGACY_BOT_SENDERS`.
 
@@ -3317,7 +3519,7 @@ INSERT INTO __drizzle_migrations (hash, created_at)
 SELECT entries->>'tag', extract(epoch from now()) * 1000
 FROM jsonb_array_elements((SELECT pg_read_file('migrations/meta/_journal.json')::jsonb->'entries')) entries
 WHERE entries->>'tag' LIKE '0000_%';
-```
+````
 
 (For a brand-new DB, skip this — drizzle-kit will apply 0000 normally on the first `db:migrate`.)
 
@@ -3375,6 +3577,7 @@ Then run Step 7 above to seed `__drizzle_migrations` with the baseline marker.
 - **Vouches stuck publishing**: SQL `SELECT id FROM vouch_entries WHERE status='publishing' AND updated_at < now() - interval '5 minutes'` → admin runs `/recover_entry <id>` per row.
 - **Need to halt**: `/pause` from any admin.
 - **Restore from backup**: Railway Postgres → Settings → Backups → Restore.
+
 ```
 
 - [ ] **Step 2: Delete `DEPLOY_REPLIT.md`**
@@ -3384,8 +3587,10 @@ Run: `git rm DEPLOY_REPLIT.md`
 - [ ] **Step 3: Commit**
 
 ```
+
 git add DEPLOY.md
 git commit -m "docs: replace DEPLOY_REPLIT.md with Railway DEPLOY.md"
+
 ```
 
 ### Task 16.2: Update `.env.example` for Railway
@@ -3400,8 +3605,10 @@ Replace Replit-specific guidance with Railway-equivalent. Add `LEGACY_BOT_SENDER
 - [ ] **Step 2: Commit**
 
 ```
+
 git add .env.example
 git commit -m "docs: update .env.example for Railway and new env vars"
+
 ```
 
 ---
@@ -3419,7 +3626,9 @@ Place at `imports/result.json` (gitignored).
 - [ ] **Step 2: Dry-run**
 
 ```
+
 npm run replay:legacy imports/result.json -- --dry-run --review-report imports/review.json
+
 ```
 
 Expected: `summary.wouldImport > 0`, `summary.skippedBotSender > 0`, `summary.skippedMultipleTargets > 0`, `summary.skippedMissingReviewer == 0` (since numeric `from_id` fallback should resolve everyone).
@@ -3435,7 +3644,9 @@ Spot-check that the bot-sender bucket contains expected accounts; the unclear-se
 - [ ] **Step 1: Live run with `--max-imports 5`**
 
 ```
+
 npm run replay:legacy imports/result.json -- --max-imports 5 --throttle-ms 3100 --review-report imports/live5-review.json --checkpoint imports/live5-checkpoint.json
+
 ```
 
 Expected: 5 messages posted to the live group, ~17 seconds elapsed.
@@ -3447,8 +3658,10 @@ Expected: 5 messages posted to the live group, ~17 seconds elapsed.
 - [ ] **Step 1: Run without `--max-imports`**
 
 ```
+
 npm run replay:legacy imports/result.json -- --throttle-ms 3100 --review-report imports/full-review.json --checkpoint imports/full-checkpoint.json
-```
+
+````
 
 Expected: ~100 minutes for 2,000 entries at 3.1s/send. Run in a Railway shell or under `nohup` so the process survives terminal disconnect.
 
@@ -3507,14 +3720,17 @@ export class TelegramApiError extends Error {
 export class TelegramRateLimitError extends TelegramApiError {}
 export class TelegramForbiddenError extends TelegramApiError {}
 export class TelegramChatGoneError extends TelegramApiError {}
-```
+````
 
 - [ ] **Step 2: Create `withTelegramRetry.ts`**
 
 ```ts
 import { TelegramApiError, TelegramRateLimitError } from "./typedTelegramErrors.ts";
 
-export async function withTelegramRetry<T>(fn: () => Promise<T>, opts: { maxAttempts?: number } = {}): Promise<T> {
+export async function withTelegramRetry<T>(
+  fn: () => Promise<T>,
+  opts: { maxAttempts?: number } = {},
+): Promise<T> {
   const max = opts.maxAttempts ?? 2;
   let attempt = 0;
   while (true) {
@@ -3608,6 +3824,7 @@ git commit -m "feat(telegram): typed errors + withTelegramRetry wrapper"
 ### Task 18.2 (gap fill): 4096-char ceiling truncation
 
 **Files:**
+
 - Modify: `src/core/archive.ts` (`buildLookupText`, `buildRecentEntriesText`)
 - Create: `src/core/formattingCeiling.test.ts`
 
@@ -3672,7 +3889,7 @@ git commit -m "feat(format): truncate /lookup and /recent at 3900 chars"
 
 ### Type consistency
 
-- `TelegramRateLimitError`, `TelegramForbiddenError`, `TelegramChatGoneError` defined once in 18.1 and referenced in 7.3 (replay 429 handling) and 10.* implicitly via wrapped sends. ✓
+- `TelegramRateLimitError`, `TelegramForbiddenError`, `TelegramChatGoneError` defined once in 18.1 and referenced in 7.3 (replay 429 handling) and 10.\* implicitly via wrapped sends. ✓
 - `chatSettings` table created in Task 4.2 and used in 10.5 (paused), 12.2 (kicked), 12.3 (migrated_away). ✓
 - `setBusinessProfileFrozen` argument shape locked at Task 11.3 (object input). Earlier code in `telegramBot.ts` calls it with positional args; the call sites are updated within Task 11.3.
 - `setChatPaused` introduced in 10.5; called in 11.5 (`/pause` /`/unpause`). ✓

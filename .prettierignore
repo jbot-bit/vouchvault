@@ -1,0 +1,4 @@
+node_modules
+migrations
+.github
+package-lock.json

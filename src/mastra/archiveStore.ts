@@ -1,7 +1,13 @@
 import { and, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 
 import { db } from "./storage/db.ts";
-import { businessProfiles, chatLaunchers, processedTelegramUpdates, vouchDrafts, vouchEntries } from "./storage/schema.ts";
+import {
+  businessProfiles,
+  chatLaunchers,
+  processedTelegramUpdates,
+  vouchDrafts,
+  vouchEntries,
+} from "./storage/schema.ts";
 import {
   DEFAULT_DRAFT_TIMEOUT_HOURS,
   PROCESSED_UPDATE_RETENTION_DAYS,
@@ -185,11 +191,18 @@ export async function updateDraftByReviewerTelegramId(
       reviewerUsername: updates.reviewerUsername ?? draft.reviewerUsername,
       reviewerFirstName: updates.reviewerFirstName ?? draft.reviewerFirstName,
       privateChatId: updates.privateChatId ?? draft.privateChatId,
-      targetGroupChatId: updates.targetGroupChatId === undefined ? draft.targetGroupChatId : updates.targetGroupChatId,
-      targetUsername: updates.targetUsername === undefined ? draft.targetUsername : updates.targetUsername,
+      targetGroupChatId:
+        updates.targetGroupChatId === undefined
+          ? draft.targetGroupChatId
+          : updates.targetGroupChatId,
+      targetUsername:
+        updates.targetUsername === undefined ? draft.targetUsername : updates.targetUsername,
       entryType: updates.entryType === undefined ? draft.entryType : updates.entryType,
       result: updates.result === undefined ? draft.result : updates.result,
-      selectedTags: updates.selectedTags === undefined ? draft.selectedTags : serializeSelectedTags(updates.selectedTags),
+      selectedTags:
+        updates.selectedTags === undefined
+          ? draft.selectedTags
+          : serializeSelectedTags(updates.selectedTags),
       step: updates.step ?? (draft.step as DraftStep),
       updatedAt: new Date(),
     })
@@ -273,7 +286,10 @@ export async function createArchiveEntry(input: {
   return rows[0]!;
 }
 
-export async function setArchiveEntryPublishedMessageId(entryId: number, publishedMessageId: number) {
+export async function setArchiveEntryPublishedMessageId(
+  entryId: number,
+  publishedMessageId: number,
+) {
   const rows = await db
     .update(vouchEntries)
     .set({
@@ -320,11 +336,7 @@ export async function setArchiveEntryStatus(entryId: number, status: string) {
 }
 
 export async function getArchiveEntryById(entryId: number) {
-  const result = await db
-    .select()
-    .from(vouchEntries)
-    .where(eq(vouchEntries.id, entryId))
-    .limit(1);
+  const result = await db.select().from(vouchEntries).where(eq(vouchEntries.id, entryId)).limit(1);
 
   return result[0] ?? null;
 }
@@ -374,10 +386,7 @@ export async function getArchiveEntriesForTarget(targetUsername: string, limit: 
     .select()
     .from(vouchEntries)
     .where(
-      and(
-        eq(vouchEntries.targetUsername, targetUsername),
-        eq(vouchEntries.status, "published"),
-      ),
+      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
     )
     .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
     .limit(limit);
@@ -442,13 +451,11 @@ export async function withReviewerDraftLock<T>(reviewerTelegramId: number, fn: (
 
 export async function reserveTelegramUpdate(updateId: number) {
   try {
-    await db
-      .insert(processedTelegramUpdates)
-      .values({
-        updateId,
-        status: "processing",
-        updatedAt: new Date(),
-      });
+    await db.insert(processedTelegramUpdates).values({
+      updateId,
+      status: "processing",
+      updatedAt: new Date(),
+    });
 
     return { reserved: true, status: "processing" as const };
   } catch (error) {
@@ -507,16 +514,16 @@ export async function completeTelegramUpdate(updateId: number) {
 }
 
 export async function releaseTelegramUpdate(updateId: number) {
-  await db
-    .delete(processedTelegramUpdates)
-    .where(eq(processedTelegramUpdates.updateId, updateId));
+  await db.delete(processedTelegramUpdates).where(eq(processedTelegramUpdates.updateId, updateId));
 }
 
 export async function runArchiveMaintenance() {
   const draftCutoff = new Date(Date.now() - DEFAULT_DRAFT_TIMEOUT_HOURS * 60 * 60 * 1000);
   await db.delete(vouchDrafts).where(lt(vouchDrafts.updatedAt, draftCutoff));
 
-  const processedUpdateCutoff = new Date(Date.now() - PROCESSED_UPDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const processedUpdateCutoff = new Date(
+    Date.now() - PROCESSED_UPDATE_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+  );
   await db
     .delete(processedTelegramUpdates)
     .where(lt(processedTelegramUpdates.updatedAt, processedUpdateCutoff));

@@ -62,7 +62,10 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
 
     // update().returning() always returns the updated row
     const updated = rows[0]!;
-    logger?.info?.("Updated Telegram user record", { userId: updated.id, telegramId: input.telegramId });
+    logger?.info?.("Updated Telegram user record", {
+      userId: updated.id,
+      telegramId: input.telegramId,
+    });
     return updated;
   }
 
@@ -83,10 +86,16 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
 
     // insert().returning() always returns the inserted row
     const created = rows[0]!;
-    logger?.info?.("Created Telegram user record", { userId: created.id, telegramId: input.telegramId });
+    logger?.info?.("Created Telegram user record", {
+      userId: created.id,
+      telegramId: input.telegramId,
+    });
     return created;
   } catch (error) {
-    logger?.warn?.("Concurrent user create detected, retrying lookup", { telegramId: input.telegramId, error });
+    logger?.warn?.("Concurrent user create detected, retrying lookup", {
+      telegramId: input.telegramId,
+      error,
+    });
 
     const retried = await db
       .select()
@@ -104,11 +113,7 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
 }
 
 export async function getUserByTelegramId(telegramId: number) {
-  const result = await db
-    .select()
-    .from(users)
-    .where(eq(users.telegramId, telegramId))
-    .limit(1);
+  const result = await db.select().from(users).where(eq(users.telegramId, telegramId)).limit(1);
 
   return result[0] ?? null;
 }
@@ -148,6 +153,9 @@ export const getUserByTelegramIdTool = {
 };
 
 export const updateUserVotesTool = {
-  execute: async ({ context }: { context: { userId: number; yesVotes: number; noVotes: number } }) =>
-    updateUserVotes(context),
+  execute: async ({
+    context,
+  }: {
+    context: { userId: number; yesVotes: number; noVotes: number };
+  }) => updateUserVotes(context),
 };

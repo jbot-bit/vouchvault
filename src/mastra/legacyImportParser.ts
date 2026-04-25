@@ -1,9 +1,4 @@
-import {
-  normalizeUsername,
-  type EntryResult,
-  type EntryTag,
-  type EntryType,
-} from "./archive.ts";
+import { normalizeUsername, type EntryResult, type EntryTag, type EntryType } from "./archive.ts";
 
 export type LegacyImportResult = Extract<EntryResult, "positive" | "negative">;
 export type LegacyImportEntryType = Extract<EntryType, "service">;
@@ -235,12 +230,12 @@ export function classifyLegacyResult(text: string): {
   matchedNegative: string[];
 } {
   const normalizedText = collapseWhitespace(text.toLowerCase());
-  const matchedPositive = POSITIVE_PATTERNS
-    .filter((pattern) => pattern.regex.test(normalizedText))
-    .map((pattern) => pattern.label);
-  const matchedNegative = NEGATIVE_PATTERNS
-    .filter((pattern) => pattern.regex.test(normalizedText))
-    .map((pattern) => pattern.label);
+  const matchedPositive = POSITIVE_PATTERNS.filter((pattern) =>
+    pattern.regex.test(normalizedText),
+  ).map((pattern) => pattern.label);
+  const matchedNegative = NEGATIVE_PATTERNS.filter((pattern) =>
+    pattern.regex.test(normalizedText),
+  ).map((pattern) => pattern.label);
 
   if (matchedPositive.length > 0 && matchedNegative.length > 0) {
     return {
@@ -446,7 +441,8 @@ export function parseLegacyExportMessage(input: {
       reviewerUsername,
       targetUsernames,
       reason: "self_target",
-      detail: "Legacy replay skips self-targeted messages to stay aligned with the live vouch rules.",
+      detail:
+        "Legacy replay skips self-targeted messages to stay aligned with the live vouch rules.",
       bucket: "missing_target",
     });
   }
@@ -460,9 +456,10 @@ export function parseLegacyExportMessage(input: {
       reviewerUsername,
       targetUsernames,
       reason: "unclear_sentiment",
-      detail: sentiment.matchedPositive.length > 0 || sentiment.matchedNegative.length > 0
-        ? `Conflicting legacy sentiment markers found. Positive: ${sentiment.matchedPositive.join(", ") || "none"}; Negative: ${sentiment.matchedNegative.join(", ") || "none"}.`
-        : "No approved positive or negative legacy sentiment marker was found.",
+      detail:
+        sentiment.matchedPositive.length > 0 || sentiment.matchedNegative.length > 0
+          ? `Conflicting legacy sentiment markers found. Positive: ${sentiment.matchedPositive.join(", ") || "none"}; Negative: ${sentiment.matchedNegative.join(", ") || "none"}.`
+          : "No approved positive or negative legacy sentiment marker was found.",
       bucket: "unclear_sentiment",
     });
   }
@@ -496,13 +493,18 @@ export function getLegacyExportMessages(exportData: unknown): unknown[] {
   throw new Error("Telegram export JSON must be an array or an object with a messages array.");
 }
 
-export function resolveLegacySourceChatId(exportData: unknown, overrideChatId?: number | null): number {
+export function resolveLegacySourceChatId(
+  exportData: unknown,
+  overrideChatId?: number | null,
+): number {
   if (overrideChatId != null) {
     return overrideChatId;
   }
 
   if (!isRecord(exportData)) {
-    throw new Error("Could not resolve the legacy source chat id from the export. Pass --source-chat-id <id>.");
+    throw new Error(
+      "Could not resolve the legacy source chat id from the export. Pass --source-chat-id <id>.",
+    );
   }
 
   for (const key of ["id", "chat_id", "chatId", "peer_id", "peerId"] as const) {
@@ -512,7 +514,9 @@ export function resolveLegacySourceChatId(exportData: unknown, overrideChatId?: 
     }
   }
 
-  throw new Error("Could not resolve the legacy source chat id from the export. Pass --source-chat-id <id>.");
+  throw new Error(
+    "Could not resolve the legacy source chat id from the export. Pass --source-chat-id <id>.",
+  );
 }
 
 export function sortLegacyMessages(messages: unknown[]): unknown[] {

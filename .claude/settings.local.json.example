@@ -1,0 +1,6 @@
+{
+  "_comment": "Copy to settings.local.json (gitignored) for personal overrides — additional allowlisted commands, env vars, hooks.",
+  "permissions": {
+    "allow": []
+  }
+}

@@ -127,15 +127,21 @@ async function main() {
     logger: console,
   });
 
-  console.info(JSON.stringify({
-    completed: result.completed,
-    sourceChatId: result.sourceChatId,
-    targetGroupChatId: result.targetGroupChatId,
-    reviewReportPath: result.reviewReportPath,
-    checkpointPath: result.checkpointPath,
-    summary: result.summary,
-    failure: result.failure,
-  }, null, 2));
+  console.info(
+    JSON.stringify(
+      {
+        completed: result.completed,
+        sourceChatId: result.sourceChatId,
+        targetGroupChatId: result.targetGroupChatId,
+        reviewReportPath: result.reviewReportPath,
+        checkpointPath: result.checkpointPath,
+        summary: result.summary,
+        failure: result.failure,
+      },
+      null,
+      2,
+    ),
+  );
 
   if (!result.completed) {
     process.exitCode = 1;

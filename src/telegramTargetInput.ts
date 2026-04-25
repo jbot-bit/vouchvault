@@ -1,6 +1,9 @@
 import { normalizeUsername } from "./mastra/archive.ts";
 
-export function parseTypedTargetUsername(text: string): { targetUsername: string | null; error: string | null } {
+export function parseTypedTargetUsername(text: string): {
+  targetUsername: string | null;
+  error: string | null;
+} {
   const trimmed = text.trim();
   if (!trimmed) {
     return { targetUsername: null, error: "Send a target @username." };

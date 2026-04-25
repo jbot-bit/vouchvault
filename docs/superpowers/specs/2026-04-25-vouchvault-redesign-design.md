@@ -63,11 +63,11 @@ Initial bot identity, commands, DM/group/admin flows with edge cases, formatting
 
 ## 2. Bot identity
 
-| Field | Limit | Where it surfaces | Current | Locked |
-|---|---|---|---|---|
-| Name (`setMyName`) | 0–64 | Header in chat list / profile | unset | `Vouch Hub` |
-| About (`setMyShortDescription`) | 0–120 | Profile page, share preview | "Vouch hub for local businesses…" (118) | "Vouch Hub — log and verify local-business service experiences. Open from the group launcher." (~95) |
-| Description (`setMyDescription`) | 0–512 | Empty-chat splash | one paragraph, ~370 | three short lines (§2.1) |
+| Field                            | Limit | Where it surfaces             | Current                                 | Locked                                                                                               |
+| -------------------------------- | ----- | ----------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Name (`setMyName`)               | 0–64  | Header in chat list / profile | unset                                   | `Vouch Hub`                                                                                          |
+| About (`setMyShortDescription`)  | 0–120 | Profile page, share preview   | "Vouch hub for local businesses…" (118) | "Vouch Hub — log and verify local-business service experiences. Open from the group launcher." (~95) |
+| Description (`setMyDescription`) | 0–512 | Empty-chat splash             | one paragraph, ~370                     | three short lines (§2.1)                                                                             |
 
 Sources: `core.telegram.org/bots/features` (description ≤ 512, about ≤ 120). Verify name limit at `core.telegram.org/bots/api#setmyname`.
 
@@ -93,23 +93,23 @@ Telegram supports per-scope command lists via `setMyCommands` `scope.type`: `def
 
 ### 3.1 Final command matrix
 
-| Command | Default | Private | Group (member) | Group (admin) | Description |
-|---|---|---|---|---|---|
-| `/start` | — | hidden | — | — | Deep-link entry only |
-| `/vouch` | — | ✓ | — | — | Start a new vouch entry |
-| `/cancel` | — | ✓ | — | — | Cancel your in-progress draft |
-| `/help` | ✓ | ✓ | ✓ | ✓ | How the Vouch Hub works |
-| `/recent` | ✓ | ✓ | ✓ | ✓ | Show the 10 most recent entries |
-| `/profile` | — | ✓ | — | ✓ | `/profile @username` — entry totals + last 5 entries |
-| `/lookup` | — | ✓ | — | ✓ | `/lookup @username` — full entry list |
-| `/admin_help` | — | — | — | ✓ | Admin command reference |
-| `/freeze` | — | — | — | ✓ | `/freeze @x [reason]` — block new entries for a target |
-| `/unfreeze` | — | — | — | ✓ | Unfreeze an @username |
-| `/frozen_list` | — | — | — | ✓ | List currently-frozen profiles |
-| `/remove_entry` | — | — | — | ✓ | `/remove_entry <id>` — soft-delete + delete in group |
-| `/recover_entry` | — | — | — | ✓ | `/recover_entry <id>` — clear stuck "publishing" status |
-| `/pause` | — | — | — | ✓ | Pause new vouch submissions group-wide |
-| `/unpause` | — | — | — | ✓ | Resume vouch submissions |
+| Command          | Default | Private | Group (member) | Group (admin) | Description                                             |
+| ---------------- | ------- | ------- | -------------- | ------------- | ------------------------------------------------------- |
+| `/start`         | —       | hidden  | —              | —             | Deep-link entry only                                    |
+| `/vouch`         | —       | ✓       | —              | —             | Start a new vouch entry                                 |
+| `/cancel`        | —       | ✓       | —              | —             | Cancel your in-progress draft                           |
+| `/help`          | ✓       | ✓       | ✓              | ✓             | How the Vouch Hub works                                 |
+| `/recent`        | ✓       | ✓       | ✓              | ✓             | Show the 10 most recent entries                         |
+| `/profile`       | —       | ✓       | —              | ✓             | `/profile @username` — entry totals + last 5 entries    |
+| `/lookup`        | —       | ✓       | —              | ✓             | `/lookup @username` — full entry list                   |
+| `/admin_help`    | —       | —       | —              | ✓             | Admin command reference                                 |
+| `/freeze`        | —       | —       | —              | ✓             | `/freeze @x [reason]` — block new entries for a target  |
+| `/unfreeze`      | —       | —       | —              | ✓             | Unfreeze an @username                                   |
+| `/frozen_list`   | —       | —       | —              | ✓             | List currently-frozen profiles                          |
+| `/remove_entry`  | —       | —       | —              | ✓             | `/remove_entry <id>` — soft-delete + delete in group    |
+| `/recover_entry` | —       | —       | —              | ✓             | `/recover_entry <id>` — clear stuck "publishing" status |
+| `/pause`         | —       | —       | —              | ✓             | Pause new vouch submissions group-wide                  |
+| `/unpause`       | —       | —       | —              | ✓             | Resume vouch submissions                                |
 
 Notes:
 
@@ -151,49 +151,49 @@ Per Telegram's UX guidance ("edit your keyboard when the user toggles a setting 
 
 ### 4.3 Edge cases enumerated
 
-| # | Scenario | Behaviour |
-|---|---|---|
-| E01 | User has no public `@username` | "You need a public Telegram @username to vouch.\nSet one in Settings → Username, then send /vouch." |
-| E02 | User shares a target with no `@username` via picker | Re-prompt; after 2 failed picks add fallback "Or send the @username as text." |
-| E03 | User types something that isn't a username | "Send only one @username — letters/digits/underscore, 5–32 chars." |
-| E04 | User self-targets | "Self-vouching is not allowed." + button |
-| E05 | Target is frozen | "<b>@x</b> is frozen and cannot receive new vouches right now." + button |
-| E06 | Reviewer already vouched same target within 72h | "You vouched <b>@x</b> on YYYY-MM-DD.\nCooldown ends YYYY-MM-DD." + button |
-| E07 | Draft expired (24h) | "Your last draft expired. Start again." + button |
-| E08 | Stale callback (different draft started) | Refetch inside lock; if step mismatch, callback alert "This draft is no longer current" + edit old message to "Use the buttons in your current draft." |
-| E09 | Publish target group no longer allowed | Already handled. Keep. |
-| E10 | Bot blocked by user mid-flow | Typed `TelegramForbiddenError`; on `forbidden: bot was blocked by the user`, swallow + clear draft + log info. Do not retry. |
-| E11 | Bot kicked/demoted between draft and publish | Catch group-level `forbidden` / `bad_request: chat not found`; alert "I lost access to the group. Notify an admin and try again later." Keep draft. |
-| E12 | Telegram 429 | `withTelegramRetry` sleeps `retry_after`s, retries once. Second 429 → typed error → callback alert. |
-| E13 | Postgres outage | Webhook 500 → Telegram retries. Correct. |
-| E14 | Stale launcher (group removed from allowlist) | Validate at deep-link time; "That launcher is from an old group." |
-| E15 | Two parallel reviewers vouching same target | Independent; both publish. Correct. |
-| E16 | User's `@username` changes mid-flow | Use latest username at publish. Persist to `users` table on every update. |
-| E17 | User selects a bot account as target | `request_users` filters `user_is_bot=false`. Correct. |
-| E18 | User selects deleted/anonymous account | Picker returns `username: null` → handled as E02. |
-| E19 | Double-tap Publish | `withReviewerDraftLock` serialises; second call sees draft cleared → "This draft is already posted." |
-| E20 | User edits text mid-flow | `edited_message` not in `allowed_updates` → ignored. |
-| E21 | User sends photo/sticker as target | Empty `text` → re-prompt with E03. |
-| E22 | Draft cleanup fails after publish | Logged warn; janitor catches expired drafts. Keep. |
-| E23 | Deep-link payload for chat user isn't in | Allowlist gating sufficient — multi-group support is intentional. Document. |
-| E24 | Callback `data` length > 64 bytes | Unit test ensures every callback we generate is ≤ 64 bytes. |
-| E25 | Reviewer floods 6+ vouches in 24h | Rolling-window rate limit ≤ 5/24h. On 6th: "Daily limit reached. Try again after YYYY-MM-DD HH:MM." |
-| E26 | Bot is paused (admin `/pause`) | DM flow rejects new drafts AND in-flight Publish clicks: "Vouching is paused. An admin will lift this when ready. Use /recent to see the archive." Mid-flow drafts can stay open but cannot publish. |
-| E27 | Network blip mid-API call | `withTelegramRetry` retries on `fetch` network errors once; second failure surfaces. |
-| E28 | Webhook handler exceeds 25 sec | Log error, return 200 to Telegram (avoid duplicate-update flood). Idempotency via `processed_telegram_updates`. |
-| E29 | Target's `@username` changes after entries exist | Existing entries reference historical username; v1 documents the limitation. Schema captures `target_telegram_id` on new entries when picker is used (forward-compatible for future `/profile @newname` resolution). |
-| E30 | Sticker/voice/photo/animation/location as target | `text` empty → E03. |
-| E31 | Forwarded message into the bot DM | Treat the forward's `text` (or `caption`) as the user's input — `@username` standalone accepts; else E03. |
-| E32 | String > 64 chars containing an `@` | `parseTypedTargetUsername` extracts standalone handle; with extra words returns E03. Confirmed by existing tests. |
-| E33 | `setWebhook` fails during deploy | DEPLOY.md verify (`getWebhookInfo`); re-run `npm run telegram:webhook` if `last_error_message` non-empty. |
-| E34 | Bot tries to DM admin (e.g. for G04 alert) but admin has bot blocked | Swallowed `TelegramForbiddenError` + warn; admin sees alert next time they DM the bot (queued in `admin_audit_log`). |
-| E35 | "View this entry" deep link tapped from outside the group | Telegram silently fails to navigate; documented limitation. |
-| E36 | DB pool exhausted (concurrent webhook spike) | `pg.Pool` queues; if queue exceeds timeout, throws → webhook 500 → Telegram retries. Pool sized at 5 (§11.4) to match webhook `max_connections: 10` × headroom. |
-| E37 | Telegram resends the same `update_id` (retries) | `processed_telegram_updates` table makes it a no-op. Telegram doesn't reuse `update_id`s except on retry; `bigint` unique col is the source of truth. |
-| E38 | `runArchiveMaintenance` overlaps with a request | Maintenance is wrapped in its own short transactions; advisory lock per-row prevents janitor and live writes from contending on the same draft. |
-| E39 | User taps a callback button > 48h after the message was sent | Telegram allows callback delivery indefinitely; we still process. If the message is too old to edit (Telegram returns `bad_request: message can't be edited`), catch that specific error, send a fresh status message instead, log info. |
-| E40 | User picker shares a target AT THE SAME TIME as the user types `@username` | Both arrive as separate updates. `withReviewerDraftLock` serialises; whichever arrives first sets the target; the second sees `step != awaiting_target` and is ignored gracefully (no error). |
-| E41 | User sends `@username` in middle of a sentence ("hey vouch @bob he's great") | `parseTypedTargetUsername` rejects with E03 unless the message is a standalone handle. Documented; user must send only the handle. |
+| #   | Scenario                                                                     | Behaviour                                                                                                                                                                                                                                |
+| --- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E01 | User has no public `@username`                                               | "You need a public Telegram @username to vouch.\nSet one in Settings → Username, then send /vouch."                                                                                                                                      |
+| E02 | User shares a target with no `@username` via picker                          | Re-prompt; after 2 failed picks add fallback "Or send the @username as text."                                                                                                                                                            |
+| E03 | User types something that isn't a username                                   | "Send only one @username — letters/digits/underscore, 5–32 chars."                                                                                                                                                                       |
+| E04 | User self-targets                                                            | "Self-vouching is not allowed." + button                                                                                                                                                                                                 |
+| E05 | Target is frozen                                                             | "<b>@x</b> is frozen and cannot receive new vouches right now." + button                                                                                                                                                                 |
+| E06 | Reviewer already vouched same target within 72h                              | "You vouched <b>@x</b> on YYYY-MM-DD.\nCooldown ends YYYY-MM-DD." + button                                                                                                                                                               |
+| E07 | Draft expired (24h)                                                          | "Your last draft expired. Start again." + button                                                                                                                                                                                         |
+| E08 | Stale callback (different draft started)                                     | Refetch inside lock; if step mismatch, callback alert "This draft is no longer current" + edit old message to "Use the buttons in your current draft."                                                                                   |
+| E09 | Publish target group no longer allowed                                       | Already handled. Keep.                                                                                                                                                                                                                   |
+| E10 | Bot blocked by user mid-flow                                                 | Typed `TelegramForbiddenError`; on `forbidden: bot was blocked by the user`, swallow + clear draft + log info. Do not retry.                                                                                                             |
+| E11 | Bot kicked/demoted between draft and publish                                 | Catch group-level `forbidden` / `bad_request: chat not found`; alert "I lost access to the group. Notify an admin and try again later." Keep draft.                                                                                      |
+| E12 | Telegram 429                                                                 | `withTelegramRetry` sleeps `retry_after`s, retries once. Second 429 → typed error → callback alert.                                                                                                                                      |
+| E13 | Postgres outage                                                              | Webhook 500 → Telegram retries. Correct.                                                                                                                                                                                                 |
+| E14 | Stale launcher (group removed from allowlist)                                | Validate at deep-link time; "That launcher is from an old group."                                                                                                                                                                        |
+| E15 | Two parallel reviewers vouching same target                                  | Independent; both publish. Correct.                                                                                                                                                                                                      |
+| E16 | User's `@username` changes mid-flow                                          | Use latest username at publish. Persist to `users` table on every update.                                                                                                                                                                |
+| E17 | User selects a bot account as target                                         | `request_users` filters `user_is_bot=false`. Correct.                                                                                                                                                                                    |
+| E18 | User selects deleted/anonymous account                                       | Picker returns `username: null` → handled as E02.                                                                                                                                                                                        |
+| E19 | Double-tap Publish                                                           | `withReviewerDraftLock` serialises; second call sees draft cleared → "This draft is already posted."                                                                                                                                     |
+| E20 | User edits text mid-flow                                                     | `edited_message` not in `allowed_updates` → ignored.                                                                                                                                                                                     |
+| E21 | User sends photo/sticker as target                                           | Empty `text` → re-prompt with E03.                                                                                                                                                                                                       |
+| E22 | Draft cleanup fails after publish                                            | Logged warn; janitor catches expired drafts. Keep.                                                                                                                                                                                       |
+| E23 | Deep-link payload for chat user isn't in                                     | Allowlist gating sufficient — multi-group support is intentional. Document.                                                                                                                                                              |
+| E24 | Callback `data` length > 64 bytes                                            | Unit test ensures every callback we generate is ≤ 64 bytes.                                                                                                                                                                              |
+| E25 | Reviewer floods 6+ vouches in 24h                                            | Rolling-window rate limit ≤ 5/24h. On 6th: "Daily limit reached. Try again after YYYY-MM-DD HH:MM."                                                                                                                                      |
+| E26 | Bot is paused (admin `/pause`)                                               | DM flow rejects new drafts AND in-flight Publish clicks: "Vouching is paused. An admin will lift this when ready. Use /recent to see the archive." Mid-flow drafts can stay open but cannot publish.                                     |
+| E27 | Network blip mid-API call                                                    | `withTelegramRetry` retries on `fetch` network errors once; second failure surfaces.                                                                                                                                                     |
+| E28 | Webhook handler exceeds 25 sec                                               | Log error, return 200 to Telegram (avoid duplicate-update flood). Idempotency via `processed_telegram_updates`.                                                                                                                          |
+| E29 | Target's `@username` changes after entries exist                             | Existing entries reference historical username; v1 documents the limitation. Schema captures `target_telegram_id` on new entries when picker is used (forward-compatible for future `/profile @newname` resolution).                     |
+| E30 | Sticker/voice/photo/animation/location as target                             | `text` empty → E03.                                                                                                                                                                                                                      |
+| E31 | Forwarded message into the bot DM                                            | Treat the forward's `text` (or `caption`) as the user's input — `@username` standalone accepts; else E03.                                                                                                                                |
+| E32 | String > 64 chars containing an `@`                                          | `parseTypedTargetUsername` extracts standalone handle; with extra words returns E03. Confirmed by existing tests.                                                                                                                        |
+| E33 | `setWebhook` fails during deploy                                             | DEPLOY.md verify (`getWebhookInfo`); re-run `npm run telegram:webhook` if `last_error_message` non-empty.                                                                                                                                |
+| E34 | Bot tries to DM admin (e.g. for G04 alert) but admin has bot blocked         | Swallowed `TelegramForbiddenError` + warn; admin sees alert next time they DM the bot (queued in `admin_audit_log`).                                                                                                                     |
+| E35 | "View this entry" deep link tapped from outside the group                    | Telegram silently fails to navigate; documented limitation.                                                                                                                                                                              |
+| E36 | DB pool exhausted (concurrent webhook spike)                                 | `pg.Pool` queues; if queue exceeds timeout, throws → webhook 500 → Telegram retries. Pool sized at 5 (§11.4) to match webhook `max_connections: 10` × headroom.                                                                          |
+| E37 | Telegram resends the same `update_id` (retries)                              | `processed_telegram_updates` table makes it a no-op. Telegram doesn't reuse `update_id`s except on retry; `bigint` unique col is the source of truth.                                                                                    |
+| E38 | `runArchiveMaintenance` overlaps with a request                              | Maintenance is wrapped in its own short transactions; advisory lock per-row prevents janitor and live writes from contending on the same draft.                                                                                          |
+| E39 | User taps a callback button > 48h after the message was sent                 | Telegram allows callback delivery indefinitely; we still process. If the message is too old to edit (Telegram returns `bad_request: message can't be edited`), catch that specific error, send a fresh status message instead, log info. |
+| E40 | User picker shares a target AT THE SAME TIME as the user types `@username`   | Both arrive as separate updates. `withReviewerDraftLock` serialises; whichever arrives first sets the target; the second sees `step != awaiting_target` and is ignored gracefully (no error).                                            |
+| E41 | User sends `@username` in middle of a sentence ("hey vouch @bob he's great") | `parseTypedTargetUsername` rejects with E03 unless the message is a standalone handle. Documented; user must send only the handle.                                                                                                       |
 
 ---
 
@@ -215,26 +215,26 @@ Privacy-mode setting (`bots/features#privacy-mode`) blocks generic `/cmd` recept
 
 ### 5.4 Group commands
 
-| Command | Behaviour |
-|---|---|
-| `/start`, `/help`, `/vouch` | Threaded silent reply with launcher prompt + URL deep-link button |
-| `/recent` | Threaded silent reply, 10 entries |
-| `/lookup @x` | Admin-gated in group; threaded silent reply |
-| `/profile @x` | Admin-gated in group; threaded silent reply |
-| `/freeze`, `/unfreeze`, `/frozen_list`, `/remove_entry`, `/recover_entry`, `/pause`, `/unpause`, `/admin_help` | Admin-gated, threaded silent reply |
+| Command                                                                                                        | Behaviour                                                         |
+| -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `/start`, `/help`, `/vouch`                                                                                    | Threaded silent reply with launcher prompt + URL deep-link button |
+| `/recent`                                                                                                      | Threaded silent reply, 10 entries                                 |
+| `/lookup @x`                                                                                                   | Admin-gated in group; threaded silent reply                       |
+| `/profile @x`                                                                                                  | Admin-gated in group; threaded silent reply                       |
+| `/freeze`, `/unfreeze`, `/frozen_list`, `/remove_entry`, `/recover_entry`, `/pause`, `/unpause`, `/admin_help` | Admin-gated, threaded silent reply                                |
 
 ### 5.5 Group edge cases
 
-| # | Scenario | Behaviour |
-|---|---|---|
-| G01 | Bot removed from group | Subscribe to `my_chat_member`; on `status: kicked|left`, set `chat_settings.status='kicked'`, stop launcher refreshes. |
-| G02 | Group deleted/archived | Same as G01. |
-| G03 | Group converted to channel | Reject in `handleGroupMessage`. |
-| G04 | Group migrated to supergroup | `migrate_to_chat_id` arrives in payload. Persist in `chat_settings.migrated_to_chat_id`; alert admins via DM "Group migrated; update `TELEGRAM_ALLOWED_CHAT_IDS`." Continue serving under new ID for current process lifetime. |
-| G05 | Topic groups (forum) | Strip `message_thread_id`; pin launcher in General topic. |
-| G06 | Mention without slash | Privacy mode + no command → ignore. Correct. |
-| G07 | Bot demoted from admin (loses delete rights) | Catch `bad_request: not enough rights to delete a message` on launcher refresh; log warn; continue without deleting old launcher. |
-| G08 | Bot newly added to a group | No auto-welcome (could create races with launcher). Admin runs `npm run telegram:onboarding -- --guide-chat-id <id> --pin-guide` manually. |
+| #   | Scenario                                     | Behaviour                                                                                                                                                                                                                      |
+| --- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| G01 | Bot removed from group                       | Subscribe to `my_chat_member`; on `status: kicked                                                                                                                                                                              | left`, set `chat_settings.status='kicked'`, stop launcher refreshes. |
+| G02 | Group deleted/archived                       | Same as G01.                                                                                                                                                                                                                   |
+| G03 | Group converted to channel                   | Reject in `handleGroupMessage`.                                                                                                                                                                                                |
+| G04 | Group migrated to supergroup                 | `migrate_to_chat_id` arrives in payload. Persist in `chat_settings.migrated_to_chat_id`; alert admins via DM "Group migrated; update `TELEGRAM_ALLOWED_CHAT_IDS`." Continue serving under new ID for current process lifetime. |
+| G05 | Topic groups (forum)                         | Strip `message_thread_id`; pin launcher in General topic.                                                                                                                                                                      |
+| G06 | Mention without slash                        | Privacy mode + no command → ignore. Correct.                                                                                                                                                                                   |
+| G07 | Bot demoted from admin (loses delete rights) | Catch `bad_request: not enough rights to delete a message` on launcher refresh; log warn; continue without deleting old launcher.                                                                                              |
+| G08 | Bot newly added to a group                   | No auto-welcome (could create races with launcher). Admin runs `npm run telegram:onboarding -- --guide-chat-id <id> --pin-guide` manually.                                                                                     |
 
 ---
 
@@ -242,17 +242,17 @@ Privacy-mode setting (`bots/features#privacy-mode`) blocks generic `/cmd` recept
 
 ### 6.1 Final admin command set
 
-| Command | Behaviour | Notes |
-|---|---|---|
-| `/freeze @x [reason text]` | Set `business_profiles.is_frozen=true`, `freeze_reason`, `frozen_at`, `frozen_by_telegram_id`. Show in `/profile` and `/lookup`. Reason capped at 200 chars; HTML-escaped. | A04 |
-| `/unfreeze @x` | Clear flag + null reason fields. | — |
-| `/frozen_list` | Show all frozen profiles (paginated 10 per page). | — |
-| `/remove_entry <id>` | Soft-delete entry, delete its Telegram message, refresh launcher (debounced). Idempotent. | A05 |
-| `/recover_entry <id>` | If entry stuck in `status='publishing'` with no `published_message_id`, force `status='pending'` so it can republish. | A06, §12.5 |
-| `/pause` | Set `chat_settings.paused=true`. Refuses new vouches AND in-flight Publish (E26). | A07 |
-| `/unpause` | Clear pause flag. | — |
-| `/admin_help` | Static admin reference list. | — |
-| `/profile @x` | Counts per result (excluding `removed`) + last 5 entries + frozen status with reason. | — |
+| Command                    | Behaviour                                                                                                                                                                  | Notes      |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| `/freeze @x [reason text]` | Set `business_profiles.is_frozen=true`, `freeze_reason`, `frozen_at`, `frozen_by_telegram_id`. Show in `/profile` and `/lookup`. Reason capped at 200 chars; HTML-escaped. | A04        |
+| `/unfreeze @x`             | Clear flag + null reason fields.                                                                                                                                           | —          |
+| `/frozen_list`             | Show all frozen profiles (paginated 10 per page).                                                                                                                          | —          |
+| `/remove_entry <id>`       | Soft-delete entry, delete its Telegram message, refresh launcher (debounced). Idempotent.                                                                                  | A05        |
+| `/recover_entry <id>`      | If entry stuck in `status='publishing'` with no `published_message_id`, force `status='pending'` so it can republish.                                                      | A06, §12.5 |
+| `/pause`                   | Set `chat_settings.paused=true`. Refuses new vouches AND in-flight Publish (E26).                                                                                          | A07        |
+| `/unpause`                 | Clear pause flag.                                                                                                                                                          | —          |
+| `/admin_help`              | Static admin reference list.                                                                                                                                               | —          |
+| `/profile @x`              | Counts per result (excluding `removed`) + last 5 entries + frozen status with reason.                                                                                      | —          |
 
 ### 6.2 Audit log
 
@@ -270,19 +270,19 @@ denied (boolean, default false), created_at
 
 ### 6.3 Admin edge cases
 
-| # | Scenario | Behaviour |
-|---|---|---|
-| A01 | Non-admin runs admin command | "Admin only." + audit log entry with `denied=true`. |
-| A02 | Admin in DM | Same routing as group; works. |
-| A03 | Admin command targets non-existent profile | `getOrCreateBusinessProfile` upserts. Correct. |
-| A04 | `/freeze` reason contains HTML | `escapeHtml` on render. Reason stored raw, escaped at display. |
-| A05 | `/remove_entry` against already-removed entry | "Entry #N is already removed." idempotent. |
-| A06 | `/recover_entry` against entry not in `publishing` | "Entry #N is in status=<x>, no recovery needed." |
-| A07 | `/pause` already paused | "Vouching is already paused." idempotent. |
-| A08 | Two admins issue conflicting commands simultaneously | DB row-level locking; last-write wins; both audit entries persist. |
-| A09 | Admin runs `/freeze` with no `@x` | "Use: `/freeze @username [reason]`." |
-| A10 | Admin runs `/remove_entry` with no id | "Use: `/remove_entry <id>`." |
-| A11 | Admin runs `/freeze @x` where reason exceeds 200 chars | Truncate reason to 200 + "…", warn admin via reply. |
+| #   | Scenario                                               | Behaviour                                                          |
+| --- | ------------------------------------------------------ | ------------------------------------------------------------------ |
+| A01 | Non-admin runs admin command                           | "Admin only." + audit log entry with `denied=true`.                |
+| A02 | Admin in DM                                            | Same routing as group; works.                                      |
+| A03 | Admin command targets non-existent profile             | `getOrCreateBusinessProfile` upserts. Correct.                     |
+| A04 | `/freeze` reason contains HTML                         | `escapeHtml` on render. Reason stored raw, escaped at display.     |
+| A05 | `/remove_entry` against already-removed entry          | "Entry #N is already removed." idempotent.                         |
+| A06 | `/recover_entry` against entry not in `publishing`     | "Entry #N is in status=<x>, no recovery needed."                   |
+| A07 | `/pause` already paused                                | "Vouching is already paused." idempotent.                          |
+| A08 | Two admins issue conflicting commands simultaneously   | DB row-level locking; last-write wins; both audit entries persist. |
+| A09 | Admin runs `/freeze` with no `@x`                      | "Use: `/freeze @username [reason]`."                               |
+| A10 | Admin runs `/remove_entry` with no id                  | "Use: `/remove_entry <id>`."                                       |
+| A11 | Admin runs `/freeze @x` where reason exceeds 200 chars | Truncate reason to 200 + "…", warn admin via reply.                |
 
 ---
 
@@ -327,12 +327,12 @@ Bot API hard limit: 4096 chars per `sendMessage` (`bots/api#sendmessage`).
 
 ### 8.3 Edge cases
 
-| # | Scenario | Behaviour |
-|---|---|---|
-| R01 | 429 mid-publish | Retry once; if user-visible, callback alert "Telegram is busy — try again in a minute." |
-| R02 | 30/sec global hit | Should not happen at this volume. Log warn. |
-| R03 | Replay 429 | Honour `retry_after`; throttle widens to 6 sec for next 60 sec; persist checkpoint. |
-| R04 | Network-level error (ECONNRESET, ETIMEDOUT) | `withTelegramRetry` retries once on transient errors. Second attempt failure surfaces. |
+| #   | Scenario                                    | Behaviour                                                                               |
+| --- | ------------------------------------------- | --------------------------------------------------------------------------------------- |
+| R01 | 429 mid-publish                             | Retry once; if user-visible, callback alert "Telegram is busy — try again in a minute." |
+| R02 | 30/sec global hit                           | Should not happen at this volume. Log warn.                                             |
+| R03 | Replay 429                                  | Honour `retry_after`; throttle widens to 6 sec for next 60 sec; persist checkpoint.     |
+| R04 | Network-level error (ECONNRESET, ETIMEDOUT) | `withTelegramRetry` retries once on transient errors. Second attempt failure surfaces.  |
 
 ---
 
@@ -359,17 +359,17 @@ Bot API hard limit: 4096 chars per `sendMessage` (`bots/api#sendmessage`).
 
 Before the server starts listening, validate every required env var. Fail-loud on missing or invalid:
 
-| Var | Required | Validation |
-|---|---|---|
-| `DATABASE_URL` | yes | non-empty |
-| `TELEGRAM_BOT_TOKEN` | yes | matches `^\d+:[A-Za-z0-9_-]+$` (Telegram token shape) |
-| `TELEGRAM_ALLOWED_CHAT_IDS` | yes | comma-list of safe-integer chat IDs; ≥ 1 entry |
-| `TELEGRAM_ADMIN_IDS` | yes | comma-list of safe-integer user IDs; ≥ 1 entry |
-| `TELEGRAM_WEBHOOK_SECRET_TOKEN` | yes (in production) | 1–256 chars, charset `A-Z a-z 0-9 _ -` |
-| `PUBLIC_BASE_URL` | yes (for setup scripts only) | parseable URL with `https://` scheme |
-| `TELEGRAM_BOT_USERNAME` | optional | matches `^[A-Za-z0-9_]{5,32}$` if set |
-| `LEGACY_BOT_SENDERS` | optional | comma-list; default `combot,grouphelpbot,groupanonymousbot` |
-| `NODE_ENV` | optional | `production` enforces webhook secret + structured logs |
+| Var                             | Required                     | Validation                                                  |
+| ------------------------------- | ---------------------------- | ----------------------------------------------------------- |
+| `DATABASE_URL`                  | yes                          | non-empty                                                   |
+| `TELEGRAM_BOT_TOKEN`            | yes                          | matches `^\d+:[A-Za-z0-9_-]+$` (Telegram token shape)       |
+| `TELEGRAM_ALLOWED_CHAT_IDS`     | yes                          | comma-list of safe-integer chat IDs; ≥ 1 entry              |
+| `TELEGRAM_ADMIN_IDS`            | yes                          | comma-list of safe-integer user IDs; ≥ 1 entry              |
+| `TELEGRAM_WEBHOOK_SECRET_TOKEN` | yes (in production)          | 1–256 chars, charset `A-Z a-z 0-9 _ -`                      |
+| `PUBLIC_BASE_URL`               | yes (for setup scripts only) | parseable URL with `https://` scheme                        |
+| `TELEGRAM_BOT_USERNAME`         | optional                     | matches `^[A-Za-z0-9_]{5,32}$` if set                       |
+| `LEGACY_BOT_SENDERS`            | optional                     | comma-list; default `combot,grouphelpbot,groupanonymousbot` |
+| `NODE_ENV`                      | optional                     | `production` enforces webhook secret + structured logs      |
 
 In **non-production** (`NODE_ENV !== 'production'`) the webhook secret is optional (local-dev convenience), but `npm run telegram:webhook` still warns if absent. Document.
 
@@ -401,6 +401,7 @@ If shutdown runs longer than 8 sec (grace minus margin), `process.exit(1)` to fo
 ### 10.1 Parser changes (`src/core/legacyImportParser.ts`)
 
 1. **Numeric reviewer ID fallback** (tdesktop format `"user6812728770"`, confirmed against `wrapPeerId` in `export_output_json.cpp`):
+
    - Synthesise reviewer handle `user<id>` (matches `[A-Za-z][A-Za-z0-9_]{4,31}` since `user` + digits ≥ 5 chars).
    - Use real numeric ID as `reviewerTelegramId` (not the synthetic FNV hash).
    - `from_id` prefix `chat`/`channel` → skip with new `bot_sender` reason.
@@ -410,10 +411,12 @@ If shutdown runs longer than 8 sec (grace minus margin), `process.exit(1)` to fo
 2. **Bot-sender filter**. Env `LEGACY_BOT_SENDERS` (comma list, default `combot,grouphelpbot,groupanonymousbot`). When resolved reviewer matches case-insensitively, skip with reason `bot_sender`, bucket `bot_sender`. Add to summary.
 
 3. **Sentiment patterns expanded.** POSITIVE adds:
+
    - `\bpos\s+vouch\b`
    - `\b(huge|big|mad|high|highly|solid)\s+vouch\b`
 
    NEGATIVE adds:
+
    - `\bneg\s+vouch\b`
    - `\bscam(?:mer|med|ming|s)?\b`
    - `\bripped\b`, `\bdodgy\b`, `\bsketchy\b`, `\bshady\b`
@@ -444,19 +447,19 @@ If a parser improvement classifies messages an earlier run skipped, re-run `repl
 
 ### 10.4 Replay edge cases
 
-| # | Scenario | Behaviour |
-|---|---|---|
-| L01 | `from_id` is `channel<id>` | Skip as `bot_sender`. |
+| #   | Scenario                                                             | Behaviour                                                                               |
+| --- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| L01 | `from_id` is `channel<id>`                                           | Skip as `bot_sender`.                                                                   |
 | L02 | Same `(legacy_source_chat_id, legacy_source_message_id)` re-imported | Unique index rejects; existing `published_message_id` decides resume vs duplicate skip. |
-| L03 | `text` is array of segments | `flattenLegacyMessageText` handles. |
-| L04 | Both positive + negative patterns | `result: null` → `unclear_sentiment`. |
-| L05 | Negated sentiment | `(?<!not\s)` guard + tests. |
-| L06 | 429 during replay | §10.2 #3. |
-| L07 | DB write fails mid-replay | Existing checkpoint handles. |
-| L08 | Entry stuck in `status='publishing'` | Admin runs `/recover_entry <id>` to revert to `pending`; next replay re-attempts. |
-| L09 | Reply-context message | §10.1 #5. |
-| L10 | Message timestamp is 1970 | Existing `missing_timestamp` skip. |
-| L11 | Forwarded message with caption only | §10.1 #6. |
+| L03 | `text` is array of segments                                          | `flattenLegacyMessageText` handles.                                                     |
+| L04 | Both positive + negative patterns                                    | `result: null` → `unclear_sentiment`.                                                   |
+| L05 | Negated sentiment                                                    | `(?<!not\s)` guard + tests.                                                             |
+| L06 | 429 during replay                                                    | §10.2 #3.                                                                               |
+| L07 | DB write fails mid-replay                                            | Existing checkpoint handles.                                                            |
+| L08 | Entry stuck in `status='publishing'`                                 | Admin runs `/recover_entry <id>` to revert to `pending`; next replay re-attempts.       |
+| L09 | Reply-context message                                                | §10.1 #5.                                                                               |
+| L10 | Message timestamp is 1970                                            | Existing `missing_timestamp` skip.                                                      |
+| L11 | Forwarded message with caption only                                  | §10.1 #6.                                                                               |
 
 ---
 
@@ -498,14 +501,14 @@ Per official-doc comparison (sources cited inline):
 
 ### 11.3 Migration edge cases
 
-| # | Scenario | Behaviour |
-|---|---|---|
-| M01 | Existing Postgres data on Replit | One-time `pg_dump --no-owner --no-acl --clean --if-exists` from Replit → `psql` restore into Railway. |
-| M02 | Webhook switch leaves dual-active | `setWebhook` is atomic. Drop Replit deploy after Railway smoke passes. |
-| M03 | DNS for custom domain | Optional. `*.up.railway.app` works immediately. |
-| M04 | Replit secrets not migrated | DEPLOY.md enumerates every secret. |
-| M05 | Node-version drift | Pin `NIXPACKS_NODE_VERSION=22`. |
-| M06 | Railway Postgres upgraded mid-flight | Backups before upgrade; Drizzle migrations are idempotent. |
+| #   | Scenario                             | Behaviour                                                                                             |
+| --- | ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| M01 | Existing Postgres data on Replit     | One-time `pg_dump --no-owner --no-acl --clean --if-exists` from Replit → `psql` restore into Railway. |
+| M02 | Webhook switch leaves dual-active    | `setWebhook` is atomic. Drop Replit deploy after Railway smoke passes.                                |
+| M03 | DNS for custom domain                | Optional. `*.up.railway.app` works immediately.                                                       |
+| M04 | Replit secrets not migrated          | DEPLOY.md enumerates every secret.                                                                    |
+| M05 | Node-version drift                   | Pin `NIXPACKS_NODE_VERSION=22`.                                                                       |
+| M06 | Railway Postgres upgraded mid-flight | Backups before upgrade; Drizzle migrations are idempotent.                                            |
 
 ### 11.4 Connection pool sizing
 
@@ -547,14 +550,14 @@ Approach:
 
 ### 12.4 Migration sequence
 
-| # | File | Content |
-|---|---|---|
-| 0000 | `baseline.sql` | Current schema as-is (CREATE TABLE statements matching `ensureDatabaseSchema`) |
-| 0001 | `drop_dead_tables.sql` | DROP `polls`, `votes`; ALTER `users` DROP COLUMN x4 |
-| 0002 | `add_chat_settings.sql` | CREATE `chat_settings` |
-| 0003 | `add_admin_audit_log.sql` | CREATE `admin_audit_log` |
-| 0004 | `business_profiles_freeze_reason.sql` | ALTER `business_profiles` ADD freeze cols + telegram_id |
-| 0005 | `vouch_entries_target_telegram_id.sql` | ALTER `vouch_entries` ADD target_telegram_id |
+| #    | File                                   | Content                                                                        |
+| ---- | -------------------------------------- | ------------------------------------------------------------------------------ |
+| 0000 | `baseline.sql`                         | Current schema as-is (CREATE TABLE statements matching `ensureDatabaseSchema`) |
+| 0001 | `drop_dead_tables.sql`                 | DROP `polls`, `votes`; ALTER `users` DROP COLUMN x4                            |
+| 0002 | `add_chat_settings.sql`                | CREATE `chat_settings`                                                         |
+| 0003 | `add_admin_audit_log.sql`              | CREATE `admin_audit_log`                                                       |
+| 0004 | `business_profiles_freeze_reason.sql`  | ALTER `business_profiles` ADD freeze cols + telegram_id                        |
+| 0005 | `vouch_entries_target_telegram_id.sql` | ALTER `vouch_entries` ADD target_telegram_id                                   |
 
 Each migration is reversible (down SQL co-located in repo for emergency rollback).
 
@@ -571,6 +574,7 @@ publishing  --/recover_entry-->  pending
 ```
 
 Constraints:
+
 - Only `published` entries surface in `/profile`, `/recent`, `/lookup` (counts and listings).
 - Only `pending` entries can be (re)published.
 - Only `published` entries can be `removed`.
@@ -617,6 +621,7 @@ Stops the OneDrive-induced LF→CRLF warnings:
 ### 13.4 GitHub Actions CI
 
 `.github/workflows/test.yml`:
+
 - Trigger: push to `main`, PRs.
 - Node 22.
 - Steps: `actions/checkout@v4`, `actions/setup-node@v4` with `cache: npm`, `npm ci`, `npm test`.
@@ -644,9 +649,9 @@ Update `tsconfig.json`:
     "esModuleInterop": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": false,
-    "noEmit": true
+    "noEmit": true,
   },
-  "include": ["src/**/*", "scripts/**/*"]
+  "include": ["src/**/*", "scripts/**/*"],
 }
 ```
 
@@ -911,7 +916,7 @@ For `telegramBot.test.ts`, build a single-file in-memory mock of `archiveStore.t
 
 ```ts
 // tests/_helpers/mockStore.ts
-import { mock } from 'node:test';
+import { mock } from "node:test";
 // returns the in-memory implementation matching archiveStore's interface
 ```
 
@@ -936,59 +941,59 @@ DB-integration tests (`migrations.test.ts`) require a real Postgres; gated behin
 
 Each chunk ends in green tests + a deployable state.
 
-| # | Chunk | Notes |
-|---|---|---|
-| 1 | `.gitattributes` + `README.md` + GitHub Actions CI | No runtime impact; stops noise |
-| 2 | TS strict mode tightening (§13.5) + Prettier (§13.6) | Code change only; no runtime impact |
-| 3 | Drizzle-kit adoption + baseline migration (§12.3, 0000) | Foundation; replaces `ensureDatabaseSchema` boot DDL |
-| 4 | Schema cleanup + new tables migrations (0001–0005) | Drops dead schema; adds new |
-| 5 | Project layout rename `src/mastra/` → `src/core/` (§13.1) | One sweep |
-| 6 | Parser improvements + tests (§10.1) | Pure logic |
-| 7 | Replay script throttle / max-imports / 429 / typed retry (§10.2, §8.2) | Pure logic |
-| 8 | Boot env validation + graceful shutdown + `/readyz` (§9.4, §9.5) | Server hardening |
-| 9 | Bot identity copy + commands (§§2, 3, 14) — text-builders + onboarding script | No infra change |
-| 10 | DM flow polish (§4) — wording, callback-data length test, draft-step revalidation, rate-limit, paused-state, view-this-entry deep link | Pure code |
-| 11 | Admin flow (§6) — freeze with reason, frozen_list, recover_entry, pause/unpause, profile, admin_help, audit log (incl. denied) | Pure code; depends on chunk 4 |
-| 12 | Group flow (§5) — launcher debounce, `my_chat_member`, supergroup migration | Webhook needs `allowed_updates` updated when this ships |
-| 13 | Webhook hardening (§9.2) — `allowed_updates`, `max_connections`, `drop_pending_updates`, 25-sec safety | Code + a `setWebhook` rerun on deploy |
-| 14 | Observability (§15.4) — pino swap with redact paths | Pure code |
-| 15 | Connection pool sizing (§11.4) — `pg.Pool({ max: 5 })` | One-line change in `storage/db.ts` |
-| 16 | Railway migration (§11) — `DEPLOY.md`, secret migration, db dump/restore, webhook switchover, baseline-migration prod insertion | Infra last; everything above on `main` first |
-| 17 | Run legacy replay (§10) — `--max-imports 5` first, then full | After deploy stable |
+| #   | Chunk                                                                                                                                  | Notes                                                   |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 1   | `.gitattributes` + `README.md` + GitHub Actions CI                                                                                     | No runtime impact; stops noise                          |
+| 2   | TS strict mode tightening (§13.5) + Prettier (§13.6)                                                                                   | Code change only; no runtime impact                     |
+| 3   | Drizzle-kit adoption + baseline migration (§12.3, 0000)                                                                                | Foundation; replaces `ensureDatabaseSchema` boot DDL    |
+| 4   | Schema cleanup + new tables migrations (0001–0005)                                                                                     | Drops dead schema; adds new                             |
+| 5   | Project layout rename `src/mastra/` → `src/core/` (§13.1)                                                                              | One sweep                                               |
+| 6   | Parser improvements + tests (§10.1)                                                                                                    | Pure logic                                              |
+| 7   | Replay script throttle / max-imports / 429 / typed retry (§10.2, §8.2)                                                                 | Pure logic                                              |
+| 8   | Boot env validation + graceful shutdown + `/readyz` (§9.4, §9.5)                                                                       | Server hardening                                        |
+| 9   | Bot identity copy + commands (§§2, 3, 14) — text-builders + onboarding script                                                          | No infra change                                         |
+| 10  | DM flow polish (§4) — wording, callback-data length test, draft-step revalidation, rate-limit, paused-state, view-this-entry deep link | Pure code                                               |
+| 11  | Admin flow (§6) — freeze with reason, frozen_list, recover_entry, pause/unpause, profile, admin_help, audit log (incl. denied)         | Pure code; depends on chunk 4                           |
+| 12  | Group flow (§5) — launcher debounce, `my_chat_member`, supergroup migration                                                            | Webhook needs `allowed_updates` updated when this ships |
+| 13  | Webhook hardening (§9.2) — `allowed_updates`, `max_connections`, `drop_pending_updates`, 25-sec safety                                 | Code + a `setWebhook` rerun on deploy                   |
+| 14  | Observability (§15.4) — pino swap with redact paths                                                                                    | Pure code                                               |
+| 15  | Connection pool sizing (§11.4) — `pg.Pool({ max: 5 })`                                                                                 | One-line change in `storage/db.ts`                      |
+| 16  | Railway migration (§11) — `DEPLOY.md`, secret migration, db dump/restore, webhook switchover, baseline-migration prod insertion        | Infra last; everything above on `main` first            |
+| 17  | Run legacy replay (§10) — `--max-imports 5` first, then full                                                                           | After deploy stable                                     |
 
 ---
 
 ## 18. Locked decisions
 
-| ID | Call |
-|---|---|
-| D1 | Cancel button on every flow step — **yes** |
-| D2 | Posted confirmation includes "View this entry" deep link — **yes** |
-| D3 | `/recent` shows 10 entries — **yes** |
-| D4 | BotFather privacy mode set to **Disable** — **yes**, manual step in DEPLOY.md |
-| D5 | `/freeze @x [reason]` stores reason — **yes** |
-| D6 | `/frozen_list`, `/admin_help`, `/recover_entry`, `/pause`, `/unpause`, `/profile` — **yes, all** |
-| D7 | Pino for structured logs — **yes** |
-| D8 | `allowed_updates: ["message", "callback_query", "my_chat_member"]` — **yes** |
-| D9 | Bot name `Vouch Hub` — **yes** |
-| D10 | `legend` / `king` excluded from sentiment patterns — **yes (excluded)** |
-| D11 | Drop `polls`, `votes`, dead `users` cols — **yes** |
-| D12 | Rename `src/mastra/` → `src/core/` — **yes** |
-| D13 | Adopt drizzle-kit; remove `ensureDatabaseSchema` boot DDL — **yes** |
-| D14 | 5-vouches/24h per reviewer rate limit — **yes** |
-| D15 | drizzle-kit added to `devDependencies` and pinned at adoption time — **yes** |
-| D16 | No dispute / appeal system in v1 — **yes** |
-| D17 | No reputation aggregation as a competitive feature — **yes** |
-| D18 | English-only — **yes** |
-| D19 | Lookup truncation: 3900-char ceiling with "…and N more." — **yes** |
-| D20 | Webhook handler 25-sec safety: log + 200 OK on overrun — **yes** |
-| D21 | Reply-keyboard auto-hide via `one_time_keyboard: true` (no manual remove) — **yes** |
-| D22 | Pause blocks both new drafts AND in-flight Publish — **yes** |
-| D23 | Boot validation rejects missing/invalid env vars before listening — **yes** |
-| D24 | SIGTERM graceful shutdown with 5-sec drain, 8-sec hard ceiling — **yes** |
-| D25 | Postgres pool `max: 5` — **yes** |
-| D26 | Denied admin attempts logged to `admin_audit_log` (`denied=true`) — **yes** |
-| D27 | TS `strict: true` + `noUncheckedIndexedAccess` + `noImplicitOverride` — **yes** |
+| ID  | Call                                                                                             |
+| --- | ------------------------------------------------------------------------------------------------ |
+| D1  | Cancel button on every flow step — **yes**                                                       |
+| D2  | Posted confirmation includes "View this entry" deep link — **yes**                               |
+| D3  | `/recent` shows 10 entries — **yes**                                                             |
+| D4  | BotFather privacy mode set to **Disable** — **yes**, manual step in DEPLOY.md                    |
+| D5  | `/freeze @x [reason]` stores reason — **yes**                                                    |
+| D6  | `/frozen_list`, `/admin_help`, `/recover_entry`, `/pause`, `/unpause`, `/profile` — **yes, all** |
+| D7  | Pino for structured logs — **yes**                                                               |
+| D8  | `allowed_updates: ["message", "callback_query", "my_chat_member"]` — **yes**                     |
+| D9  | Bot name `Vouch Hub` — **yes**                                                                   |
+| D10 | `legend` / `king` excluded from sentiment patterns — **yes (excluded)**                          |
+| D11 | Drop `polls`, `votes`, dead `users` cols — **yes**                                               |
+| D12 | Rename `src/mastra/` → `src/core/` — **yes**                                                     |
+| D13 | Adopt drizzle-kit; remove `ensureDatabaseSchema` boot DDL — **yes**                              |
+| D14 | 5-vouches/24h per reviewer rate limit — **yes**                                                  |
+| D15 | drizzle-kit added to `devDependencies` and pinned at adoption time — **yes**                     |
+| D16 | No dispute / appeal system in v1 — **yes**                                                       |
+| D17 | No reputation aggregation as a competitive feature — **yes**                                     |
+| D18 | English-only — **yes**                                                                           |
+| D19 | Lookup truncation: 3900-char ceiling with "…and N more." — **yes**                               |
+| D20 | Webhook handler 25-sec safety: log + 200 OK on overrun — **yes**                                 |
+| D21 | Reply-keyboard auto-hide via `one_time_keyboard: true` (no manual remove) — **yes**              |
+| D22 | Pause blocks both new drafts AND in-flight Publish — **yes**                                     |
+| D23 | Boot validation rejects missing/invalid env vars before listening — **yes**                      |
+| D24 | SIGTERM graceful shutdown with 5-sec drain, 8-sec hard ceiling — **yes**                         |
+| D25 | Postgres pool `max: 5` — **yes**                                                                 |
+| D26 | Denied admin attempts logged to `admin_audit_log` (`denied=true`) — **yes**                      |
+| D27 | TS `strict: true` + `noUncheckedIndexedAccess` + `noImplicitOverride` — **yes**                  |
 
 ---
 

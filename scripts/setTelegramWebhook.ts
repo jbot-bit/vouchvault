@@ -158,11 +158,17 @@ async function main() {
   await callTelegramAPI("setWebhook", payload);
   const webhookInfo = await callTelegramAPI("getWebhookInfo", {});
 
-  console.info(JSON.stringify({
-    ok: true,
-    webhookUrl,
-    webhookInfo,
-  }, null, 2));
+  console.info(
+    JSON.stringify(
+      {
+        ok: true,
+        webhookUrl,
+        webhookInfo,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 main().catch((error) => {

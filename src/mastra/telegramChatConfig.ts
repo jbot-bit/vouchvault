@@ -4,12 +4,14 @@ function parseConfiguredTelegramChatIds(): number[] {
     return [];
   }
 
-  return [...new Set(
-    configured
-      .split(",")
-      .map((value) => Number(value.trim()))
-      .filter((value) => Number.isSafeInteger(value)),
-  )];
+  return [
+    ...new Set(
+      configured
+        .split(",")
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isSafeInteger(value)),
+    ),
+  ];
 }
 
 export function getAllowedTelegramChatIds(): number[] {
@@ -24,7 +26,9 @@ export function getPrimaryAllowedTelegramChatId(): number {
   const chatIds = parseConfiguredTelegramChatIds();
   const primary = chatIds[0];
   if (primary == null) {
-    throw new Error("TELEGRAM_ALLOWED_CHAT_IDS is not configured. Set it to the active Telegram group ID before starting the bot or replay.");
+    throw new Error(
+      "TELEGRAM_ALLOWED_CHAT_IDS is not configured. Set it to the active Telegram group ID before starting the bot or replay.",
+    );
   }
 
   return primary;

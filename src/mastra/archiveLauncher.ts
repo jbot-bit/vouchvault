@@ -1,6 +1,9 @@
 import { buildLauncherText } from "./archive.ts";
 import { getLauncherByChatId, saveLauncherMessage, withChatLauncherLock } from "./archiveStore.ts";
-import { getAllowedTelegramChatIds, getPrimaryAllowedTelegramChatId } from "./telegramChatConfig.ts";
+import {
+  getAllowedTelegramChatIds,
+  getPrimaryAllowedTelegramChatId,
+} from "./telegramChatConfig.ts";
 import {
   buildUrlInlineKeyboard,
   deleteTelegramMessage,
@@ -43,7 +46,11 @@ async function buildLauncherReplyMarkup(chatId: number, logger?: any) {
   );
 }
 
-export async function sendLauncherPrompt(chatId: number, logger?: any, options: LauncherMessageOptions = {}) {
+export async function sendLauncherPrompt(
+  chatId: number,
+  logger?: any,
+  options: LauncherMessageOptions = {},
+) {
   const replyMarkup = await buildLauncherReplyMarkup(chatId, logger);
 
   return sendTelegramMessage(
@@ -73,7 +80,11 @@ export async function refreshGroupLauncher(chatId: number, logger?: any) {
           logger,
         );
       } catch (error) {
-        logger?.warn("⚠️ [Archive] Failed to delete previous launcher", { error, chatId, messageId: existing.messageId });
+        logger?.warn("⚠️ [Archive] Failed to delete previous launcher", {
+          error,
+          chatId,
+          messageId: existing.messageId,
+        });
       }
     }
 

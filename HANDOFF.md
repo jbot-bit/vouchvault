@@ -32,16 +32,16 @@ Postgres (Drizzle)
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| `npm start` | Runs the webhook server (`node --experimental-strip-types src/server.ts`). |
-| `npm run dev` | Same, with `--watch`. |
-| `npm test` | Native `node --test` across 22 assertions covering archive UX, legacy import parsing, and `@username` hardening. |
-| `npm run build` | Aliased to `npm test` — there's no transpile step; Node 20+ runs the `.ts` files directly via `--experimental-strip-types`. |
-| `npm run db:init` | Ensures the schema exists (idempotent). |
-| `npm run telegram:webhook` | Registers the Telegram webhook URL at `/webhooks/telegram/action`. |
-| `npm run telegram:onboarding` | Configures bot description/commands + pins the group guide. |
-| `npm run replay:legacy` | Replays a legacy Telegram export JSON (idempotent, supports `--dry-run`). |
+| Command                       | What it does                                                                                                                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `npm start`                   | Runs the webhook server (`node --experimental-strip-types src/server.ts`).                                                  |
+| `npm run dev`                 | Same, with `--watch`.                                                                                                       |
+| `npm test`                    | Native `node --test` across 22 assertions covering archive UX, legacy import parsing, and `@username` hardening.            |
+| `npm run build`               | Aliased to `npm test` — there's no transpile step; Node 20+ runs the `.ts` files directly via `--experimental-strip-types`. |
+| `npm run db:init`             | Ensures the schema exists (idempotent).                                                                                     |
+| `npm run telegram:webhook`    | Registers the Telegram webhook URL at `/webhooks/telegram/action`.                                                          |
+| `npm run telegram:onboarding` | Configures bot description/commands + pins the group guide.                                                                 |
+| `npm run replay:legacy`       | Replays a legacy Telegram export JSON (idempotent, supports `--dry-run`).                                                   |
 
 ## Env vars
 
@@ -89,4 +89,4 @@ Still present and live: `src/mastra/archive*.ts`, `telegramChatConfig.ts`, `tele
 
 ## Pointer for future sessions
 
-If you pulled this repo onto a new machine and are wondering why `C:\Users\joshd\OneDrive\VouchVault` looks like a completely different project — it is. That OneDrive working tree is a stale October-2025 Mastra/Inngest *reputation* bot that was never pushed. The canonical VouchVault is here, on GitHub `main`. Deploy from GitHub, not from that local tree.
+If you pulled this repo onto a new machine and are wondering why `C:\Users\joshd\OneDrive\VouchVault` looks like a completely different project — it is. That OneDrive working tree is a stale October-2025 Mastra/Inngest _reputation_ bot that was never pushed. The canonical VouchVault is here, on GitHub `main`. Deploy from GitHub, not from that local tree.
