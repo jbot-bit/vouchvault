@@ -468,7 +468,11 @@ export function parseLegacyExportMessage(input: {
     });
   }
 
-  const text = flattenLegacyMessageText(input.message.text).trim();
+  const text = (() => {
+    const main = flattenLegacyMessageText((input.message as Record<string, unknown>).text).trim();
+    if (main) return main;
+    return flattenLegacyMessageText((input.message as Record<string, unknown>).caption).trim();
+  })();
   const targetUsernames = extractLegacyTargetUsernames(text);
 
   if (targetUsernames.length === 0) {

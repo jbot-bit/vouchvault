@@ -214,6 +214,26 @@ test("skips messages from configured bot senders", () => {
   }
 });
 
+test("uses message caption when text is empty", () => {
+  const decision = parseLegacyExportMessage({
+    message: {
+      type: "message",
+      id: 5,
+      date_unixtime: "1700000000",
+      from: "alice",
+      from_id: "user1",
+      text: "",
+      caption: "@target +rep",
+    },
+    sourceChatId: -1001234567890,
+  });
+  assert.equal(decision.kind, "import");
+  if (decision.kind === "import") {
+    assert.equal(decision.candidate.targetUsername, "target");
+    assert.equal(decision.candidate.result, "positive");
+  }
+});
+
 const positiveSamples = [
   { name: "pos vouch", text: "@target pos vouch" },
   { name: "huge vouch", text: "@target huge vouch from me" },
