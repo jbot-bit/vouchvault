@@ -1151,6 +1151,25 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/lookup") {
+    if (!isAdmin(message.from?.id)) {
+      await recordAdminAction({
+        adminTelegramId: message.from?.id ?? 0,
+        adminUsername: message.from?.username ?? null,
+        command,
+        targetChatId: chatId,
+        targetUsername: args[0] ?? null,
+        denied: true,
+      });
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildAdminOnlyText(),
+          ...buildReplyOptions(message.message_id, true),
+        },
+        logger,
+      );
+      return;
+    }
     await handleLookupCommand({
       chatId,
       rawUsername: args[0],

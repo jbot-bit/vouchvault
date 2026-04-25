@@ -2299,7 +2299,7 @@ if (dailyCount >= 5) {
   await sendTelegramMessage(
     {
       chatId: input.chatId,
-      text: "Daily limit reached. Try again tomorrow.",
+      text: `Daily limit reached. Try again after ${fmtDateTime(resetAt)}.`,
       replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
     },
     input.logger,
