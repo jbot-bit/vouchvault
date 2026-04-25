@@ -43,6 +43,13 @@
       "when": 1777096152796,
       "tag": "0005_vouch_entries_target_telegram_id",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777096186710,
+      "tag": "0006_vouch_entries_status_check",
+      "breakpoints": true
     }
   ]
 }
