@@ -1,6 +1,6 @@
 export const TARGET_USER_REQUEST_ID = 1001;
 
-const THREADED_LAUNCHER_COMMANDS = new Set(["/start", "/help", "/vouch", "/verify"]);
+const THREADED_LAUNCHER_COMMANDS = new Set(["/start", "/help", "/vouch"]);
 
 export function shouldSendThreadedLauncherReply(command: string): boolean {
   return THREADED_LAUNCHER_COMMANDS.has(command.trim().toLowerCase());
