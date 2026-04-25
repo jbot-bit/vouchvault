@@ -201,14 +201,14 @@ export function buildArchiveEntryText(input: {
   const isLegacy = input.source === "legacy_import";
 
   const lines: string[] = [
-    `From: ${fmtUser(input.reviewerUsername)}`,
-    `For: ${fmtUser(input.targetUsername)}`,
-    `Vouch: ${fmtResult(input.result)}`,
-    `Tags: ${fmtTags(input.tags)}`,
+    `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
+    `<b>For:</b> ${fmtUser(input.targetUsername)}`,
+    `<b>Vouch:</b> ${fmtResult(input.result)}`,
+    `<b>Tags:</b> ${fmtTags(input.tags)}`,
   ];
 
   if (isLegacy && input.legacySourceTimestamp) {
-    lines.push(`Date: ${fmtDate(input.legacySourceTimestamp)}`);
+    lines.push(`<b>Date:</b> ${fmtDate(input.legacySourceTimestamp)}`);
   }
 
   if (isLegacy) {
@@ -227,10 +227,10 @@ export function buildPreviewText(input: {
   return [
     "<b><u>Preview</u></b>",
     "",
-    `From: ${fmtUser(input.reviewerUsername)}`,
-    `For: ${fmtUser(input.targetUsername)}`,
-    `Vouch: ${fmtResult(input.result)}`,
-    `Tags: ${fmtTags(input.tags)}`,
+    `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
+    `<b>For:</b> ${fmtUser(input.targetUsername)}`,
+    `<b>Vouch:</b> ${fmtResult(input.result)}`,
+    `<b>Tags:</b> ${fmtTags(input.tags)}`,
   ].join("\n");
 }
 
@@ -263,7 +263,7 @@ export function buildTargetPromptText(): string {
 
 export function buildTypePromptText(targetUsername: string): string {
   return [
-    `Target saved: ${fmtUser(targetUsername)}`,
+    `<b>Target saved:</b> ${fmtUser(targetUsername)}`,
     "",
     "What are you vouching for?",
   ].join("\n");
@@ -273,7 +273,7 @@ export function buildResultPromptText(targetUsername: string): string {
   return [
     "<b>Step 2 of 3 — Result</b>",
     "",
-    `For: ${fmtUser(targetUsername)}`,
+    `<b>For:</b> ${fmtUser(targetUsername)}`,
     "",
     "Choose the result.",
   ].join("\n");
@@ -283,9 +283,9 @@ export function buildTagPromptText(targetUsername: string, result: EntryResult, 
   return [
     "<b>Step 3 of 3 — Tags</b>",
     "",
-    `For: ${fmtUser(targetUsername)}`,
-    `Vouch: ${fmtResult(result)}`,
-    `Tags: ${fmtTags(tags)}`,
+    `<b>For:</b> ${fmtUser(targetUsername)}`,
+    `<b>Vouch:</b> ${fmtResult(result)}`,
+    `<b>Tags:</b> ${fmtTags(tags)}`,
     "",
     "Choose one or more tags, then tap <b>Done</b>.",
   ].join("\n");
@@ -311,7 +311,7 @@ export function buildLookupText(input: {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
     lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
-    lines.push(`Tags: ${fmtTags(entry.tags)}`);
+    lines.push(`<b>Tags:</b> ${fmtTags(entry.tags)}`);
     lines.push("");
   }
 
@@ -374,8 +374,8 @@ export function buildPublishedDraftText(targetUsername: string, result: EntryRes
   return [
     "<b>✓ Posted to the group</b>",
     "",
-    `For: ${fmtUser(targetUsername)}`,
-    `Vouch: ${fmtResult(result)}`,
+    `<b>For:</b> ${fmtUser(targetUsername)}`,
+    `<b>Vouch:</b> ${fmtResult(result)}`,
   ].join("\n");
 }
 

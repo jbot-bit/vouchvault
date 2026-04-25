@@ -31,10 +31,10 @@ test("buildArchiveEntryText renders live entries with bold fields and no heading
   });
 
   assert.equal(text, [
-    "From: <b>@alice</b>",
-    "For: <b>@bobbiz</b>",
-    "Vouch: <b>Positive</b>",
-    "Tags: Good Comms, On Time",
+    "<b>From:</b> <b>@alice</b>",
+    "<b>For:</b> <b>@bobbiz</b>",
+    "<b>Vouch:</b> <b>Positive</b>",
+    "<b>Tags:</b> Good Comms, On Time",
   ].join("\n"));
 });
 
@@ -52,11 +52,11 @@ test("buildArchiveEntryText renders legacy entries with a dd/mm/yyyy Date and an
   });
 
   assert.equal(text, [
-    "From: <b>@legacyop</b>",
-    "For: <b>@oldvendor</b>",
-    "Vouch: <b>Negative</b>",
-    "Tags: Poor Comms",
-    "Date: 02/11/2025",
+    "<b>From:</b> <b>@legacyop</b>",
+    "<b>For:</b> <b>@oldvendor</b>",
+    "<b>Vouch:</b> <b>Negative</b>",
+    "<b>Tags:</b> Poor Comms",
+    "<b>Date:</b> 02/11/2025",
     "",
     "<i>(repost)</i>",
   ].join("\n"));
@@ -73,10 +73,10 @@ test("buildPreviewText mirrors the posted format with a bold underlined heading"
   assert.equal(text, [
     "<b><u>Preview</u></b>",
     "",
-    "From: <b>@alice</b>",
-    "For: <b>@bobbiz</b>",
-    "Vouch: <b>Positive</b>",
-    "Tags: Good Comms, On Time",
+    "<b>From:</b> <b>@alice</b>",
+    "<b>For:</b> <b>@bobbiz</b>",
+    "<b>Vouch:</b> <b>Positive</b>",
+    "<b>Tags:</b> Good Comms, On Time",
   ].join("\n"));
 });
 
