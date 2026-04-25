@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { parseSelectedTags } from "./archive.ts";
+import { createTokenBucket } from "./tokenBucket.ts";
 import { getLegacyBotSenders } from "./legacyBotSenders.ts";
 import { publishArchiveEntryRecord } from "./archivePublishing.ts";
 import {
@@ -257,6 +258,9 @@ export async function replayLegacyExport(
 ): Promise<LegacyReplayResult> {
   const logger = input.logger ?? console;
   const dryRun = input.dryRun === true;
+  const throttleMs = input.throttleMs ?? 3100;
+  const sendBucket = !dryRun ? createTokenBucket(throttleMs) : null;
+  const maxImports = input.maxImports ?? null;
   const exportFilePath = path.resolve(input.exportFilePath);
   const reviewReportPath = path.resolve(
     input.reviewReportPath ?? buildDefaultReviewReportPath(exportFilePath),
@@ -368,6 +372,9 @@ export async function replayLegacyExport(
       }
 
       try {
+        if (sendBucket) {
+          await sendBucket.take();
+        }
         await publishArchiveEntryRecord(existingEntry, logger);
         summary.imported += 1;
         summary.resumedPending += 1;
@@ -382,6 +389,11 @@ export async function replayLegacyExport(
           sourceMessageId: candidate.sourceMessageId,
           entryId: existingEntry.id,
         };
+        break;
+      }
+
+      if (maxImports != null && summary.imported >= maxImports) {
+        logger.info?.("[Legacy Import] Reached --max-imports limit, stopping early.", { maxImports });
         break;
       }
 
@@ -414,6 +426,9 @@ export async function replayLegacyExport(
     });
 
     try {
+      if (sendBucket) {
+        await sendBucket.take();
+      }
       await publishArchiveEntryRecord(createdEntry, logger);
       summary.imported += 1;
       lastPublishedReplayChatId = createdEntry.chatId;
@@ -427,6 +442,11 @@ export async function replayLegacyExport(
         sourceMessageId: candidate.sourceMessageId,
         entryId: createdEntry.id,
       };
+      break;
+    }
+
+    if (maxImports != null && summary.imported >= maxImports) {
+      logger.info?.("[Legacy Import] Reached --max-imports limit, stopping early.", { maxImports });
       break;
     }
   }
