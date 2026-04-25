@@ -437,7 +437,7 @@ export function buildProfileText(input: {
       lines.push(`<b>#${r.id}</b> — ${fmtResult(r.result)} • ${fmtDate(r.createdAt)}`);
     }
   }
-  return lines.join("\n");
+  return withCeiling(lines, 0);
 }
 
 export function buildFrozenListText(
@@ -446,8 +446,9 @@ export function buildFrozenListText(
   if (rows.length === 0) {
     return "No frozen profiles.";
   }
+  const visibleRows = rows.slice(0, 10);
   const lines = ["<b><u>Frozen profiles</u></b>", ""];
-  for (const row of rows.slice(0, 10)) {
+  for (const row of visibleRows) {
     const date = row.frozenAt ? fmtDate(row.frozenAt) : "unknown";
     const reason = row.freezeReason
       ? `<i>${escapeHtml(row.freezeReason)}</i>`
@@ -458,5 +459,8 @@ export function buildFrozenListText(
     lines.push("");
     lines.push(`…and ${rows.length - 10} more — refine with /lookup @x`);
   }
-  return lines.join("\n").trimEnd();
+  // Defensive char-ceiling pass — caps at 4096 even if pathological reasons
+  // push the visible 10-row block over budget (10 × ~200-char reason ≈ 2500
+  // chars in practice, but the wrapper protects future label changes).
+  return withCeiling(lines, 0);
 }

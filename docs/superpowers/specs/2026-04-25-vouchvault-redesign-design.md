@@ -294,9 +294,10 @@ Allowed tags: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`, `<s>`, `<strike>`, `<del>
 
 ### 7.1 Tone & content
 
-- **Sentence case**, except entry-card heading "Entry #N".
+- **Sentence case**, except the entry-card heading. The card uses a `<b>POS Vouch &gt; @target</b>` heading where the prefix is `POS` / `MIX` / `NEG` (verdict encoded inline). Live and legacy entries share the same shape; legacy adds a `<b>Date:</b> dd/mm/yyyy` line carrying the original post date.
+- No `(repost)` footer; no `Vouch:` result line; no separate `From:` / `For:` pair. The verdict, target, and direction are conveyed by the heading. The reviewer is on a single `<b>From:</b> <b>@reviewer</b>` line; tags follow on a `<b>Tags:</b>` line.
 - One-line per-step prompts where possible; max 4 short lines.
-- One emoji allowed: 🧾 on entry cards. No others.
+- No emoji on entry cards (the heading prefix carries the verdict).
 - No "please." Direct.
 - Every error ends with a recovery action.
 
