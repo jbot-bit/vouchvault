@@ -285,7 +285,7 @@ async function handleLookupCommand(input: {
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: "Lookup requires /lookup @username and is limited to admins.",
+        text: "Lookup requires /lookup @username.",
         ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
       },
       input.logger,
