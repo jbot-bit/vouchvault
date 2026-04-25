@@ -296,3 +296,48 @@ for (const sample of negativeSamples) {
     }
   });
 }
+
+test("unwraps a FROM/DATE manual-repost header and uses its fields", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({
+      from: "-",
+      text:
+        "FROM: @rixx_aus / 2091586089\n" +
+        "DATE: 05/04/2026\n" +
+        "\n" +
+        "Pos vouch @mordecai_on good lad, always a pleasure",
+    }),
+  });
+
+  assert.equal(decision.kind, "import");
+  if (decision.kind === "import") {
+    assert.equal(decision.candidate.reviewerUsername, "rixx_aus");
+    assert.equal(decision.candidate.targetUsername, "mordecai_on");
+    assert.equal(decision.candidate.result, "positive");
+    assert.equal(
+      decision.candidate.originalTimestamp.toISOString().slice(0, 10),
+      "2026-04-05",
+    );
+  }
+});
+
+test("unwraps a FROM/DATE header for a DELETED ACCOUNT into a synthetic legacy username", () => {
+  const decision = parseLegacyExportMessage({
+    sourceChatId: SOURCE_CHAT_ID,
+    message: buildMessage({
+      from: "-",
+      text:
+        "FROM: DELETED ACCOUNT / 8448430705\n" +
+        "DATE: 05/04/2026\n" +
+        "\n" +
+        "+rep @cool_ridge solid",
+    }),
+  });
+
+  assert.equal(decision.kind, "import");
+  if (decision.kind === "import") {
+    assert.equal(decision.candidate.reviewerUsername, "legacy_8448430705");
+    assert.equal(decision.candidate.targetUsername, "cool_ridge");
+  }
+});

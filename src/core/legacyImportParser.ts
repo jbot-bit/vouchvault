@@ -101,6 +101,63 @@ const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "dont trust", regex: /(?<!not\s)\bdon'?t\s+trust\b/ },
 ];
 
+// Manual-repost wrapper used when an admin pasted historical vouches into a
+// new group instead of using the bot. Format is exactly:
+//   FROM: @username / 1234567890
+//   DATE: dd/mm/yyyy
+//   <blank line>
+//   <original body>
+// The username may also be the literal "DELETED ACCOUNT" — in which case we
+// fall back to a synthetic placeholder built from the numeric id so the row
+// can still flow through validation.
+const REPOST_HEADER_REGEX =
+  /^FROM:\s*(?:@\s*([A-Za-z0-9_]+)|(DELETED\s+ACCOUNT))\s*\/\s*(\d+)\s*\r?\n+DATE:\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*\r?\n/i;
+
+function legacyUsernameForDeletedAccount(numericId: number): string {
+  return `legacy_${numericId}`;
+}
+
+function tryUnwrapManualRepostHeader(text: string): {
+  body: string;
+  reviewerUsername: string;
+  originalTimestamp: Date;
+} | null {
+  const match = REPOST_HEADER_REGEX.exec(text);
+  if (!match) {
+    return null;
+  }
+
+  const [, namedUsername, deletedMarker, idStr, dayStr, monthStr, yearStr] = match;
+  const numericId = Number(idStr);
+  if (!Number.isSafeInteger(numericId)) {
+    return null;
+  }
+
+  const reviewerUsername = deletedMarker
+    ? legacyUsernameForDeletedAccount(numericId)
+    : (normalizeUsername(namedUsername ?? null) ?? null);
+  if (!reviewerUsername) {
+    return null;
+  }
+
+  const day = Number(dayStr);
+  const month = Number(monthStr);
+  let year = Number(yearStr);
+  if (year < 100) year += 2000;
+  if (
+    !Number.isInteger(day) || day < 1 || day > 31 ||
+    !Number.isInteger(month) || month < 1 || month > 12 ||
+    !Number.isInteger(year) || year < 2000 || year > 2100
+  ) {
+    return null;
+  }
+  // Anchor to noon UTC so the dd/mm/yyyy render is stable across timezones.
+  const originalTimestamp = new Date(Date.UTC(year, month - 1, day, 12));
+
+  const body = text.slice(match[0].length).replace(/^\s*\n+/, "");
+  return { body, reviewerUsername, originalTimestamp };
+}
+
 const TELEGRAM_USERNAME_REGEX = /@([A-Za-z][A-Za-z0-9_]{4,31})\b/g;
 const FROM_ID_USER_PREFIX = /^user(\d+)$/;
 const FROM_ID_CHAT_OR_CHANNEL_PREFIX = /^(chat|channel)\d+$/;
@@ -385,7 +442,7 @@ export function parseLegacyExportMessage(input: {
 
   const messageType = typeof input.message.type === "string" ? input.message.type : "message";
   const sourceMessageId = getLegacyMessageId(input.message);
-  const originalTimestamp = getLegacyMessageTimestamp(input.message);
+  let originalTimestamp = getLegacyMessageTimestamp(input.message);
   let reviewerUsername = extractLegacyReviewerUsername(input.message);
   let reviewerNumericId: number | null = null;
 
@@ -437,6 +494,24 @@ export function parseLegacyExportMessage(input: {
     });
   }
 
+  // Resolve the body text first (with caption fallback) so we can detect a
+  // manual-repost wrapper before falling back to from_id or skipping for
+  // missing reviewer. The wrapper's FROM/DATE fields override the export-level
+  // sender + timestamp; the body becomes the text we run target/sentiment
+  // extraction on.
+  const rawText = (() => {
+    const main = flattenLegacyMessageText((input.message as Record<string, unknown>).text).trim();
+    if (main) return main;
+    return flattenLegacyMessageText((input.message as Record<string, unknown>).caption).trim();
+  })();
+
+  const unwrap = tryUnwrapManualRepostHeader(rawText);
+  const text = unwrap ? unwrap.body.trim() : rawText;
+  if (unwrap) {
+    reviewerUsername = unwrap.reviewerUsername;
+    originalTimestamp = unwrap.originalTimestamp;
+  }
+
   if (!reviewerUsername) {
     const fromId = extractFromIdNumeric(input.message);
     if (fromId?.kind === "non_user") {
@@ -468,11 +543,6 @@ export function parseLegacyExportMessage(input: {
     });
   }
 
-  const text = (() => {
-    const main = flattenLegacyMessageText((input.message as Record<string, unknown>).text).trim();
-    if (main) return main;
-    return flattenLegacyMessageText((input.message as Record<string, unknown>).caption).trim();
-  })();
   const targetUsernames = extractLegacyTargetUsernames(text);
 
   if (targetUsernames.length === 0) {
