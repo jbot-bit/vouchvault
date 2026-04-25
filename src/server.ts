@@ -1,6 +1,5 @@
 import { createServer } from "node:http";
 
-import { ensureDatabaseSchema } from "./mastra/storage/bootstrap.ts";
 import { getAllowedTelegramChatIdSet } from "./mastra/telegramChatConfig.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
 
@@ -60,7 +59,10 @@ async function main() {
     throw new Error("TELEGRAM_ALLOWED_CHAT_IDS is required.");
   }
 
-  await ensureDatabaseSchema();
+  const { drizzle } = await import("drizzle-orm/node-postgres");
+  const { migrate } = await import("drizzle-orm/node-postgres/migrator");
+  const { pool } = await import("./mastra/storage/db.ts");
+  await migrate(drizzle(pool), { migrationsFolder: "./migrations" });
 
   const port = Number(process.env.PORT || "5000");
   const host = "0.0.0.0";
