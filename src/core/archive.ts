@@ -274,6 +274,22 @@ export function buildTagPromptText(
   ].join("\n");
 }
 
+const SAFE_LIMIT = 3900;
+
+function withCeiling(lines: string[], more: number): string {
+  let total = 0;
+  const out: string[] = [];
+  for (const line of lines) {
+    if (total + line.length + 1 > SAFE_LIMIT) {
+      out.push(`…and ${lines.length - out.length + more} more.`);
+      break;
+    }
+    out.push(line);
+    total += line.length + 1;
+  }
+  return out.join("\n").trimEnd();
+}
+
 export function buildLookupText(input: {
   targetUsername: string;
   entries: Array<{
@@ -298,7 +314,7 @@ export function buildLookupText(input: {
     lines.push("");
   }
 
-  return lines.join("\n").trimEnd();
+  return withCeiling(lines, 0);
 }
 
 export function buildRecentEntriesText(
@@ -326,7 +342,7 @@ export function buildRecentEntriesText(
     lines.push("");
   }
 
-  return lines.join("\n").trimEnd();
+  return withCeiling(lines, 0);
 }
 
 export function buildLauncherText(): string {
