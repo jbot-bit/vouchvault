@@ -13,10 +13,14 @@ Telegram reputation bot. Group launches a DM flow, reviewer submits a vouch (tar
 ## Project layout
 
 - `src/core/` — pure logic: archive/post format, parsers, storage, helpers. Renamed from `src/mastra/` (commit 62fb7b1) — never reintroduce the old path.
-- `src/server.ts` — webhook entry (`/readyz` already wired).
+- `src/server.ts` — webhook entry. Wraps `processTelegramUpdate` in a 25s race so a slow handler can't trigger Telegram's retry loop. Also exposes `/healthz` and `/readyz`.
 - `src/telegramBot.ts` — Telegram update handlers, command routing, DM flow state machine.
+- `src/core/tools/telegramTools.ts` — every outbound Telegram call. Don't add new send logic elsewhere.
+- `src/core/logger.ts`, `src/core/typedTelegramErrors.ts`, `src/core/withTelegramRetry.ts` — observability + Telegram I/O scaffolding (see sections below).
 - `migrations/` — drizzle-kit SQL. Append a new file; do not edit historical migrations.
 - `scripts/` — one-off ops (`replayLegacyTelegramExport.ts`, `setTelegramWebhook.ts`, `smokePost*.ts`).
+- `DEPLOY.md` — Railway deploy + runbook.
+- `.env.example` — canonical env-var list with comments.
 - `docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md` — V3 spec (canonical).
 - `docs/superpowers/plans/2026-04-25-vouchvault-redesign.md` — V3 plan; checkboxes are **stale**, do not trust them as a "done" signal — derive completion from git history + file existence.
 
@@ -64,9 +68,24 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 ## Storage / DB
 
-- Postgres + drizzle. Pool init lives in `src/core/storage/db.ts`.
+- Postgres + drizzle. Pool init lives in `src/core/storage/db.ts`. `max: 5` is deliberate — it matches `setWebhook`'s `max_connections: 10` and headroom for the migrator. Don't bump without a reason.
 - Idempotent webhook delivery via `processed_telegram_updates` table — never bypass `markUpdateProcessed`.
 - New schema work goes through a new `migrations/<n>_*.sql` file; regenerate snapshot via drizzle-kit.
+- Admin actions (and denied attempts) are logged to `admin_audit_log` via `recordAdminAction`. Every new admin command must call it.
+
+## Telegram I/O
+
+- All outbound calls go through `src/core/tools/telegramTools.ts`. The four public sends (`sendTelegramMessage`, `editTelegramMessage`, `deleteTelegramMessage`, `answerTelegramCallbackQuery`) auto-wrap `callTelegramAPI` with `withTelegramRetry` (one retry on 429, honouring `retry_after`). Don't `fetch` Telegram directly from elsewhere; route new methods through `callTelegramAPI`.
+- Failures throw typed errors from `src/core/typedTelegramErrors.ts`: `TelegramRateLimitError` (429), `TelegramForbiddenError` (403 blocked / not-a-member), `TelegramChatGoneError` (400 chat not found), `TelegramApiError` (everything else). Branch with `instanceof`, never on `error.message`.
+
+## Logging
+
+- `src/core/logger.ts` exports `createLogger()` which returns a pino logger with redact paths for `*.token`, `*.secret`, `*.password`, `*.api_key`, `*.authorization`. `LOG_LEVEL` env var controls level (`info` default).
+- The pino logger is what `server.ts` passes into `processTelegramUpdate`; downstream handlers receive it as `LoggerLike`. Prefer pino's `logger.info({ ...ctx }, "msg")` form — putting the object first makes its fields structured (and redacted), not part of the message string.
+
+## Long messages
+
+- `buildLookupText` and `buildRecentEntriesText` route through `withCeiling` in `src/core/archive.ts` to stay under Telegram's 4096-char ceiling (3900 safety margin) with an `…and N more.` tail. New long-list builders should do the same.
 
 ## Environment caveats
 
