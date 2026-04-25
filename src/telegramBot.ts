@@ -75,7 +75,12 @@ import {
   editTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
-import { isChatPaused, setChatPaused } from "./core/chatSettingsStore.ts";
+import {
+  isChatPaused,
+  setChatKicked,
+  setChatMigrated,
+  setChatPaused,
+} from "./core/chatSettingsStore.ts";
 import { recordAdminAction } from "./core/adminAuditStore.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
@@ -1131,6 +1136,19 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 }
 
+async function handleMyChatMember(update: any, logger?: LoggerLike) {
+  const chatId = update?.chat?.id;
+  const newStatus = update?.new_chat_member?.status;
+  if (typeof chatId !== "number" || typeof newStatus !== "string") {
+    return;
+  }
+
+  if (newStatus === "kicked" || newStatus === "left") {
+    await setChatKicked(chatId);
+    logger?.info?.("[Group] Bot lost access", { chatId, newStatus });
+  }
+}
+
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
   const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
   const reviewerTelegramId = callbackQuery.from?.id;
@@ -1584,6 +1602,8 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
   try {
     if (payload.callback_query) {
       await handleCallbackQuery(payload.callback_query, logger);
+    } else if (payload.my_chat_member) {
+      await handleMyChatMember(payload.my_chat_member, logger);
     } else if (payload.message?.chat?.type === "private") {
       await handlePrivateMessage(payload.message, logger);
     } else if (payload.message) {

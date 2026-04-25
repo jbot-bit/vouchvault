@@ -33,3 +33,31 @@ export async function setChatPaused(input: {
       },
     });
 }
+
+export async function isChatKicked(chatId: number): Promise<boolean> {
+  const rows = await db
+    .select({ status: chatSettings.status })
+    .from(chatSettings)
+    .where(eq(chatSettings.chatId, chatId));
+  return rows[0]?.status === "kicked";
+}
+
+export async function setChatKicked(chatId: number): Promise<void> {
+  await db
+    .insert(chatSettings)
+    .values({ chatId, status: "kicked" })
+    .onConflictDoUpdate({
+      target: chatSettings.chatId,
+      set: { status: "kicked", updatedAt: new Date() },
+    });
+}
+
+export async function setChatMigrated(chatId: number, migratedToChatId: number): Promise<void> {
+  await db
+    .insert(chatSettings)
+    .values({ chatId, status: "migrated_away", migratedToChatId })
+    .onConflictDoUpdate({
+      target: chatSettings.chatId,
+      set: { status: "migrated_away", migratedToChatId, updatedAt: new Date() },
+    });
+}

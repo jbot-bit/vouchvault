@@ -1,4 +1,5 @@
 import { buildLauncherText } from "./archive.ts";
+import { isChatKicked } from "./chatSettingsStore.ts";
 import { getLauncherByChatId, saveLauncherMessage, withChatLauncherLock } from "./archiveStore.ts";
 import {
   getAllowedTelegramChatIds,
@@ -74,6 +75,10 @@ export async function sendLauncherPrompt(
 const LAUNCHER_REFRESH_DEBOUNCE_MS = 30_000;
 
 export async function refreshGroupLauncher(chatId: number, logger?: any) {
+  if (await isChatKicked(chatId)) {
+    logger?.info?.("[Archive] Skipping launcher refresh for kicked chat", { chatId });
+    return;
+  }
   await withChatLauncherLock(chatId, async () => {
     const existing = await getLauncherByChatId(chatId);
 
