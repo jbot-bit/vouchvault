@@ -109,15 +109,17 @@ test("welcome and pinned guide use the business-hub framing and How to Vouch wal
   assert.match(guide, /No illegal activity/);
 });
 
-test("bot profile text matches the business-hub model and lawful-use note", () => {
-  const description = buildBotDescriptionText();
-  assert.match(description, /vouch hub for our business community/);
-  assert.match(description, /local businesses/);
-  assert.match(description, /Telegram's Terms of Service/);
+test("bot profile text uses the locked v3 copy", () => {
+  const desc = buildBotDescriptionText();
+  assert.match(desc, /Log and verify local-business service experiences/);
+  assert.match(desc, /Tap Submit Vouch/);
+  assert.match(desc, /Lawful use only/);
+  assert.ok(desc.length <= 512);
 
   const short = buildBotShortDescription();
-  assert.match(short, /Vouch hub for local businesses/);
-  assert.match(short, /Lawful use only/);
+  assert.match(short, /Vouch Hub/);
+  assert.match(short, /local-business service experiences/);
+  assert.ok(short.length <= 120);
 });
 
 test("telegram UX helpers favor threaded quiet replies", () => {

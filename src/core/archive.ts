@@ -360,11 +360,17 @@ export function buildPublishedDraftText(targetUsername: string, result: EntryRes
 }
 
 export function buildBotDescriptionText(): string {
-  return "The vouch hub for our business community — a place where local businesses log and verify service experiences. Open from the group launcher, complete the short DM form, and I post a clean entry back to the group. Lawful use only — follow Telegram's Terms of Service. No illegal activity.";
+  return [
+    "Log and verify local-business service experiences with the community.",
+    "",
+    "How it works: Tap Submit Vouch in the group, DM the bot one @username, choose result + tags, I post a clean entry back to the group.",
+    "",
+    "Lawful use only — follow Telegram's Terms of Service.",
+  ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch hub for local businesses. Submit in DM from the group launcher. Lawful use only.";
+  return "Vouch Hub — log and verify local-business service experiences. Open from the group launcher.";
 }
 
 export function buildAdminOnlyText(): string {
