@@ -1080,3 +1080,81 @@ Each chunk ends in green tests + a deployable state.
 - `orm.drizzle.team/docs/migrations` — drizzle-kit migrations
 - `node-postgres.com/api/pool` — pool config
 - `pino.io` — log redact paths
+
+---
+
+## V3.5 amendment — impenetrable architecture (2026-04-27)
+
+**Status:** ratified amendment. Authorizes the V3 locked-text expansion, prose-body publish shape, account-age guard, channel relay, and multi-bot dispatch defined in `docs/superpowers/specs/2026-04-26-vouchvault-impenetrable-architecture-v6.md`. The v6 doc is the architecture target; this amendment authorizes the V3-spec changes required to ship it.
+
+### V3.5.1 New locked-text builders
+
+Each is tested via `archiveUx.test.ts` for byte-stable output. Drift requires updating this amendment first.
+
+| Builder | Surface | Notes |
+|---|---|---|
+| `buildVouchProsePromptText()` | DM wizard step prompting reviewer for the free-form prose body | New step inserted after tags, before preview |
+| `buildPreviewText({ bodyText, entryId })` | DM wizard preview shape change | New shape: `<i>Preview</i>\n\n<sanitized_prose>\n\n<code>#<id></code>` — drops the V3 structured `POS Vouch > @target` heading on the published surface; structured fields live in DB and surface only in `/search` and `/recent` |
+| `buildPublishedDraftText({ entryId, channelPostUrl })` | DM "Posted to the group" confirmation | Includes channel post URL under multi-bot |
+| `buildLookupBotShortDescription()`, `buildLookupBotDescription()` | Lookup bot @BotFather profile copy | Read-only role; "Search vouches by @username" framing |
+| `buildAdminBotShortDescription()`, `buildAdminBotDescription()` | Admin bot @BotFather profile copy | Operator-facing; "Admin tooling — restricted access" framing |
+| `buildAccountTooNewText()` | Wizard rejection at start when `now() - users_first_seen.first_seen < 24h` | Locked copy: "Please come back in 24 hours — we wait for new accounts to establish." |
+| `buildModerationWarnText({ groupName, hitSource, adminBotUsername })` | DM warning when `runChatModeration` deletes a message | Refactor of existing inline strings in `chatModeration.ts` into a builder for locked-text discipline |
+
+### V3.5.2 Free-form prose body — publish shape
+
+V3 published an HTML-structured heading (`<b>POS Vouch &gt; @target</b>` + `From:` / `Tags:` lines). V3.5 replaces this on the published surface with reviewer-supplied prose body + `<code>#<id></code>` footer. The structured fields (target, result, tags) are still captured by the wizard and stored in `vouch_entries`, but render only via `/search` and `/recent` on the lookup surface.
+
+**Why:** V3's templated shape was the takedown vector — 2,234 byte-similar templated bot publishes in 24h produced a spam-ring fingerprint. TBC26's actually-published vouches (KB:F2.10–F2.11) are loose-templated free-form prose, not byte-identical templates. Matching their shape eliminates the V3 fingerprint while preserving structured search at the DB layer.
+
+**Wizard input rules (enforced in `telegramBot.ts` wizard):**
+
+- Plain text only. Photos, stickers, voice → "plain text only please."
+- No formatting entities (bold, italic, links) → "plain text — no formatting please."
+- 800-char cap on raw input. After HTML-escape worst case (~5×), worst case = ~4000 chars + footer ~10 chars, comfortable under the 4096 ceiling and the 3900 safety margin.
+
+### V3.5.3 Account-age guard at wizard
+
+**Rule:** reject vouch submissions from Telegram accounts whose first interaction with the VouchVault bot was less than 24 hours ago. KB:F5.6 — TBC26 community-enforces a 24h waiting period; we encode it as code so it's not an admin-judgment call.
+
+**Implementation:**
+- New table `users_first_seen (telegram_id BIGINT PK, first_seen TIMESTAMP NOT NULL DEFAULT NOW())`.
+- `markUpdateProcessed()` writes to `users_first_seen` on every update if the row doesn't exist (`ON CONFLICT DO NOTHING`).
+- New helper `getUserFirstSeen(telegramId)` in `src/core/userTracking.ts`.
+- Wizard guard at start of DM flow rejects with `buildAccountTooNewText()`.
+
+### V3.5.4 Channel relay (publish + capture)
+
+V3 published directly to the supergroup. V3.5 (when `VV_RELAY_ENABLED=true`) publishes to a paired channel and lets Telegram-native channel-discussion auto-forward into the supergroup.
+
+- New columns on `vouch_entries`: `channel_message_id INTEGER`, `body_text TEXT`. Both nullable for backwards compat with existing rows.
+- Status state machine extended: `draft` → `channel_published` (channel post written, awaiting auto-forward capture) → `published` (auto-forward observed, `supergroup_message_id` populated).
+- Backwards compat: when `VV_RELAY_ENABLED=false`, V3 direct-publish path remains active.
+
+### V3.5.5 Multi-bot dispatch
+
+Webhook routing splits into 3 paths under multi-bot:
+
+- `/webhooks/telegram/ingest` — ingest bot (DM wizard, channel publish, relay capture)
+- `/webhooks/telegram/lookup` — lookup bot (read-only `/search`, `/recent`)
+- `/webhooks/telegram/admin` — admin bot (admin commands + chat-moderation)
+- `/webhooks/telegram/action` — alias of `/ingest` for backwards compat
+
+Backwards compat: when `TELEGRAM_LOOKUP_TOKEN` and/or `TELEGRAM_ADMIN_TOKEN` are unset, ingest dual-registers their commands as fallback. When `TELEGRAM_ADMIN_TOKEN` is set, ingest skips moderation (admin bot owns it). When unset, ingest moderates as today.
+
+### V3.5.6 DB schema changes (commit 3)
+
+- `vouch_entries`: `channel_message_id INTEGER` nullable, `body_text TEXT` nullable.
+- `processed_telegram_updates`: `bot_kind TEXT`. Composite unique on `(bot_kind, update_id)`. Backfill existing rows to `bot_kind='ingest'`.
+- New table `users_first_seen` per V3.5.3.
+- New table `replay_log` for migration-burst idempotency (added in v6 commit 7).
+- DB pool max bumped 5 → 10 to accommodate 3 bots × 10 max-connections setWebhook.
+
+### V3.5.7 Verification
+
+- `npx tsc --noEmit` clean.
+- `npm test` all green.
+- Locked-text tests in `archiveUx.test.ts` cover every new builder in V3.5.1.
+- With `VV_RELAY_ENABLED=false` + lookup/admin tokens unset, deployment behaves byte-identically to V3 (full backwards compat).
+
+---
