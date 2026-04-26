@@ -153,6 +153,20 @@ export const MARKETPLACE_USERNAME_SUBSTRINGS: ReadonlyArray<string> = [
   "lsd", "acid_", "_acid", "tabs_", "_tabs",
   "ket_", "ketamine",
   "legit_seller", "vouched_vendor", "approved_seller",
+  // Chat-moderation phrase tokens that could appear in a vouch target's
+  // username. Closes the evasion vector where @pm_me_now would otherwise
+  // pass the deny-list and the bot would publish a vouch heading
+  // containing 'pm me now' (chat-mod doesn't scan the bot's own posts;
+  // this stops the artefact at the vouch-submission gate). See spec v4 §4.9.
+  "pm_", "_pm",
+  "selling", "_selling", "selling_",
+  "buying", "_buying", "buying_",
+  "wickr", "wickr_", "_wickr",
+  "threema", "_threema",
+  "wtb_", "_wtb",
+  "wts_", "_wts",
+  "wtt_", "_wtt",
+  "hmu_", "_hmu",
 ];
 
 export function isReservedTarget(username: string): boolean {

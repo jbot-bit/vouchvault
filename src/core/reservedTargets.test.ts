@@ -76,3 +76,32 @@ test("benign usernames pass", () => {
     assert.equal(isReservedTarget(handle), false, handle);
   }
 });
+
+test("chat-moderation phrase tokens are rejected in usernames (closes username-layer evasion)", () => {
+  for (const handle of [
+    "pm_me_now",
+    "best_selling",
+    "selling_now",
+    "buying_today",
+    "wickr_user",
+    "_threema",
+    "ohwtb_today",
+    "wts_now",
+    "hmu_quick",
+  ]) {
+    assert.equal(isReservedTarget(handle), true, handle);
+  }
+});
+
+test("chat-mod tokens don't false-positive on benign overlapping handles", () => {
+  // 'pm' alone (not bracketed) is allowed; the substrings require an
+  // underscore boundary on at least one side ('pm_' or '_pm').
+  for (const handle of [
+    "alice",
+    "calmness",
+    "bobsmith",
+    "topmost",
+  ]) {
+    assert.equal(isReservedTarget(handle), false, handle);
+  }
+});
