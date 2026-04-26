@@ -56,6 +56,14 @@ async function telegramGetMeProbe(): Promise<
   }
 }
 
+// Telegram webhook payloads are typically <8 KiB. The 256 KiB cap is well
+// over any legitimate update (long captions, large reply contexts) while
+// keeping JSON.parse latency bounded against pathologically nested payloads.
+const MAX_BODY_BYTES = 256 * 1024;
+
+class RequestBodyTooLargeError extends Error {}
+class RequestBodyParseError extends Error {}
+
 async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -63,8 +71,8 @@ async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
   for await (const chunk of req) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     totalBytes += buffer.length;
-    if (totalBytes > 1024 * 1024) {
-      throw new Error("Request body too large.");
+    if (totalBytes > MAX_BODY_BYTES) {
+      throw new RequestBodyTooLargeError("Request body too large.");
     }
     chunks.push(buffer);
   }
@@ -73,7 +81,13 @@ async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
     return {};
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (err) {
+    throw new RequestBodyParseError(
+      err instanceof Error ? `JSON parse failed: ${err.message}` : "JSON parse failed",
+    );
+  }
 }
 
 async function main() {
@@ -145,22 +159,53 @@ async function main() {
           }
         }
 
-        const payload = await readJsonBody(req);
+        let payload: any;
+        try {
+          payload = await readJsonBody(req);
+        } catch (err) {
+          if (err instanceof RequestBodyTooLargeError) {
+            const response = textResponse("Payload Too Large", 413);
+            res.writeHead(response.statusCode, response.headers);
+            res.end(response.body);
+            return;
+          }
+          if (err instanceof RequestBodyParseError) {
+            logger.warn({ err }, "Webhook body parse failed; returning 400");
+            const response = textResponse("Bad Request", 400);
+            res.writeHead(response.statusCode, response.headers);
+            res.end(response.body);
+            return;
+          }
+          throw err;
+        }
 
+        // After authentication + parse, ALWAYS return 200 to Telegram so a
+        // doomed update (one that consistently throws) doesn't trigger an
+        // infinite retry loop. Idempotency is enforced by
+        // processed_telegram_updates inside processTelegramUpdate.
         const TIMEOUT_MS = 25_000;
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
         const timeoutPromise = new Promise<{ timeout: true }>((resolve) => {
           timeoutId = setTimeout(() => resolve({ timeout: true }), TIMEOUT_MS);
           timeoutId.unref?.();
         });
-        const work = processTelegramUpdate(payload, logger).then(() => ({
-          timeout: false as const,
-        }));
+        const work = processTelegramUpdate(payload, logger)
+          .then(() => ({ timeout: false as const }))
+          // Catch synchronous + late-throwing failures so they don't
+          // surface as unhandled promise rejections after the race
+          // returns 200. The error is logged and the response stays 200.
+          .catch((err) => {
+            logger.error(
+              { err, update_id: payload?.update_id },
+              "processTelegramUpdate failed; webhook returned 200 to avoid retry loop",
+            );
+            return { timeout: false as const, errored: true };
+          });
         const outcome = await Promise.race([work, timeoutPromise]);
         if (timeoutId !== null) clearTimeout(timeoutId);
-        if (outcome.timeout) {
+        if ("timeout" in outcome && outcome.timeout) {
           logger.error(
-            { update_id: payload.update_id },
+            { update_id: payload?.update_id },
             "Telegram update processing exceeded 25s; returning 200 to avoid retry loop",
           );
         }
