@@ -101,21 +101,6 @@ In `@BotFather`: `/setprivacy` → choose your bot → **Disable**.
 
 See spec §16.5.
 
-## Migrating data from an existing Replit deployment
-
-```
-# From local with both DATABASE_URLs available
-pg_dump --no-owner --no-acl --clean --if-exists "$REPLIT_DATABASE_URL" \
-  | psql "$RAILWAY_DATABASE_URL"
-```
-
-Then run Step 7 above to seed `__drizzle_migrations` with the baseline marker.
-
-## Rotation
-
-- **Bot token**: BotFather `/revoke` → set new `TELEGRAM_BOT_TOKEN` in Variables → service auto-redeploys → `npm run telegram:webhook`.
-- **Webhook secret**: rotate `TELEGRAM_WEBHOOK_SECRET_TOKEN` → redeploy → `npm run telegram:webhook`.
-
 ## Step 13 — Vendetta-resistant posture: legacy NEG cleanup (one-time, post-deploy)
 
 Run this once after the v1.1 vendetta-resistant posture ships (spec `docs/superpowers/specs/2026-04-26-vendetta-resistant-posture-design.md`). New NEG entries are private from this point on; the historical public NEG posts already in the host group are pre-existing reportable artefacts and should be cleared.
@@ -147,6 +132,21 @@ After the chat-moderation v4 deploy (no migration required), do this once:
 4. **Enable member chat in any group you want moderated.** In Telegram → group settings → Permissions → enable "Send messages" for members. Recommended: also enable Slow Mode (30 seconds) and disable "Send media", "Send links", and "Send polls". Telegram-native restrictions reduce attack surface; the bot lexicon catches the rest.
 5. The bot starts moderating automatically on the next member message in any chat in `TELEGRAM_ALLOWED_CHAT_IDS`. No bot-side config.
 6. Watch `admin_audit_log` for `command='chat_moderation:delete'` rows for the first week. If a phrase is over-firing, edit `src/core/chatModerationLexicon.ts` `PHRASES` and push.
+
+## Migrating data from an existing Replit deployment
+
+```
+# From local with both DATABASE_URLs available
+pg_dump --no-owner --no-acl --clean --if-exists "$REPLIT_DATABASE_URL" \
+  | psql "$RAILWAY_DATABASE_URL"
+```
+
+Then run Step 7 above to seed `__drizzle_migrations` with the baseline marker.
+
+## Rotation
+
+- **Bot token**: BotFather `/revoke` → set new `TELEGRAM_BOT_TOKEN` in Variables → service auto-redeploys → `npm run telegram:webhook`.
+- **Webhook secret**: rotate `TELEGRAM_WEBHOOK_SECRET_TOKEN` → redeploy → `npm run telegram:webhook`.
 
 ## Runbook
 

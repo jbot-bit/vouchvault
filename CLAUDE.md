@@ -93,6 +93,18 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 - `buildLookupText` and `buildRecentEntriesText` route through `withCeiling` in `src/core/archive.ts` to stay under Telegram's 4096-char ceiling (3900 safety margin) with an `…and N more.` tail. New long-list builders should do the same.
 
+## Chat moderation (v6)
+
+- `src/core/chatModerationLexicon.ts` carries the empirically-derived lexicon (PHRASES + REGEX_PATTERNS) and the pure helpers (`normalize`, `findHits`). No DB imports — safe to load in any context.
+- `src/core/chatModeration.ts` carries the orchestration: `runChatModeration` (audit + delete + best-effort DM warn) and `logBotAdminStatusForChats` (boot helper). Imports DB + Telegram.
+- Policy: lexicon hit → delete the message + DM warn. **No bans, no mutes, no strikes.** Hostile actors who keep posting hits keep having their posts vanish; operators handle persistent abusers manually via Telegram-native UI.
+- Bot exemptions: `is_bot` flag + id-equals-bot + `via_bot` set → skip moderation entirely (so the bot doesn't moderate its own vouch posts or inline-bot relays).
+- Admin sender → audit row tagged `(admin_exempt)`, no enforcement.
+- Lexicon updates = edit `PHRASES` (or `REGEX_PATTERNS`) in the lexicon module + push. Railway redeploys; new container has the new lexicon. No admin command, no hot-reload.
+- `runChatModeration` is wired into `handleGroupMessage` (first thing after migration handling) and `processTelegramUpdate`'s `edited_message` branch. Bot self-skip prevents moderating its own published vouches even if they coincidentally match.
+- Admin-rights visibility: `logBotAdminStatusForChats` runs fire-and-forget at boot in `server.ts` and logs the bot's admin status per allowed chat. Without admin rights with `can_delete_messages`, moderation silently fails — boot log is the only signal.
+- Test approach: pure helpers unit-tested; orchestration verified manually via the e2e checklist in `DEPLOY.md` §14. The `chat_moderation:delete` audit rows in `admin_audit_log` are the runtime evidence.
+
 ## Takedown resilience
 
 Recovery from a Telegram-side group takedown is **manual**: change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, then run the post-deploy commands in `DEPLOY.md` §9–10. Optional DB replay into the new group via the SQL → Telegram-export-JSON recipe in `docs/runbook/opsec.md`. The runtime detection (chat-gone admin paging, member-velocity alerts, `/readyz` getMe probe) is in code; OPSEC posture and migration steps are in `docs/runbook/opsec.md`.

@@ -144,39 +144,6 @@ After resolving, `/unpause` to resume vouches.
 
 ---
 
-## 6b. Chat moderation — admin reference
-
-The bot moderates every member message in any allowed chat using the lexicon defined in `src/core/chatModerationLexicon.ts`. Policy:
-
-> **Lexicon hit → delete the message + best-effort DM warn.** No bans, no mutes, no strikes, no decay.
-
-Two pattern families:
-
-1. **Commerce-shape phrases** (~36 entries): `pm me`, `hit me up`, `selling`, `pickup`, `wickr`, etc. — empirically tuned to fire 0 hits on the target community across 2,565 messages.
-2. **Vouch-shape regexes** (3 patterns): `POS/NEG/MIX vouch`, `vouch for @username`, `+vouch / -vouch`. Catches members trying to publish vouches by typing the format in chat instead of going through the bot. The bot's own published vouches are skipped via the `is_bot` + id-equals-bot self-check.
-
-A hostile actor who keeps posting hits keeps having their posts vanish — they accomplish nothing, but accumulate audit-log noise. **Operators handle persistent abusers manually** via Telegram-native group settings (kick / ban / restrict). The bot does not auto-ban — false-positive cost is bounded to one deleted message + one DM, and that's appropriate for a community where genuine members occasionally slip up.
-
-**Inspect recent moderation events:**
-
-```
-psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, target_username, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND created_at > now() - interval '7 days' ORDER BY created_at DESC"
-```
-
-**Bot exemptions:** the bot's own messages are skipped (`is_bot` flag + id check). Inline-bot relays (`via_bot` set) are skipped. Admins are audit-logged but enforcement is skipped — admins don't get their own messages auto-deleted.
-
-**Manual ban/kick:** Telegram → group settings → Members → tap the user → Remove / Ban. No bot command needed.
-
-**Update the lexicon:** edit `PHRASES` (or `REGEX_PATTERNS`) in `src/core/chatModerationLexicon.ts`, commit, push. Railway redeploys.
-
-**Bot admin-rights check:** the bot logs its admin status in every allowed chat at boot. Check Railway logs for `chatModeration: bot status in <id>: <status>`. If status is anything other than `administrator` or `creator`, moderation will silently fail in that chat — fix the permissions in Telegram. The bot needs `can_delete_messages` (the only Telegram admin permission required by v6 moderation).
-
-**First-DM gap:** members who have never `/start`-ed the bot receive no removal notice (Telegram blocks bot-initiated DMs). Their message is still deleted and they are still banned. The welcome and pinned guide instruct members to `/start` once; members who ignore that won't get the DM. They can still see they were removed via Telegram's native UI. Acceptable.
-
-**Webhook allowed_updates:** chat-moderation requires `edited_message` in the webhook's `allowed_updates`. After deploying the v4+ chat-moderation code, run `npm run telegram:webhook` once to refresh the server-side webhook config. Confirm with `npm run telegram:webhook -- --info`.
-
----
-
 ## 6a. Lexicon reference — derived from peer-group export 2026-04-26
 
 Numbers below come from a one-time scan of a 9,706-message export from a peer drug-trade circuit, used as adversarial training data for this bot's hardening. Patterns appear here for admin reference; the runtime defence is the username-substring deny-list in `src/core/archive.ts:MARKETPLACE_USERNAME_SUBSTRINGS`.
@@ -195,6 +162,39 @@ Numbers below come from a one-time scan of a 9,706-message export from a peer dr
 What admins watch for in `/lookup @x` `private_note` text: any of the above clusters, especially doxing-pattern + drug-direct co-occurrence; that combination is the highest-priority `/freeze` signal.
 
 This is documentation only — no runtime consumer beyond the substring deny-list referenced above. When member chat returns under a future spec (chat-group + linked discussion), the runtime regex gate that lives on that surface will consume the same lexicon.
+
+---
+
+## 6b. Chat moderation — admin reference
+
+The bot moderates every member message in any allowed chat using the lexicon defined in `src/core/chatModerationLexicon.ts`. Policy:
+
+> **Lexicon hit → delete the message + best-effort DM warn.** No bans, no mutes, no strikes, no decay.
+
+Two pattern families:
+
+1. **Commerce-shape phrases** (~36 entries): `pm me`, `hit me up`, `selling`, `pickup`, `wickr`, etc.
+2. **Vouch-shape regexes** (3 patterns): `POS/NEG/MIX vouch`, `vouch for @username`, `+vouch / -vouch`. Catches members trying to publish vouches by typing the format in chat instead of going through the bot. The bot's own published vouches are skipped via the `is_bot` + id-equals-bot self-check.
+
+A hostile actor who keeps posting hits keeps having their posts vanish — they accomplish nothing, but accumulate audit-log noise. **Operators handle persistent abusers manually** via Telegram-native group settings (kick / ban / restrict). The bot does not auto-ban — false-positive cost is bounded to one deleted message + one DM, and that's appropriate for a community where genuine members occasionally slip up.
+
+**Inspect recent moderation events:**
+
+```
+psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, target_username, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND created_at > now() - interval '7 days' ORDER BY created_at DESC"
+```
+
+**Bot exemptions:** the bot's own messages are skipped (`is_bot` flag + id check). Inline-bot relays (`via_bot` set) are skipped. Admins are audit-logged but enforcement is skipped — admins don't get their own messages auto-deleted.
+
+**Manual ban/kick:** Telegram → group settings → Members → tap the user → Remove / Ban. No bot command needed.
+
+**Update the lexicon:** edit `PHRASES` (or `REGEX_PATTERNS`) in `src/core/chatModerationLexicon.ts`, commit, push. Railway redeploys.
+
+**Bot admin-rights check:** the bot logs its admin status in every allowed chat at boot. Check Railway logs for `chatModeration: bot status in <id>: <status>`. If status is anything other than `administrator` or `creator`, moderation will silently fail in that chat — fix the permissions in Telegram. The bot needs `can_delete_messages` (the only Telegram admin permission required by v6 moderation).
+
+**First-DM gap:** members who have never `/start`-ed the bot receive no removal notice (Telegram blocks bot-initiated DMs). Their message is still deleted; only the warning DM is silently lost. The welcome and pinned guide instruct members to `/start` once; members who ignore that won't get the DM, but the moderation still works. Acceptable.
+
+**Webhook allowed_updates:** chat-moderation requires `edited_message` in the webhook's `allowed_updates`. After deploying the v4+ chat-moderation code, run `npm run telegram:webhook` once to refresh the server-side webhook config. Confirm with `npm run telegram:webhook -- --info`.
 
 ---
 
