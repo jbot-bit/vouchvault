@@ -48,6 +48,11 @@ export const DRAFT_STEPS = [
   "selecting_result",
   "selecting_tags",
   "awaiting_admin_note",
+  // V3.5.2 / v6 §4.3: free-form prose body collection. Inserted
+  // between tags (or admin_note for NEG) and preview when the
+  // multi-bot/channel-relay flow is active. When VV_RELAY_ENABLED is
+  // false the wizard skips this step and goes straight to preview.
+  "awaiting_prose",
   "preview",
   "idle",
 ] as const;
@@ -107,6 +112,117 @@ export function validatePrivateNote(input: string): ValidatePrivateNoteResult {
     return { ok: false, reason: "control_chars" };
   }
   return { ok: true, value: trimmed };
+}
+
+// V3.5.2 / v6 §4.3 — free-form vouch prose body. After HTML-escape
+// worst case (~5×) 800 chars lands at ~4000 chars + footer ~10, well
+// under the 4096 ceiling and the 3900 safety margin in withCeiling.
+export const MAX_VOUCH_PROSE_CHARS = 800;
+
+export type ValidateVouchProseResult =
+  | { ok: true; value: string }
+  | {
+      ok: false;
+      reason:
+        | "empty"
+        | "too_long"
+        | "control_chars"
+        | "non_text"
+        | "has_entities";
+    };
+
+// Validates the free-form prose body for a V3.5 vouch.
+// - Reject empty / whitespace-only.
+// - Reject > MAX_VOUCH_PROSE_CHARS.
+// - Reject ASCII control chars except newline (\n) and tab (\t).
+//
+// Caller is responsible for the non-text + has-entities checks
+// against the Telegram Message envelope (`message.entities` present,
+// `message.photo`/`message.sticker`/`message.voice` etc.) since those
+// require the full message object, not just text.
+export function validateVouchProse(input: string): ValidateVouchProseResult {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return { ok: false, reason: "empty" };
+  if (trimmed.length > MAX_VOUCH_PROSE_CHARS) return { ok: false, reason: "too_long" };
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x08\x0B-\x1F\x7F]/.test(trimmed)) {
+    return { ok: false, reason: "control_chars" };
+  }
+  return { ok: true, value: trimmed };
+}
+
+// Pure helper — inspects a Telegram Message and decides whether it's
+// a valid plain-text input for the prose step. Caller still passes
+// the text through validateVouchProse for length/content checks.
+export function classifyVouchProseMessage(message: {
+  text?: unknown;
+  entities?: ReadonlyArray<unknown> | null;
+  caption?: unknown;
+  photo?: unknown;
+  document?: unknown;
+  voice?: unknown;
+  video?: unknown;
+  video_note?: unknown;
+  sticker?: unknown;
+  animation?: unknown;
+  audio?: unknown;
+  contact?: unknown;
+  location?: unknown;
+  poll?: unknown;
+}):
+  | { kind: "text"; text: string }
+  | { kind: "non_text" }
+  | { kind: "has_entities" } {
+  // Any non-text body type means the user sent media / sticker / etc.
+  if (
+    message.photo != null ||
+    message.document != null ||
+    message.voice != null ||
+    message.video != null ||
+    message.video_note != null ||
+    message.sticker != null ||
+    message.animation != null ||
+    message.audio != null ||
+    message.contact != null ||
+    message.location != null ||
+    message.poll != null ||
+    typeof message.caption === "string"
+  ) {
+    return { kind: "non_text" };
+  }
+  if (typeof message.text !== "string") {
+    return { kind: "non_text" };
+  }
+  // Reject any formatting entity (bold, italic, link, etc.). The
+  // published surface stays unstyled prose, matching TBC26's actual
+  // vouch shape (KB:F2.10–F2.11).
+  if (Array.isArray(message.entities) && message.entities.length > 0) {
+    return { kind: "has_entities" };
+  }
+  return { kind: "text", text: message.text };
+}
+
+// Locked V3.5 wizard rejection messages for the prose step.
+export function buildVouchProseRejectionText(
+  reason:
+    | "empty"
+    | "too_long"
+    | "control_chars"
+    | "non_text"
+    | "has_entities",
+): string {
+  switch (reason) {
+    case "empty":
+      return "Send a short message describing the vouch — please don't leave it blank.";
+    case "too_long":
+      return `Keep it under <b>${MAX_VOUCH_PROSE_CHARS} characters</b> please — say less.`;
+    case "control_chars":
+      return "Plain text only — control characters not allowed.";
+    case "non_text":
+      return "Plain text only please. No photos, stickers, voice, or media.";
+    case "has_entities":
+      return "Plain text — no formatting, links, or mentions please.";
+  }
 }
 
 export const DEFAULT_DUPLICATE_COOLDOWN_HOURS = 72;

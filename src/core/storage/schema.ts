@@ -48,6 +48,7 @@ export const vouchDrafts = pgTable("vouch_drafts", {
   selectedTags: text("selected_tags").notNull().default("[]"),
   step: text("step").notNull().default("awaiting_target"),
   privateNote: text("private_note"),
+  bodyText: text("body_text"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
