@@ -1,17 +1,24 @@
 import {
+  buildAccountTooNewText,
   buildAdminHelpText,
   buildAdminOnlyText,
   buildFrozenListText,
   buildGroupLauncherReplyText,
   buildLookupText,
   buildPreviewText,
+  buildPreviewTextV35,
   buildProfileText,
   buildPublishedDraftText,
   buildRecentEntriesText,
   buildResultPromptText,
   buildTagPromptText,
   buildTargetPromptText,
+  buildVouchProsePromptText,
+  buildVouchProseRejectionText,
   buildWelcomeText,
+  classifyVouchProseMessage,
+  escapeHtml,
+  validateVouchProse,
   DEFAULT_DUPLICATE_COOLDOWN_HOURS,
   DEFAULT_DRAFT_TIMEOUT_HOURS,
   MAINTENANCE_EVERY_N_UPDATES,
@@ -104,7 +111,8 @@ import {
 import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
-import { recordUserFirstSeen } from "./core/userTracking.ts";
+import { getUserFirstSeen, recordUserFirstSeen } from "./core/userTracking.ts";
+import { checkAccountAge } from "./core/accountAge.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
@@ -137,6 +145,14 @@ function getAdminIds(): Set<number> {
 
 function isAdmin(telegramId: number | null | undefined): boolean {
   return telegramId != null && getAdminIds().has(telegramId);
+}
+
+// V3.5.4 / v6 §4: when true, the wizard inserts a free-form prose step
+// before preview and the publish path goes channel → auto-forward
+// instead of direct supergroup send. Env-var gated for backwards
+// compat — default-off keeps the V3 path intact.
+function isRelayEnabled(): boolean {
+  return process.env.VV_RELAY_ENABLED === "true";
 }
 
 function getCommandParts(text: string) {
@@ -308,6 +324,27 @@ async function startDraftFlow(input: {
       input.logger,
     );
     return;
+  }
+
+  // V3.5.3 / v6 §5: account-age guard. Reject submissions from accounts
+  // whose first interaction with the bot was <24h ago. Fail-closed on
+  // a missing users_first_seen row (checkAccountAge returns
+  // allowed:false for null), so a brand-new throwaway can't slip
+  // through during the gap between observe and record.
+  const reviewerTelegramId = input.from?.id;
+  if (typeof reviewerTelegramId === "number") {
+    const firstSeen = await getUserFirstSeen(reviewerTelegramId);
+    const ageCheck = checkAccountAge(firstSeen);
+    if (!ageCheck.allowed) {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildAccountTooNewText(ageCheck.hoursRemaining),
+        },
+        input.logger,
+      );
+      return;
+    }
   }
 
   await withReviewerDraftLock(input.from.id, async () => {
@@ -1234,6 +1271,21 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
         );
         return;
       }
+      // V3.5.2: relay-enabled — admin note recorded; advance to prose
+      // collection before preview. Otherwise V3 path goes straight to
+      // preview as before.
+      if (isRelayEnabled()) {
+        await updateDraftByReviewerTelegramId(message.from.id, {
+          step: "awaiting_prose",
+          privateNote: validation.value,
+        });
+        await sendTelegramMessage(
+          { chatId, text: buildVouchProsePromptText() },
+          logger,
+        );
+        return;
+      }
+
       await updateDraftByReviewerTelegramId(message.from.id, {
         step: "preview",
         privateNote: validation.value,
@@ -1248,6 +1300,49 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
             result: latestResult,
             tags: latestSelectedTags,
             privateNote: validation.value,
+          }),
+          replyMarkup: buildPreviewKeyboard(),
+        },
+        logger,
+      );
+      return;
+    }
+
+    // V3.5.2: handle the new awaiting_prose step. Plain text only,
+    // <=800 chars, no formatting entities. On valid input, store body
+    // text on the draft, transition to preview, render via V3.5 shape.
+    if (draft.step === "awaiting_prose") {
+      const classification = classifyVouchProseMessage(message);
+      if (classification.kind !== "text") {
+        await sendTelegramMessage(
+          { chatId, text: buildVouchProseRejectionText(classification.kind) },
+          logger,
+        );
+        return;
+      }
+      const validation = validateVouchProse(classification.text);
+      if (!validation.ok) {
+        await sendTelegramMessage(
+          { chatId, text: buildVouchProseRejectionText(validation.reason) },
+          logger,
+        );
+        return;
+      }
+      await updateDraftByReviewerTelegramId(message.from.id, {
+        step: "preview",
+        bodyText: validation.value,
+      });
+      // Pseudo-entry-id surfaces in the preview footer; the real id is
+      // assigned on confirm by the publish path. Use 0 as a
+      // placeholder — the wizard's preview is for the reviewer's
+      // approval, not for back-reference.
+      const escapedProse = escapeHtml(validation.value);
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildPreviewTextV35({
+            bodyTextEscaped: escapedProse,
+            entryId: 0,
           }),
           replyMarkup: buildPreviewKeyboard(),
         },
@@ -1719,6 +1814,26 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         return;
       }
 
+      // V3.5.2: when relay is enabled the wizard collects a free-form
+      // prose body before preview. POS/MIX skip admin_note (none on
+      // non-NEG) and go straight to awaiting_prose; otherwise, V3 path
+      // goes direct to preview as before.
+      if (isRelayEnabled()) {
+        await updateDraftByReviewerTelegramId(reviewerTelegramId, {
+          step: "awaiting_prose",
+        });
+        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+        await editTelegramMessage(
+          {
+            chatId,
+            messageId,
+            text: buildVouchProsePromptText(),
+          },
+          logger,
+        );
+        return;
+      }
+
       await updateDraftByReviewerTelegramId(reviewerTelegramId, { step: "preview" });
 
       await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
@@ -1761,6 +1876,24 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         );
         return;
       }
+      // V3.5.2: relay-enabled NEG path — collect prose before preview.
+      if (isRelayEnabled()) {
+        await updateDraftByReviewerTelegramId(reviewerTelegramId, {
+          step: "awaiting_prose",
+          privateNote: null,
+        });
+        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+        await editTelegramMessage(
+          {
+            chatId,
+            messageId,
+            text: buildVouchProsePromptText(),
+          },
+          logger,
+        );
+        return;
+      }
+
       await updateDraftByReviewerTelegramId(reviewerTelegramId, {
         step: "preview",
         privateNote: null,

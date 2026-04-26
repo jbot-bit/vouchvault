@@ -288,6 +288,7 @@ export async function updateDraftByReviewerTelegramId(
     selectedTags: EntryTag[];
     step: DraftStep;
     privateNote: string | null;
+    bodyText: string | null;
   }>,
 ) {
   const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
@@ -316,6 +317,8 @@ export async function updateDraftByReviewerTelegramId(
       step: updates.step ?? (draft.step as DraftStep),
       privateNote:
         updates.privateNote === undefined ? draft.privateNote : updates.privateNote,
+      bodyText:
+        updates.bodyText === undefined ? draft.bodyText : updates.bodyText,
       updatedAt: new Date(),
     })
     .where(eq(vouchDrafts.id, draft.id))
