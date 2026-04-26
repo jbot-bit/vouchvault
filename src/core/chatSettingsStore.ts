@@ -61,3 +61,51 @@ export async function setChatMigrated(chatId: number, migratedToChatId: number):
       set: { status: "migrated_away", migratedToChatId, updatedAt: new Date() },
     });
 }
+
+/**
+ * Reset a previously-disabled chat back to 'active' (e.g. bot was re-added
+ * after a kick / chat-gone). Idempotent.
+ */
+export async function setChatActive(chatId: number): Promise<void> {
+  await db
+    .insert(chatSettings)
+    .values({ chatId, status: "active" })
+    .onConflictDoUpdate({
+      target: chatSettings.chatId,
+      set: { status: "active", updatedAt: new Date() },
+    });
+}
+
+/**
+ * Marks the chat as gone (Telegram returned `chat not found` from a send).
+ * Returns true iff the status flipped from a non-`gone` value to `gone` on
+ * this call. The caller uses that signal to page admins exactly once.
+ */
+export async function setChatGone(chatId: number): Promise<{ newlyGone: boolean }> {
+  const existing = await db
+    .select({ status: chatSettings.status })
+    .from(chatSettings)
+    .where(eq(chatSettings.chatId, chatId));
+
+  const wasGone = existing[0]?.status === "gone";
+
+  await db
+    .insert(chatSettings)
+    .values({ chatId, status: "gone" })
+    .onConflictDoUpdate({
+      target: chatSettings.chatId,
+      set: { status: "gone", updatedAt: new Date() },
+    });
+
+  return { newlyGone: !wasGone };
+}
+
+const DISABLED_STATUSES = new Set(["kicked", "gone", "migrated_away"]);
+
+export async function isChatDisabled(chatId: number): Promise<boolean> {
+  const rows = await db
+    .select({ status: chatSettings.status })
+    .from(chatSettings)
+    .where(eq(chatSettings.chatId, chatId));
+  return DISABLED_STATUSES.has(rows[0]?.status ?? "");
+}

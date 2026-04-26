@@ -10,7 +10,12 @@ const TELEGRAM_API_URL = "https://api.telegram.org/bot";
 
 let cachedBotUsername: string | null = null;
 
-export async function callTelegramAPI(method: string, params: any, logger?: any) {
+export async function callTelegramAPI(
+  method: string,
+  params: any,
+  logger?: any,
+  chatId?: number,
+) {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) {
     throw new Error("TELEGRAM_BOT_TOKEN is required.");
@@ -30,15 +35,20 @@ export async function callTelegramAPI(method: string, params: any, logger?: any)
     const desc = String(data.description ?? "");
     const code = Number(data.error_code ?? 0);
     if (code === 429) {
-      throw new TelegramRateLimitError(code, desc, Number(data.parameters?.retry_after ?? 0));
+      throw new TelegramRateLimitError(
+        code,
+        desc,
+        Number(data.parameters?.retry_after ?? 0),
+        chatId,
+      );
     }
     if (code === 403 && /bot was blocked by the user|bot is not a member/i.test(desc)) {
-      throw new TelegramForbiddenError(code, desc);
+      throw new TelegramForbiddenError(code, desc, undefined, chatId);
     }
     if (code === 400 && /chat not found/i.test(desc)) {
-      throw new TelegramChatGoneError(code, desc);
+      throw new TelegramChatGoneError(code, desc, undefined, chatId);
     }
-    throw new TelegramApiError(code, desc);
+    throw new TelegramApiError(code, desc, undefined, chatId);
   }
 
   return data.result;
@@ -82,7 +92,7 @@ export async function sendTelegramMessage(
   logger?: any,
 ) {
   return withTelegramRetry(() =>
-    callTelegramAPI("sendMessage", buildTelegramSendMessageParams(input), logger),
+    callTelegramAPI("sendMessage", buildTelegramSendMessageParams(input), logger, input.chatId),
   );
 }
 
@@ -107,6 +117,7 @@ export async function editTelegramMessage(
         reply_markup: input.replyMarkup,
       },
       logger,
+      input.chatId,
     ),
   );
 }
@@ -126,6 +137,7 @@ export async function deleteTelegramMessage(
         message_id: input.messageId,
       },
       logger,
+      input.chatId,
     ),
   );
 }

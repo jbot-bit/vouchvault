@@ -242,7 +242,7 @@ export function buildWelcomeText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Log and verify local-business service experiences with the community.",
+    "Log and review local-business service experiences with the community.",
     "",
     "<b><u>How to vouch</u></b>",
     "1. Tap <b>Submit Vouch</b> in the group.",
@@ -380,7 +380,7 @@ export function buildPinnedGuideText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Log and verify local-business service experiences with the community.",
+    "Log and review local-business service experiences with the community.",
     "",
     "<b><u>How to vouch</u></b>",
     "1. Tap <b>Submit Vouch</b> below.",
@@ -406,7 +406,7 @@ export function buildPublishedDraftText(targetUsername: string, result: EntryRes
 
 export function buildBotDescriptionText(): string {
   return [
-    "Log and verify local-business service experiences with the community.",
+    "Log and review local-business service experiences with the community.",
     "",
     "How it works: Tap Submit Vouch in the group, DM the bot one @username, choose result + tags, I post a clean entry back to the group.",
     "",
@@ -415,7 +415,7 @@ export function buildBotDescriptionText(): string {
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch Hub — log and verify local-business service experiences. Open from the group launcher.";
+  return "Vouch Hub — log and review local-business service experiences. Open from the group launcher.";
 }
 
 export function buildAdminOnlyText(): string {

@@ -18,32 +18,27 @@ type CliOptions = {
   botUsername: string | null;
 };
 
+// Minimal user-facing menu, per takedown-resilience spec §3.5.
+// Admin commands (/freeze, /unfreeze, /frozen_list, /remove_entry,
+// /recover_entry, /profile, /lookup, /pause, /unpause, /admin_help) keep
+// working when typed; they are intentionally kept off the BotFather slash
+// popup so the bot's visible command surface stays small. Admins can run
+// /admin_help in DM for the full reference.
 const DEFAULT_COMMANDS: BotCommand[] = [
   { command: "help", description: "How the Vouch Hub works" },
-  { command: "recent", description: "Show recent entries" },
 ];
 
 const PRIVATE_COMMANDS: BotCommand[] = [
-  { command: "vouch", description: "Start a new vouch" },
+  { command: "start", description: "Welcome / open the vouch flow" },
   { command: "cancel", description: "Cancel your in-progress draft" },
-  { command: "profile", description: "Show entry totals for an @username" },
-  { command: "lookup", description: "Look up entries for an @username" },
-  ...DEFAULT_COMMANDS,
+  { command: "help", description: "How the Vouch Hub works" },
 ];
 
-const ADMIN_COMMANDS: BotCommand[] = [
-  ...DEFAULT_COMMANDS,
-  { command: "profile", description: "Show entry totals for an @username" },
-  { command: "lookup", description: "Look up entries for an @username" },
-  { command: "freeze", description: "Freeze @username [reason]" },
-  { command: "unfreeze", description: "Unfreeze @username" },
-  { command: "frozen_list", description: "List frozen profiles" },
-  { command: "remove_entry", description: "Remove an entry by id" },
-  { command: "recover_entry", description: "Clear stuck publishing for an entry id" },
-  { command: "pause", description: "Pause new vouch submissions" },
-  { command: "unpause", description: "Resume vouch submissions" },
-  { command: "admin_help", description: "Admin command reference" },
+const GROUP_COMMANDS: BotCommand[] = [
+  { command: "help", description: "How the Vouch Hub works" },
 ];
+
+const ADMIN_COMMANDS: BotCommand[] = [];
 
 function printUsage() {
   console.info(
@@ -203,7 +198,7 @@ async function main() {
           commands: {
             default: DEFAULT_COMMANDS,
             private: PRIVATE_COMMANDS,
-            groups: DEFAULT_COMMANDS,
+            groups: GROUP_COMMANDS,
             admins: ADMIN_COMMANDS,
           },
           pinnedGuideText: buildPinnedGuideText(),
@@ -228,7 +223,7 @@ async function main() {
 
   await setCommands(null, DEFAULT_COMMANDS);
   await setCommands({ type: "all_private_chats" }, PRIVATE_COMMANDS);
-  await setCommands({ type: "all_group_chats" }, DEFAULT_COMMANDS);
+  await setCommands({ type: "all_group_chats" }, GROUP_COMMANDS);
   await setCommands({ type: "all_chat_administrators" }, ADMIN_COMMANDS);
 
   let guideMessageId: number | null = null;

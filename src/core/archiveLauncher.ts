@@ -1,5 +1,5 @@
 import { buildLauncherText } from "./archive.ts";
-import { isChatKicked } from "./chatSettingsStore.ts";
+import { isChatDisabled } from "./chatSettingsStore.ts";
 import { isLauncherDebounceActive } from "./launcherPolicy.ts";
 import { getLauncherByChatId, saveLauncherMessage, withChatLauncherLock } from "./archiveStore.ts";
 import {
@@ -70,8 +70,8 @@ export async function sendLauncherPrompt(
 
 export async function refreshGroupLauncher(chatId: number, logger?: any) {
   await withChatLauncherLock(chatId, async () => {
-    if (await isChatKicked(chatId)) {
-      logger?.info?.("[Archive] Skipping launcher refresh for kicked chat", { chatId });
+    if (await isChatDisabled(chatId)) {
+      logger?.info?.("[Archive] Skipping launcher refresh for disabled chat", { chatId });
       return;
     }
 

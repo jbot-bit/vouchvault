@@ -79,11 +79,21 @@ import {
 } from "./core/tools/telegramTools.ts";
 import {
   isChatPaused,
+  setChatActive,
+  setChatGone,
   setChatKicked,
   setChatMigrated,
   setChatPaused,
 } from "./core/chatSettingsStore.ts";
 import { recordAdminAction } from "./core/adminAuditStore.ts";
+import { handleChatGone } from "./core/chatGoneHandler.ts";
+import {
+  buildVelocityAlertText,
+  classifyChatMemberTransition,
+  createMemberVelocityState,
+  recordMemberEvent,
+} from "./core/memberVelocity.ts";
+import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
@@ -91,6 +101,10 @@ type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
 const SERVICE_ENTRY_TYPE = "service";
 const allowedTelegramChatIds = getAllowedTelegramChatIdSet();
+
+// Per takedown spec §3.4. In-memory; resets on deploy. The alert is a
+// heuristic; a fresh window after redeploy is acceptable.
+const velocityState = createMemberVelocityState();
 
 function buildEntryDeepLink(chatId: number, messageId: number): string {
   // Telegram URL format: https://t.me/c/<chatPart>/<messageId>
@@ -1234,6 +1248,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
 
 async function handleMyChatMember(update: any, logger?: LoggerLike) {
   const chatId = update?.chat?.id;
+  const oldStatus = update?.old_chat_member?.status;
   const newStatus = update?.new_chat_member?.status;
   if (typeof chatId !== "number" || typeof newStatus !== "string") {
     return;
@@ -1242,7 +1257,63 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
   if (shouldMarkChatKicked(newStatus)) {
     await setChatKicked(chatId);
     logger?.info?.("[Group] Bot lost access", { chatId, newStatus });
+    return;
   }
+
+  // Bot re-added after kicked / gone / migrated_away → flip back to active.
+  if (
+    (newStatus === "member" || newStatus === "administrator") &&
+    (oldStatus === "left" || oldStatus === "kicked")
+  ) {
+    await setChatActive(chatId);
+    logger?.info?.("[Group] Bot re-added; reset chat status to 'active'", {
+      chatId,
+      oldStatus,
+      newStatus,
+    });
+  }
+}
+
+async function handleChatMember(update: any, logger?: LoggerLike) {
+  const chatId = update?.chat?.id;
+  const oldStatus = update?.old_chat_member?.status;
+  const newStatus = update?.new_chat_member?.status;
+  if (typeof chatId !== "number") {
+    return;
+  }
+
+  const transition = classifyChatMemberTransition(oldStatus, newStatus);
+  if (transition === "ignore") {
+    return;
+  }
+
+  const alert = recordMemberEvent(velocityState, {
+    chatId,
+    kind: transition,
+    nowMs: Date.now(),
+  });
+  if (!alert) {
+    return;
+  }
+
+  const text = buildVelocityAlertText(alert);
+  const adminIds = [...getAdminIds()];
+  for (const adminId of adminIds) {
+    try {
+      await sendTelegramMessage({ chatId: adminId, text, parseMode: "HTML" }, logger);
+    } catch (error) {
+      logger?.warn?.("Failed to DM admin about member-velocity alert", {
+        adminId,
+        chatId,
+        error,
+      });
+    }
+  }
+  logger?.info?.("[Group] Member-velocity alert fired", {
+    chatId,
+    kind: alert.kind,
+    count: alert.count,
+  });
 }
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
@@ -1700,6 +1771,8 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
       await handleCallbackQuery(payload.callback_query, logger);
     } else if (payload.my_chat_member) {
       await handleMyChatMember(payload.my_chat_member, logger);
+    } else if (payload.chat_member) {
+      await handleChatMember(payload.chat_member, logger);
     } else if (payload.message?.chat?.type === "private") {
       await handlePrivateMessage(payload.message, logger);
     } else if (payload.message) {
@@ -1713,9 +1786,42 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     }
 
     return {
-      handled: Boolean(payload.callback_query || payload.message || payload.my_chat_member),
+      handled: Boolean(
+        payload.callback_query ||
+          payload.message ||
+          payload.my_chat_member ||
+          payload.chat_member,
+      ),
     };
   } catch (error) {
+    if (error instanceof TelegramChatGoneError) {
+      await handleChatGone({
+        chatId: error.chatId,
+        adminTelegramIds: [...getAdminIds()],
+        logger,
+        deps: {
+          setChatGone,
+          sendDM: (input) =>
+            sendTelegramMessage(
+              { chatId: input.chatId, text: input.text, parseMode: "HTML" },
+              logger,
+            ),
+          recordAudit: (entry) =>
+            recordAdminAction({
+              adminTelegramId: 0,
+              adminUsername: null,
+              command: entry.command,
+              targetChatId: entry.targetChatId,
+              denied: entry.denied,
+            }),
+        },
+      });
+      if (updateId != null) {
+        await completeTelegramUpdate(updateId);
+      }
+      return { handled: true, chatGone: true };
+    }
+
     if (updateId != null) {
       await releaseTelegramUpdate(updateId);
     }
