@@ -39,6 +39,18 @@ const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "vouch_shorthand",    re: /[+\-]vouch\b/i },
 ];
 
+// Compound rule: variant B (KB:F2.18). A solicitation is when a buy/chasing
+// stem appears in proximity to a drug-name AND a contact-CTA appears in the
+// same message. Both must match to fire — that's the calibration that gives
+// us 0 marginal FPs in TBC26 (KB:F2.19) and ~165 catches in QLD Chasing.
+//
+// Drug-name list: edit as new slang surfaces. Re-run
+// `npm run measure:lexicon-fp` after every edit to confirm the FP gate
+// still passes.
+const BUY_STEM = /\b(?:anyone|who(?:'s|s)?|chasing|looking for|need|wtb|after some)\b[^@\n]{0,50}\b(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|oz|qp|hp|gram|d9|dispo)\b/i;
+
+const SOLICIT_CONTACT_CTA = /\b(?:pm|dm|hmu|hit me|inbox|message me)\b/i;
+
 const LEET_MAP: Record<string, string> = {
   "0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
   "7": "t", "8": "b", "@": "a", "$": "s",
@@ -79,6 +91,10 @@ export function findHits(text: string): HitResult {
     if (re.test(text)) {
       return { matched: true, source: `regex_${name}` };
     }
+  }
+  // Compound pass: BUY_STEM + SOLICIT_CONTACT_CTA both present (KB:F2.18).
+  if (BUY_STEM.test(text) && SOLICIT_CONTACT_CTA.test(text)) {
+    return { matched: true, source: "compound_buy_solicit" };
   }
   return { matched: false };
 }
