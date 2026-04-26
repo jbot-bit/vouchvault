@@ -236,17 +236,31 @@ Permanent bans on the bot itself (`getMe` returns 401) are usually unrecoverable
 
 The v6 architecture (`docs/superpowers/specs/2026-04-26-vouchvault-impenetrable-architecture-v6.md`) is matched to TBC26's surviving practices, **not** their experimental ones. Three takedown events between 2025 and 2026 taught TBC26 that bot/supergroup/admin-account redundancy and channel-as-archive recovery beat any single hardening trick. We rebuild a cleaner version of the same shape.
 
-### 10.1 Operator bot stack (5 bots total)
+### 10.1 Operator bot stack (3 bots total — v6 simplification 2026-04-27)
 
 | Bot | Role | Privacy mode | Token env var |
 |---|---|---|---|
-| **Ingest** (`@VouchVault_bot`) | DM wizard → DB write → channel publish | **OFF** (needs to see auto-forwarded messages in supergroup for relay capture) | `TELEGRAM_BOT_TOKEN` (alias `TELEGRAM_INGEST_TOKEN`) |
-| **Lookup** (new custom) | In-supergroup `/search`, `/recent`. Read-only DB. | ON (commands + mentions only) | `TELEGRAM_LOOKUP_TOKEN` |
-| **Admin** (new custom) | `/freeze`, `/unfreeze`, `/audit`, `/relayhealth`; chat-moderation runs here | **OFF** (correction to v6 §3.1 — needs full chat visibility to moderate) | `TELEGRAM_ADMIN_TOKEN` |
+| **Ingest** (`@VouchVault_bot`) | DM wizard → DB write → channel publish; admin commands + chat-moderation in supergroup | **OFF** (needs to see auto-forwarded messages in supergroup for relay capture; needs full chat visibility for moderation) | `TELEGRAM_BOT_TOKEN` |
 | **Captcha** (`@GroupHelpBot` or `@shieldy_bot`) | Username-required + captcha at join | n/a (off-the-shelf) | n/a |
 | **User-history** (`@SangMata_beta_bot`) | Members query `@SangMata_beta_bot allhistory <user_id>` | n/a (off-the-shelf) | n/a |
 
-Smaller than TBC26's 21-bot stack. Add more only when a specific gap surfaces.
+**v6 originally specced 5 bots** (separate Lookup + Admin in addition
+to Ingest). Both dropped 2026-04-27 per user direction:
+
+- Once the channel-relay path is on and every published vouch lands in
+  the supergroup via auto-forward, **Telegram's native in-group search
+  handles discovery**. No custom lookup bot needed. Existing /search
+  and /recent commands stay in the ingest bot for the V3 archive
+  surface and become fully redundant after running
+  `npm run replay:to-telegram` to backfill legacy.
+- A separate admin bot is plumbing (token rotation, BotFather setup,
+  separate webhook) for marginal failure-domain isolation. At our
+  scale a single ingest bot is the right shape. If a specific failure
+  mode justifies a split later, provision then with a fresh spec.
+
+Smaller than TBC26's 21-bot stack. Add more only when a specific gap
+surfaces. The schema's `bot_kind` column on `processed_telegram_updates`
+is future-proofed for the multi-bot case if/when it returns.
 
 ### 10.2 Distribution
 
@@ -265,7 +279,7 @@ Smaller than TBC26's 21-bot stack. Add more only when a specific gap surfaces.
 
 - Bot tokens created from a Telegram user account active for ≥6 months. Fresh accounts creating bots = fast classifier-driven bans.
 - New bots warmed in a low-traffic test group for 1–2 weeks before production rollout.
-- Privacy mode for ingest + admin bots DISABLED in @BotFather (per §10.1).
+- Privacy mode for the ingest bot DISABLED in @BotFather (per §10.1).
 - At least one alt admin account in case main is compromised.
 
 ---
@@ -282,27 +296,25 @@ The architecture target (v6 §2, §4) is a **forum-mode supergroup linked to a c
                           │ channel-discussion link (auto-forward)
                           ▼
                  VouchVault (forum-mode supergroup)
-                 Topics: Vouches | Chat | Lookups | Banned Logs
+                 Topics: Vouches | Chat | Banned Logs
 ```
 
 ### 11.2 One-time setup checklist
 
 - [ ] Create the **VouchVault Archive** channel (broadcast type, private, manual subscribe).
 - [ ] Convert the existing supergroup to **forum mode** (Group Settings → Topics).
-- [ ] Create the four topics in this order: **Vouches** (renamed from default General), **Chat**, **Lookups**, **Banned Logs**. The topic auto-forwarded posts land in is the General topic — keep that as Vouches.
-- [ ] In the channel: Settings → Discussion → link the supergroup. Telegram now auto-forwards channel posts into the supergroup's General topic with `is_automatic_forward: true`.
-- [ ] Add the **ingest bot** to the channel as admin with `post_messages` only. Add it to the supergroup as a regular member (read-only — needed for relay capture in v6 §4.1).
-- [ ] Add the **lookup bot** to the supergroup as a regular member, send + read.
-- [ ] Add the **admin bot** to the supergroup as admin with `can_delete_messages` + `can_restrict_members`.
-- [ ] Set env vars in Railway: `TELEGRAM_CHANNEL_ID`, `TELEGRAM_LOOKUP_TOKEN`, `TELEGRAM_ADMIN_TOKEN`, `TELEGRAM_ADMIN_USER_IDS`. Set `VV_RELAY_ENABLED=true` only after verifying the channel-discussion link works manually (post a test message in the channel and confirm it auto-forwards into the General topic).
-- [ ] Run `npm run telegram:webhook` to refresh `allowed_updates` for each bot.
+- [ ] Create the three topics in this order: **Vouches** (renamed from default General), **Chat**, **Banned Logs**. The topic auto-forwarded posts land in is the General topic — keep that as Vouches. (v6 originally specced 4 topics including Lookups; dropped 2026-04-27 since Telegram's native search makes a lookup-results topic redundant.)
+- [ ] In the channel: Settings → Discussion → link the supergroup. Telegram now auto-forwards channel posts into the supergroup's General topic with `is_automatic_forward: true` and `forward_origin.type: "channel"` (Bot API 7.0+).
+- [ ] Add the **ingest bot** to the channel as admin with `post_messages` only. Add it to the supergroup as admin with `can_delete_messages` (for moderation) + read access for relay capture.
+- [ ] Set env vars in Railway: `TELEGRAM_CHANNEL_ID`, optional `TELEGRAM_ADMIN_BOT_USERNAME` (used in moderation DM warning fallback). Set `VV_RELAY_ENABLED=true` only after verifying the channel-discussion link works manually (post a test message in the channel and confirm it auto-forwards into the General topic).
+- [ ] Run `npm run telegram:webhook` to refresh `allowed_updates`.
 
 ### 11.3 Recovery — supergroup gone, channel survives
 
 This is the canonical recovery procedure for a takedown event (replaces §4 above when the channel-pair is in place).
 
 1. **Confirm the takedown.** Channel still reachable in Telegram, supergroup is gone or `chat not found`.
-2. **Create a new private supergroup** with the §2 hardening settings + forum mode + four topics from §11.2.
+2. **Create a new private supergroup** with the §2 hardening settings + forum mode + the three topics from §11.2.
 3. **Link the new supergroup to the surviving channel** as discussion group. New posts to the channel will auto-forward into the new supergroup going forward.
 4. **Replay the channel archive into the new supergroup** via the mass-forward script (added in v6 commit 7):
 
@@ -329,19 +341,20 @@ This is slower than channel-survives recovery but bounded by your DB content, no
 
 ---
 
-## 12. 5-phase bot rollout (multi-bot transition)
+## 12. 2-phase rollout (channel-relay transition, single-bot)
 
-The transition from single-bot (existing) to 3-bot (v6) rolls out in phases. Each phase is independently safe and reversible.
+v6 originally specced a 5-phase multi-bot rollout (A→E). Now that the
+admin/lookup split is dropped, the transition simplifies to two phases.
+Each is independently safe and reversible via the env-var gate.
 
 | Phase | Action | Verification | Rollback |
 |---|---|---|---|
-| **A** | Current state — ingest bot is supergroup admin, handles everything (DM wizard + chat-moderation + admin commands). | `/healthz` returns ok; existing flow works. | n/a |
-| **B** | Provision lookup + admin tokens via @BotFather. Add both to the supergroup with the §10.1 permissions. Set `TELEGRAM_LOOKUP_TOKEN` + `TELEGRAM_ADMIN_TOKEN` in Railway. Deploy. | `/healthz` shows all three bots `configured: true`. `/readyz` returns 200 (per-bot getMe ok). Lookup bot responds to `/search` in supergroup; admin bot responds to `/freeze` in DM. | Unset the new env vars. Service redeploys; ingest dual-register fallbacks resume handling everything. |
-| **C** | Verify admin bot moderation. Send a known lexicon-hit message in the supergroup; admin bot should delete + DM warn. Inspect `admin_audit_log` for the row tagged with the admin bot's identity. | Audit row present, message gone, DM received. | If admin bot can't moderate, leave `TELEGRAM_ADMIN_TOKEN` unset — ingest moderates as today (env-var gated handoff per v6 §8.5). |
-| **D** | Demote ingest bot from supergroup admin to regular member (read-only). It only needs read access for relay capture, plus DM access (which is bot-account-global, not per-chat). | Wizard flow still works (uses DM, not supergroup admin rights). Relay capture still works. | Re-promote ingest to admin in Telegram UI. |
-| **E** | Set `VV_RELAY_ENABLED=true`. Ingest now publishes to channel; channel auto-forwards into supergroup; ingest captures the auto-forward and updates the DB row. | New vouch end-to-end: DB row goes to `status='published'` with both `channel_message_id` and `supergroup_message_id` set. `/healthz` shows `channel.stale_relay_rows: 0`. | Set `VV_RELAY_ENABLED=false`. Ingest reverts to direct supergroup publish. |
+| **A** | Current state — single ingest bot publishing direct to supergroup, V3 templated heading shape. | `/healthz` returns ok; existing flow works. | n/a |
+| **B** | Set `TELEGRAM_CHANNEL_ID`, `VV_RELAY_ENABLED=true` in Railway after the channel-pair is set up per §11.2. The ingest bot now publishes to the channel; Telegram auto-forwards into the supergroup; the bot's webhook captures the auto-forward and flips status='channel_published' → 'published' with both ids populated. The wizard inserts a free-form prose step before preview (V3.5 shape). | New vouch end-to-end: row at `status='published'` with both `channel_message_id` and `published_message_id` set. `/healthz` shows `channel.stale_relay_rows: 0`. Wizard preview shows V3.5 `<i>Preview</i>` heading + prose body + `#<id>` footer. | Set `VV_RELAY_ENABLED=false`. Bot reverts to V3 direct publish. Channel posts that already landed stay; in-flight rows at status='channel_published' are cleaned up by `runArchiveMaintenance` over time. |
 
-**Order matters.** B before C (need admin bot online to verify it can moderate). D before E (ingest must be member-only to capture the auto-forward without echoing). Skip phases as needed if reverting to single-bot temporarily.
+The previous multi-bot phases (B–E in the old runbook) are deferred —
+provision a separate admin bot only if a specific failure mode
+justifies the operational overhead.
 
 ---
 
