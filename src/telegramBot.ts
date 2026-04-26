@@ -1266,6 +1266,17 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
     (oldStatus === "left" || oldStatus === "kicked")
   ) {
     await setChatActive(chatId);
+    try {
+      await recordAdminAction({
+        adminTelegramId: 0,
+        adminUsername: null,
+        command: "system.chat_readded",
+        targetChatId: chatId,
+        denied: false,
+      });
+    } catch (err) {
+      logger?.warn?.("Failed to write chat-readded audit entry", { chatId, err });
+    }
     logger?.info?.("[Group] Bot re-added; reset chat status to 'active'", {
       chatId,
       oldStatus,
@@ -1772,7 +1783,17 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     } else if (payload.my_chat_member) {
       await handleMyChatMember(payload.my_chat_member, logger);
     } else if (payload.chat_member) {
-      await handleChatMember(payload.chat_member, logger);
+      const chatMemberChatId = payload.chat_member?.chat?.id;
+      if (
+        typeof chatMemberChatId === "number" &&
+        !allowedTelegramChatIds.has(chatMemberChatId)
+      ) {
+        logger.info("Ignoring chat_member update from chat outside allowlist", {
+          chatId: chatMemberChatId,
+        });
+      } else {
+        await handleChatMember(payload.chat_member, logger);
+      }
     } else if (payload.message?.chat?.type === "private") {
       await handlePrivateMessage(payload.message, logger);
     } else if (payload.message) {
@@ -1795,31 +1816,40 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     };
   } catch (error) {
     if (error instanceof TelegramChatGoneError) {
-      await handleChatGone({
-        chatId: error.chatId,
-        adminTelegramIds: [...getAdminIds()],
-        logger,
-        deps: {
-          setChatGone,
-          sendDM: (input) =>
-            sendTelegramMessage(
-              { chatId: input.chatId, text: input.text, parseMode: "HTML" },
-              logger,
-            ),
-          recordAudit: (entry) =>
-            recordAdminAction({
-              adminTelegramId: 0,
-              adminUsername: null,
-              command: entry.command,
-              targetChatId: entry.targetChatId,
-              denied: entry.denied,
-            }),
-        },
-      });
-      if (updateId != null) {
-        await completeTelegramUpdate(updateId);
+      try {
+        await handleChatGone({
+          chatId: error.chatId,
+          adminTelegramIds: [...getAdminIds()],
+          logger,
+          deps: {
+            setChatGone,
+            sendDM: (input) =>
+              sendTelegramMessage(
+                { chatId: input.chatId, text: input.text, parseMode: "HTML" },
+                logger,
+              ),
+            recordAudit: (entry) =>
+              recordAdminAction({
+                adminTelegramId: 0,
+                adminUsername: null,
+                command: entry.command,
+                targetChatId: entry.targetChatId,
+                denied: entry.denied,
+              }),
+          },
+        });
+        if (updateId != null) {
+          await completeTelegramUpdate(updateId);
+        }
+        return { handled: true, chatGone: true };
+      } catch (handlerError) {
+        logger.error("chat-gone handler failed; releasing update", {
+          err: handlerError,
+          chatId: error.chatId,
+        });
+        // Fall through to release + rethrow original chat-gone error so
+        // Telegram can retry the inbound update once the DB recovers.
       }
-      return { handled: true, chatGone: true };
     }
 
     if (updateId != null) {
