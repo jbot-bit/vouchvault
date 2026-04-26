@@ -125,11 +125,29 @@ export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, 
     throw error;
   }
 
+  let recorded;
   try {
-    await setArchiveEntryPublishedMessageId(entry.id, published.message_id);
+    recorded = await setArchiveEntryPublishedMessageId(entry.id, published.message_id);
   } catch (error) {
     throw new Error(
       `Telegram message ${published.message_id} was sent for archive entry #${entry.id}, but the database did not record it. Entry left in publishing state for manual recovery: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  if (recorded == null) {
+    // The entry's status was no longer 'publishing' when we tried to mark
+    // it 'published'. Typical cause: /remove_entry won a race against this
+    // publish flow. The Telegram message we just sent is now an orphan —
+    // log loudly so an operator can delete it manually (we don't auto-
+    // delete here because the entry row is already 'removed' and we'd be
+    // mutating state outside the publish flow's contract).
+    logger?.error?.(
+      {
+        entryId: entry.id,
+        chatId: entry.chatId,
+        orphanMessageId: published.message_id,
+      },
+      "Publish raced with removal; Telegram message is orphaned in the chat. Delete manually.",
     );
   }
 

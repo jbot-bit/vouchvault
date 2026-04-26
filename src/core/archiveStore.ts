@@ -369,6 +369,11 @@ export async function setArchiveEntryPublishedMessageId(
   entryId: number,
   publishedMessageId: number,
 ) {
+  // Guard on status='publishing' so we don't resurrect an entry that was
+  // marked 'removed' (via /remove_entry) while the Telegram send was in
+  // flight. Without this guard, the race window between
+  // markArchiveEntryPublishing and the Telegram callback returning could
+  // silently undo a concurrent /remove_entry.
   const rows = await db
     .update(vouchEntries)
     .set({
@@ -376,10 +381,14 @@ export async function setArchiveEntryPublishedMessageId(
       status: "published",
       updatedAt: new Date(),
     })
-    .where(eq(vouchEntries.id, entryId))
+    .where(and(eq(vouchEntries.id, entryId), eq(vouchEntries.status, "publishing")))
     .returning();
 
-  return rows[0]!;
+  // null means the row's status was no longer 'publishing' — typically
+  // because /remove_entry won the race. The caller logs and handles the
+  // orphan Telegram message (admin can re-delete; we don't track the new
+  // messageId here because the row is already 'removed').
+  return rows[0] ?? null;
 }
 
 export async function markArchiveEntryPublishing(entryId: number) {
