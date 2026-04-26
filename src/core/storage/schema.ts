@@ -45,6 +45,7 @@ export const vouchDrafts = pgTable("vouch_drafts", {
   result: text("result"),
   selectedTags: text("selected_tags").notNull().default("[]"),
   step: text("step").notNull().default("awaiting_target"),
+  privateNote: text("private_note"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -71,6 +72,7 @@ export const vouchEntries = pgTable(
     legacySourceTimestamp: timestamp("legacy_source_timestamp"),
     status: text("status").notNull().default("pending"),
     publishedMessageId: integer("published_message_id"),
+    privateNote: text("private_note"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

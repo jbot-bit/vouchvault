@@ -256,6 +256,7 @@ export async function updateDraftByReviewerTelegramId(
     result: EntryResult | null;
     selectedTags: EntryTag[];
     step: DraftStep;
+    privateNote: string | null;
   }>,
 ) {
   const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
@@ -282,6 +283,8 @@ export async function updateDraftByReviewerTelegramId(
           ? draft.selectedTags
           : serializeSelectedTags(updates.selectedTags),
       step: updates.step ?? (draft.step as DraftStep),
+      privateNote:
+        updates.privateNote === undefined ? draft.privateNote : updates.privateNote,
       updatedAt: new Date(),
     })
     .where(eq(vouchDrafts.id, draft.id))
@@ -338,7 +341,20 @@ export async function createArchiveEntry(input: {
   legacySourceChatId?: number | null;
   legacySourceTimestamp?: Date | null;
   createdAt?: Date;
+  privateNote?: string | null;
 }) {
+  // Defence-in-depth: a private_note is only valid on a NEG entry. The DM
+  // flow already gates the awaiting_admin_note step on result==='negative',
+  // but reject any caller (including legacy import / replay) that passes
+  // a note alongside a non-NEG result.
+  if (
+    input.result !== "negative" &&
+    input.privateNote != null &&
+    input.privateNote.length > 0
+  ) {
+    throw new Error("private_note is only valid on negative entries");
+  }
+
   const rows = await db
     .insert(vouchEntries)
     .values({
@@ -356,6 +372,7 @@ export async function createArchiveEntry(input: {
       legacySourceChatId: input.legacySourceChatId ?? null,
       legacySourceTimestamp: input.legacySourceTimestamp ?? null,
       status: "pending",
+      privateNote: input.privateNote ?? null,
       createdAt: input.createdAt ?? new Date(),
       updatedAt: new Date(),
     })
