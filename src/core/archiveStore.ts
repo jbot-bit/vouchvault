@@ -524,22 +524,27 @@ export async function saveLauncherMessage(chatId: number, messageId: number) {
  */
 async function withAdvisoryLock<T>(lockKey: number, fn: () => Promise<T>): Promise<T> {
   const client = await pool.connect();
+  let unlockFailed = false;
   try {
     await client.query("SELECT pg_advisory_lock($1)", [lockKey]);
     try {
       return await fn();
     } finally {
-      // Release on the same client. If the unlock query itself fails (e.g.
-      // statement_timeout), `client.release(true)` below will destroy the
-      // connection so PG releases all session-level locks on disconnect.
       try {
         await client.query("SELECT pg_advisory_unlock($1)", [lockKey]);
       } catch {
-        // Swallow — the outer client.release(true) will reap the connection.
+        // statement_timeout / conn drop / etc. — the lock is still held on
+        // this session. Mark the connection for destruction below so PG
+        // releases all session-level locks on disconnect; otherwise the
+        // pooled connection returns to the pool with the lock held and the
+        // next caller blocks for 20s on pg_advisory_lock then dies.
+        unlockFailed = true;
       }
     }
   } finally {
-    client.release();
+    // Pass true on unlock failure to destroy the connection (per node-postgres
+    // PoolClient.release contract). Otherwise return the connection cleanly.
+    client.release(unlockFailed);
   }
 }
 
