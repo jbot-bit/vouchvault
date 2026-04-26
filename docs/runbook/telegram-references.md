@@ -1,8 +1,13 @@
 # Telegram API & ToS — canonical references for VouchVault
 
-**Audience:** anyone touching `src/core/tools/telegramTools.ts`, `src/telegramBot.ts`, or `scripts/setTelegramWebhook.ts`. Before changing how the bot calls Telegram, verify against the URLs below. The Bot API evolves; field names get deprecated; what worked 2 years ago may be wrong now.
+**Audience:** anyone touching `src/core/tools/telegramTools.ts`, `src/telegramBot.ts`, or `scripts/setTelegramWebhook.ts`. Before changing how the bot calls Telegram, verify against the snapshots in `docs/runbook/telegram-snapshots/` and the URLs below. The Bot API evolves; field names get deprecated; what worked 2 years ago may be wrong now.
 
-This doc is **URLs + notes**, not snapshots. Snapshots go stale; URLs stay canonical.
+**Two layers of canonical source:**
+
+1. **Verbatim HTML snapshots** in `docs/runbook/telegram-snapshots/` — pulled directly via curl, untouched. Bytes-for-bytes Telegram. See `telegram-snapshots/README.md` for last-fetch date and refresh procedure.
+2. **URLs + notes** below — the live versions, plus VouchVault-specific gotchas we've hit and want to remember.
+
+If the snapshot and the live URL diverge, the live URL is current truth — refresh the snapshot.
 
 ---
 
