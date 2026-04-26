@@ -220,6 +220,11 @@ export function buildArchiveEntryText(input: {
     lines.push(`<b>Date:</b> ${fmtDate(input.legacySourceTimestamp)}`);
   }
 
+  // Tap-to-copy reference token. Lets a community member long-press the
+  // ID on iOS / tap on desktop to grab it for an admin DM, without having
+  // to forward the post (group has restrict-saving / protect_content on).
+  lines.push(`<code>#${input.entryId}</code>`);
+
   return lines.join("\n");
 }
 
