@@ -386,6 +386,7 @@ async function handleLookupCommand(input: {
           tags: parseSelectedTags(entry.selectedTags),
           createdAt: entry.createdAt,
           source: entry.source as EntrySource,
+          privateNote: entry.privateNote ?? null,
         })),
       }),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification),

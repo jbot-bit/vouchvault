@@ -461,8 +461,11 @@ export function buildLookupText(input: {
     tags: EntryTag[];
     createdAt: Date;
     source?: EntrySource;
+    privateNote?: string | null;
   }>;
 }): string {
+  // /lookup is admin-only. Renders the per-entry audit list including the
+  // private_note for NEG entries. Note text is HTML-escaped at the boundary.
   const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
   const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
 
@@ -476,6 +479,9 @@ export function buildLookupText(input: {
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
     lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
     lines.push(`<b>Tags:</b> ${fmtTags(entry.tags)}`);
+    if (entry.privateNote && entry.privateNote.length > 0) {
+      lines.push(`<i>Note:</i> ${escapeHtml(entry.privateNote)}`);
+    }
     lines.push("");
   }
 

@@ -348,6 +348,47 @@ test("buildProfileText shows Frozen status (enum label) when frozen, no recent b
   assert.doesNotMatch(text, /Last 5 entries/);
 });
 
+test("buildLookupText renders admin-only note when present, HTML-escaped", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    entries: [
+      {
+        id: 7,
+        reviewerUsername: "alice",
+        result: "negative",
+        tags: ["poor_comms"],
+        createdAt: new Date("2026-04-26T10:00:00.000Z"),
+        source: "live",
+        privateNote: "owes 3.1k <script>",
+      },
+    ],
+  });
+  assert.match(text, /<i>Note:<\/i> owes 3\.1k &lt;script&gt;/);
+  assert.equal(text.includes("<script>"), false);
+});
+
+test("buildLookupText omits the note line when private_note is null", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    entries: [
+      {
+        id: 7,
+        reviewerUsername: "alice",
+        result: "positive",
+        tags: ["good_comms"],
+        createdAt: new Date("2026-04-26T10:00:00.000Z"),
+        source: "live",
+        privateNote: null,
+      },
+    ],
+  });
+  assert.equal(text.includes("<i>Note:</i>"), false);
+});
+
 test("buildLookupText shows Active status under heading when not frozen", () => {
   const text = buildLookupText({
     targetUsername: "bobbiz",
