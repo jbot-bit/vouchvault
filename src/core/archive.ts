@@ -47,6 +47,7 @@ export const DRAFT_STEPS = [
   "awaiting_target",
   "selecting_result",
   "selecting_tags",
+  "awaiting_admin_note",
   "preview",
   "idle",
 ] as const;

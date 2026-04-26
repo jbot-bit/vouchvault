@@ -23,6 +23,7 @@ const KNOWN_CALLBACKS = [
   "archive:done",
   "archive:cancel",
   "archive:confirm",
+  "archive:skip_admin_note",
 ];
 
 test("every callback data string is <= 64 bytes", () => {

@@ -23,7 +23,9 @@ import {
   isEntryResult,
   isFreezeReason,
   isReservedTarget,
+  MAX_PRIVATE_NOTE_CHARS,
   normalizeUsername,
+  validatePrivateNote,
   parseSelectedTags,
   RESULT_LABELS,
   TAG_LABELS,
@@ -226,6 +228,23 @@ function buildPreviewKeyboard() {
     [{ text: "Publish", callback_data: "archive:confirm" }],
     [{ text: "Cancel", callback_data: "archive:cancel" }],
   ]);
+}
+
+function buildAdminNoteKeyboard() {
+  return buildInlineKeyboard([
+    [{ text: "Skip", callback_data: "archive:skip_admin_note" }],
+    [{ text: "Cancel", callback_data: "archive:cancel" }],
+  ]);
+}
+
+function buildAdminNotePromptText(): string {
+  return [
+    "<b>Optional: add a short note for admins</b>",
+    "",
+    `Up to ${MAX_PRIVATE_NOTE_CHARS} characters. Send the note text here, or tap <b>Skip</b>.`,
+    "",
+    "<i>This note is visible to admins only. It is never published to the group.</i>",
+  ].join("\n");
 }
 
 function buildReplyOptions(replyToMessageId?: number | null, disableNotification = false) {
@@ -1167,6 +1186,52 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
 
+    if (draft.step === "awaiting_admin_note") {
+      const validation = validatePrivateNote(text);
+      if (!validation.ok) {
+        const reason =
+          validation.reason === "too_long"
+            ? `Note too long. Keep it under ${MAX_PRIVATE_NOTE_CHARS} characters.`
+            : validation.reason === "control_chars"
+              ? "Note contains characters that aren't allowed."
+              : "Note is empty. Send the note text or tap Skip.";
+        await sendTelegramMessage(
+          { chatId, text: reason, replyMarkup: buildAdminNoteKeyboard() },
+          logger,
+        );
+        return;
+      }
+      const latestTargetUsername = draft.targetUsername;
+      const latestResult = isEntryResult(draft.result) ? draft.result : null;
+      const latestSelectedTags = parseSelectedTags(draft.selectedTags);
+      if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
+        await sendTelegramMessage(
+          { chatId, text: "Draft is incomplete. Use /vouch to restart." },
+          logger,
+        );
+        return;
+      }
+      await updateDraftByReviewerTelegramId(message.from.id, {
+        step: "preview",
+        privateNote: validation.value,
+      });
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildPreviewText({
+            reviewerUsername:
+              draft.reviewerUsername || message.from?.username || "",
+            targetUsername: latestTargetUsername,
+            result: latestResult,
+            tags: latestSelectedTags,
+          }),
+          replyMarkup: buildPreviewKeyboard(),
+        },
+        logger,
+      );
+      return;
+    }
+
     await sendTelegramMessage(
       {
         chatId,
@@ -1595,8 +1660,71 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         return;
       }
 
+      // NEG drafts get an extra step: an optional admin-only note before
+      // preview. POS/MIX skip straight to preview as today.
+      if (latestResult === "negative") {
+        await updateDraftByReviewerTelegramId(reviewerTelegramId, {
+          step: "awaiting_admin_note",
+          privateNote: null,
+        });
+
+        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+        await editTelegramMessage(
+          {
+            chatId,
+            messageId,
+            text: buildAdminNotePromptText(),
+            replyMarkup: buildAdminNoteKeyboard(),
+          },
+          logger,
+        );
+        return;
+      }
+
       await updateDraftByReviewerTelegramId(reviewerTelegramId, { step: "preview" });
 
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+      await editTelegramMessage(
+        {
+          chatId,
+          messageId,
+          text: buildPreviewText({
+            reviewerUsername: draft.reviewerUsername || callbackQuery.from.username,
+            targetUsername: latestTargetUsername,
+            result: latestResult,
+            tags: latestSelectedTags,
+          }),
+          replyMarkup: buildPreviewKeyboard(),
+        },
+        logger,
+      );
+      return;
+    }
+
+    if (action === "skip_admin_note") {
+      const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
+      if (!latestDraft || latestDraft.step !== "awaiting_admin_note") {
+        await answerTelegramCallbackQuery(
+          { callbackQueryId: callbackQuery.id, chatId, text: "Not at the note step." },
+          logger,
+        );
+        return;
+      }
+      const latestTargetUsername = latestDraft.targetUsername ?? targetUsername;
+      const latestResult =
+        isEntryResult(latestDraft.result) ? latestDraft.result : result;
+      const latestSelectedTags = parseSelectedTags(latestDraft.selectedTags);
+      if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
+        await answerTelegramCallbackQuery(
+          { callbackQueryId: callbackQuery.id, chatId, text: "Draft is incomplete." },
+          logger,
+        );
+        return;
+      }
+      await updateDraftByReviewerTelegramId(reviewerTelegramId, {
+        step: "preview",
+        privateNote: null,
+      });
       await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
       await editTelegramMessage(
         {
@@ -1742,6 +1870,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         entryType: SERVICE_ENTRY_TYPE,
         result: latestResult,
         selectedTags: latestSelectedTags,
+        privateNote: latestResult === "negative" ? (latestDraft?.privateNote ?? null) : null,
       });
 
       await publishArchiveEntryRecord(createdEntry, logger);
@@ -1766,12 +1895,14 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         logger?.warn({ error, reviewerTelegramId }, "Failed to clear published draft");
       }
 
+      const isPrivateNeg = latestResult === "negative";
+
       try {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
           chatId,
-            text: "Posted.",
+            text: isPrivateNeg ? "Recorded." : "Posted.",
           },
           logger,
         );
@@ -1783,9 +1914,10 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       }
 
       const publishedEntry = await getArchiveEntryById(createdEntry.id);
-      const viewUrl = publishedEntry?.publishedMessageId
-        ? buildEntryDeepLink(latestTargetGroupChatId, publishedEntry.publishedMessageId)
-        : null;
+      const viewUrl =
+        !isPrivateNeg && publishedEntry?.publishedMessageId
+          ? buildEntryDeepLink(latestTargetGroupChatId, publishedEntry.publishedMessageId)
+          : null;
 
       const confirmKeyboard = viewUrl
         ? buildInlineKeyboard([
@@ -1794,12 +1926,21 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           ])
         : buildRestartKeyboard(latestTargetGroupChatId);
 
+      const confirmText = isPrivateNeg
+        ? [
+            "<b>✓ Concern recorded</b>",
+            "",
+            `Your concern about ${formatUsername(latestTargetUsername)} has been recorded as <code>#${createdEntry.id}</code>.`,
+            "Admins will see it; the wider group will not.",
+          ].join("\n")
+        : buildPublishedDraftText(latestTargetUsername, latestResult);
+
       try {
         await editTelegramMessage(
           {
             chatId,
             messageId,
-            text: buildPublishedDraftText(latestTargetUsername, latestResult),
+            text: confirmText,
             replyMarkup: confirmKeyboard,
           },
           logger,
