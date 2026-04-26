@@ -16,7 +16,7 @@ Not "we never get banned" — that's not achievable on Telegram in 2026. **Impen
 Concretely, the impenetrable VouchVault has all of these properties simultaneously:
 
 1. **Bot-banned doesn't kill us.** Multi-bot split + dual-register fallback. If the ingest bot dies, lookup still works; if lookup dies, /search-from-DM still works; if admin dies, we lose moderation but not publishing.
-2. **Supergroup-banned doesn't kill us.** Paired channel survives independently (KB:F2.3 — the END ROAD WORK pattern: channel survived after supergroup nuked). All publish history accessible from the channel; member-list is recoverable from the saved-contacts protocol.
+2. **Supergroup-banned doesn't kill us.** Paired channel survives independently (KB:F2.3 — the END ROAD WORK pattern: channel survived after supergroup nuked; KB:F2.21 — TBC26's *current* live channel-pair is `channel2609134181`, not ERW which is now dormant). All publish history accessible from the channel; member-list is recoverable from the saved-contacts protocol.
 3. **DB-loss doesn't kill us.** Daily backup; archive content also lives in the channel.
 4. **Admin-account compromise doesn't kill us.** Tight admin list (≤5), at least one alt admin account, nothing important sits with one person.
 5. **IP/Railway-banned doesn't kill us.** Bot tokens are portable; we can swap host providers. Documented in opsec.
@@ -174,7 +174,7 @@ DM "Posted to the group" confirmation to the reviewer with the channel-post URL
 ### §4.2 Why this shape
 
 - **Forwarded shape** (`is_automatic_forward: true`) is statistically less likely to trip Telegram's ML moderation than a fresh bot-send (KB:F2.5 reason 3).
-- **Channel-published archive survives** even if the supergroup dies (KB:F2.3 — the END ROAD WORK precedent).
+- **Channel-published archive survives** even if the supergroup dies (KB:F2.3 — the END ROAD WORK precedent; KB:F2.21 confirms TBC26 still operates this pattern via their own channel `channel2609134181`).
 - **Free-form prose body** matches TBC26's actually-published vouch shape (KB: §1.10 from v5 / §6 from member-behavior pass: positive vouches are loose-templated free-form, not byte-identical templates). Eliminates V3's templated-fingerprint takedown vector.
 - **`#<entry_id>` footer** is the only structured token in the published post. It's tap-to-copy, lets members reference specific entries, and ties group post back to DB row for future operations.
 - **Structured fields (target, tags, result) live only in DB** and surface only via `/search` and `/recent` lookups. The group-post surface stays human-prose.

@@ -242,7 +242,7 @@ The v6 architecture (`docs/superpowers/specs/2026-04-26-vouchvault-impenetrable-
 |---|---|---|---|
 | **Ingest** (`@VouchVault_bot`) | DM wizard → DB write → channel publish; admin commands + chat-moderation in supergroup | **OFF** (needs to see auto-forwarded messages in supergroup for relay capture; needs full chat visibility for moderation) | `TELEGRAM_BOT_TOKEN` |
 | **Captcha** (`@GroupHelpBot` or `@shieldy_bot`) | Username-required + captcha at join | n/a (off-the-shelf) | n/a |
-| **User-history** (`@SangMata_beta_bot`) | Members query `@SangMata_beta_bot allhistory <user_id>` | n/a (off-the-shelf) | n/a |
+| **User-history** (`@SangMata_beta_bot`) | Members query `@SangMata_beta_bot allhistory <user_id>` | n/a (off-the-shelf). Free tier has a **daily quota** that TBC26 hit during high-traffic days (KB:F2.27). If quota is exhausted, fall back to `@userinfo3bot` (BALFROCAK's own backup recommendation per KB:F2.27 msg 30587). | n/a |
 
 **v6 originally specced 5 bots** (separate Lookup + Admin in addition
 to Ingest). Both dropped 2026-04-27 per user direction:
@@ -405,6 +405,8 @@ Re-export TBC26 every ~3 months and re-run the analysis (KB §7 protocol). Pull 
 ## 14. Member-list export protocol
 
 KB:F5.1 — BALFROCAK direct quote: *"Member lists of a group hold more value and benefits than backup groups."* We adopt the same posture.
+
+**Honesty caveat (KB:F5.1 / cross-check 2026-04-27):** BALFROCAK states this principle but the export contains no direct evidence he actually exports + imports contacts systematically. We treat it as a stated best-practice and operationalize it as a script + monthly cadence — possibly more disciplined than TBC26 itself.
 
 ### 14.1 What the script does
 

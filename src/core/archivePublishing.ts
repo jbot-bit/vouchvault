@@ -159,13 +159,27 @@ export async function publishArchiveEntryRecord(
   // side id.
   const relay = resolveChannelRelay();
   if (relay.enabled && relay.channelId != null) {
-    const body =
-      typeof entry.bodyText === "string" && entry.bodyText.length > 0
-        ? buildChannelPostBody({
-            proseEscaped: escapeHtml(entry.bodyText),
-            entryId: entry.id,
-          })
-        : buildArchiveEntryPostText(entry);
+    // V3.5.2 prose path is the cross-checked-against-TBC26 shape
+    // (KB:F2.28 — TBC26 vouches are unstructured prose). The fallback
+    // to V3's templated heading is dead code on the steady-state
+    // wizard path (the wizard always sets bodyText when relay is on),
+    // and on the legacy-recovery path we use forwardMessages instead
+    // of a fresh sendMessage. Log loudly if this ever fires so an
+    // operator notices a mis-routed publish and can decide whether
+    // the V3 heading shape is acceptable for the specific case.
+    const useProse = typeof entry.bodyText === "string" && entry.bodyText.length > 0;
+    if (!useProse) {
+      logger?.warn?.(
+        { entryId: entry.id, channelId: relay.channelId },
+        "channel-publish: entry has no bodyText; falling back to V3 templated heading shape (KB:F2.28 contrast)",
+      );
+    }
+    const body = useProse
+      ? buildChannelPostBody({
+          proseEscaped: escapeHtml(entry.bodyText!),
+          entryId: entry.id,
+        })
+      : buildArchiveEntryPostText(entry);
 
     let channelPublished;
     try {

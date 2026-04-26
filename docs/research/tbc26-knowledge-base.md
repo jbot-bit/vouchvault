@@ -163,16 +163,17 @@ These are operator-level rules established across multiple sessions. Every chang
 
 ### F2.3 END ROAD WORK is an archive channel
 
-- **Status:** verified
+- **Status:** verified (with refinement — see F2.21)
 - **Confidence:** high
-- **Claim:** "END ROAD WORK" is a Telegram **channel** (broadcast type), id `channel2280269488`. It is the surviving archive of vouches and banned-logs from a previous (now-defunct) supergroup also called END ROAD WORK. Its content is referenced both by direct forwards and by URL deep-links (e.g. `https://t.me/c/2280269488/40` → rules; `https://t.me/c/2280269488/27/2648` → ban audit entry).
+- **Claim:** "END ROAD WORK" is a Telegram **channel** (broadcast type), id `channel2280269488`. It was the surviving archive of vouches and banned-logs from a previous (now-defunct) supergroup also called END ROAD WORK. Its content is referenced both by direct forwards and by URL deep-links (e.g. `https://t.me/c/2280269488/40` → rules; `https://t.me/c/2280269488/27/2648` → ban audit entry).
 - **Evidence:**
   - `forwarded_from_id: channel2280269488` appears 245 times in the export (5th most common forward source).
   - BALFROCAK msg 24089 (2026-03-17, post-mortem): "I'm sure most of you remember ADL ZONE and END ROAD WORK, We lost everything and I mean everything." Past tense — both groups are defunct.
   - URL deep-links into channel2280269488 are still active in the export, meaning the *channel* survived even though the *group* didn't.
 - **Inference (medium confidence):** channels survive better than supergroups under Telegram's ToS pipeline because they're broadcast-only, harder to mass-report, and have a smaller attack surface. BALFROCAK's pattern is to **archive into a channel** so that even if the supergroup dies, the historical content survives. This is a real architectural insight.
 - **First learned:** 2026-04-26
-- **Last verified:** 2026-04-26
+- **Last verified:** 2026-04-27 (cross-check pass)
+- **History:** 2026-04-27 — refined by F2.21 cross-check. **All 245 ERW forwards date from March 2025 only** (last one msg id 2297 at 2025-03-21T16:21:17). ERW is now dormant; the live channel-pair is `channel2609134181` (TBC26's own archive channel) — see F2.21. The mechanism (channel → supergroup auto-forward) ERW demonstrated remains the live architecture, just via a different channel.
 
 ### F2.4 Forward source breakdown
 
@@ -624,6 +625,107 @@ These are operator-level rules established across multiple sessions. Every chang
 - **Important caveat:** a single message can simultaneously be a forward AND have its sender deleted (`forwarded_from` set + `from: "Deleted Account"`). When counting forward-share, decide whether to include or exclude the deleted-account subset based on the question being asked.
 - **First learned:** 2026-04-26 (raised explicitly by user)
 - **Last verified:** 2026-04-26
+
+### F2.21 Live channel-discussion pair is `channel2609134181` (TBC26's own channel), not END ROAD WORK
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26's currently-live channel-pair architecture uses TBC26's own archive channel (id `channel2609134181`), not the predecessor ERW channel. 9,231 messages in the export have `from_id: "channel2609134181"` — i.e. they are channel posts auto-forwarded into the supergroup via the channel-discussion link.
+- **Evidence:** 9,231 occurrences of `from_id: "channel2609134181"`. Last ERW forward is msg id 2297 (2025-03-21); zero ERW forwards in 2026. The TBC26 channel id is the dominant publish source.
+- **Implication for VouchVault:** v6's prescription to operate a paired channel as the recovery asset is correct; we just shouldn't cite ERW as "the live model" — ERW is the historical precedent that died gracefully and left a surviving channel artefact. We're matching the **pattern** ERW established (channel survives even when supergroup dies, KB:F2.3) plus the **live operating mode** (TBC26's own channel auto-forwards) BALFROCAK runs today.
+- **First learned:** 2026-04-27
+- **Last verified:** 2026-04-27
+
+### F2.22 January 9 2026 bulk-forward survived without takedown
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26 bulk-forwarded 6,939 messages in 2.4 hours on 2026-01-09 (rebrand day from "ADL ZONE BACKUP 1" to "TBC 26"). 6,766 of these landed at the SAME timestamp (effectively zero-gap batch). TBC26 survived.
+- **Why this didn't trigger takedown** (the V3-vector contrast):
+  - Forwarded messages preserve their original `forwarded_from` author identity (hundreds of distinct users), not a single bot identity.
+  - The on-the-wire shape Telegram's classifier saw was heterogeneous senders, not the V3 spam-ring fingerprint of "one bot sending 2,234 templated messages".
+- **Implication for VouchVault:** the v6 §4.5 mass-forward replay capability via Bot API `forwardMessages` (preserving forward attribution) is the SAME mechanism BALFROCAK uses on rebrand day. Our 25 msgs/sec throttle is conservative — TBC effectively used unlimited rate and survived. Conservative is correct (defense in depth) but not strictly necessary for survival; the discriminator is forward-shape, not throttle.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.23 Topic structure has been edited (not just created) — operational signal
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26's topic structure has 3 `topic_edit` actions (rename operations). KB:F1.2 only counted `topic_created`; the topics are not static.
+- **Edits observed:**
+  - id 2320: "SHIT CUNTS" → "SCAMMERS AND SHITCUNTS" (clarifying scope)
+  - id 2321: rename to "VOUCHES" (which became the General/auto-forward topic)
+  - id 3: rename to "ADMIN LOGS" (the BANNED LOGS-equivalent topic)
+- **No `topic_closed` or `topic_reopened` actions exist** in the export. Once created, topics stay open.
+- **Implication for VouchVault:** topic names should be considered editable not locked. Our 3-topic plan (Vouches, Chat, Banned Logs) is fine; the operator can rename later without code changes.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.24 Manual approval is the join gate (vs invite link)
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26's join control is dominated by `join_group_by_request` + manual operator approval, not by invite-link distribution. Counts: 98 `join_group_by_request` actions, 40 `join_group_by_link`, 864 `invite_members`. The 864 invite_members are concentrated on the 2026-01-09 rebrand day (mass re-import). Recent (2026-03+) joins are nearly all `join_group_by_request` immediately followed by `invite_members` from BALFROCAK personally (e.g. msg 30578 follows request 30576).
+- **Implication for VouchVault:** v6 §7.1 (Request-to-Join + manual approval, single invite link) matches TBC26's actually-observed pattern. Don't issue more than one invite link.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.25 No slash-style admin commands; admin actions go through bot UI buttons
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26 admins use bot-UI buttons (Group Help inline keyboards, etc.) for admin operations, not slash commands. Only 5 slash commands appear in the entire 25,871-msg export: `/link` (3), `/admin` (3), `/reload` (1), `/config` (1), `/setstaffgroup` (1). All five are Group Help bot-configuration commands, not user-facing admin operations.
+- **Implication for VouchVault:** our `/freeze`, `/unfreeze`, `/remove_entry`, `/recover_entry`, `/frozen_list`, `/pause`, `/unpause`, `/admin_help` surface has no direct TBC26 analog. **This is intentional overbuild, not a gap** — slash commands are easier to audit than button taps and clearer for a small operator team. Keep them.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.26 Group Help blacklist import — bulk-ID ban list
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26 maintains a bulk numeric-user-ID blacklist via Group Help's `.blacklist` command (e.g. msg 30580 invokes `.blacklist`, msg 30581 confirms "✅ Blacklist imported", subsequent messages 30582–30585 list 500+ banned user IDs). The blacklist is cross-checked against join requests automatically by Group Help.
+- **Capability gap relative to VouchVault:** our `/freeze` is a runtime publish-block (target can't be vouched FOR after freeze), not a join-block. We have **no analog** to "this user_id is blacklisted, refuse all future joins." This is a real capability gap for brigade-defense, low urgency at our scale (single private community, manual approval queue), but worth tracking.
+- **Mitigation if we ever want this:** a `users_banned` table + a hook into `processTelegramUpdate` that drops `chat_member` events from blacklisted ids before they reach manual-approval. Out of scope for v6 set-and-forget.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.27 SangMata daily quota exhaustion (free tier)
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** SangMata's free-tier daily quota was exhausted at TBC26 msg id 6979 during the 2026-01-09 high-traffic day. TBC26 does not pay for SangMata Pro. BALFROCAK's recommended fallback (msg 30587) is `@userinfo3bot`.
+- **Implication for VouchVault:** v6 §3.1 specs SangMata as the user-history bot; the documentation should call out the daily quota and recommend the fallback bot. Operator-side configuration, not code change.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.28 Vouch shape sample — free-form prose with mandatory @mention
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** sampled 10 actual TBC26 vouch posts (msg ids 10, 13, 18, 19, 21, 22, 26, 7798, 7960, 8035). All are unstructured prose. 9 of 10 contain `@username` mentions. None have bold structured headings (no "POS Vouch >" prefix). None have a structured tags section. Length range ~20–300 chars.
+- **Implication for VouchVault:** our v6 §4.2 "free-form prose body, drop V3 templated heading on the published surface" is correctly modeled on TBC's actual practice. The 800-char cap (V3.5.2) is well above the observed length distribution; no risk of truncating typical vouches.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.29 Per-dispute ephemeral topics + community-vote unban
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26 creates ephemeral topics for individual disputes (topic id 16485, "@niga999990 V @e546385", 580 messages of arbitration). Separately, topic id 20933 ("LET ME BACK IN!!!!") hosts community-vote unban polls (e.g. msg 20935 posts a case + "Cast your vote ⬇️").
+- **Capability gap:** VouchVault has no analog. Disputes are admin-only via private note + admin review; unbans are admin-only via /unfreeze.
+- **Decision:** keep admin-only. Community-vote moderation is a different threat-model than ours and adds operator surface (vote tampering, brigading the vote). v6 §12 already excludes "appeal UI" matching BALFROCAK's tolerance. Document as deliberately not built.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
+
+### F2.30 SAPOL SETUPS topic — law enforcement awareness function
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26 dedicates topic id 9910 ("SAPOL SETUPS", 83 messages) to sharing law-enforcement activity (cop sightings, RBT locations, raid intel) with embedded map links via Group Help button keyboards.
+- **Implication for VouchVault:** OUT OF SCOPE. VouchVault is a reputation archive, not an OPSEC-broadcasting community. Don't build this. But note: this is a significant member-value feature TBC provides that we don't — relevant for any future "why join VouchVault over TBC" framing.
+- **First learned:** 2026-04-27 (cross-check pass)
+- **Last verified:** 2026-04-27
 
 ---
 
