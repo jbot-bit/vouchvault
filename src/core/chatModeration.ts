@@ -19,7 +19,7 @@ import {
   getChatMember,
   sendTelegramMessage,
 } from "./tools/telegramTools.ts";
-import { escapeHtml } from "./archive.ts";
+import { buildModerationWarnText } from "./archive.ts";
 import {
   findHits,
   MODERATION_COMMAND,
@@ -111,12 +111,13 @@ export async function runChatModeration(
 
   // Best-effort DM warning. Silent for users who never /start-ed
   // the bot (Telegram blocks bot-initiated DMs); the welcome / pinned
-  // guide instructs members to /start once. The vouch-shape branch
-  // gets a tailored message pointing at the proper flow.
-  const isVouchShape = hit.source.startsWith("regex_vouch_");
-  const dmText = isVouchShape
-    ? `Your message in <b>${escapeHtml(groupName)}</b> was removed. Vouches must go through the bot — tap <b>Submit Vouch</b> in the group to start the DM flow. Posting vouch-shaped text in chat is auto-removed.`
-    : `Your message in <b>${escapeHtml(groupName)}</b> was removed. Posts that look like buy/sell arrangements are auto-removed. If you believe this was in error, contact an admin.`;
+  // guide instructs members to /start once. Locked text comes from
+  // archive.buildModerationWarnText (V3.5 §8.4).
+  const dmText = buildModerationWarnText({
+    groupName,
+    hitSource: hit.source,
+    adminBotUsername: process.env.TELEGRAM_ADMIN_BOT_USERNAME?.trim() || null,
+  });
   await safeSendDm(fromId, dmText, logger);
 
   return { deleted: true };

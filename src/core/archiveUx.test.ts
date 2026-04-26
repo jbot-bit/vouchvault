@@ -2,16 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildAccountTooNewText,
+  buildAdminBotDescription,
+  buildAdminBotShortDescription,
   buildAdminHelpText,
   buildArchiveEntryText,
   buildBotDescriptionText,
   buildBotShortDescription,
   buildFrozenListText,
   buildGroupLauncherReplyText,
+  buildLookupBotDescription,
+  buildLookupBotShortDescription,
   buildLookupText,
+  buildModerationWarnText,
   buildPinnedGuideText,
   buildPreviewText,
+  buildPreviewTextV35,
   buildProfileText,
+  buildPublishedDraftTextWithUrl,
+  buildVouchProsePromptText,
   buildWelcomeText,
   fmtDate,
   fmtDateTime,
@@ -502,4 +511,142 @@ test("buildAdminHelpText lists every admin command", () => {
   ]) {
     assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
   }
+});
+
+// ---- V3.5 (impenetrable architecture v6) locked-text assertions ----
+//
+// Drift in any of these requires a V3.5 spec amendment first. Tests
+// assert byte-stable output so a stray edit shows up in diff review.
+
+test("buildVouchProsePromptText uses the locked V3.5 wording", () => {
+  const text = buildVouchProsePromptText();
+  assert.equal(
+    text,
+    [
+      "<b>Last step — write the vouch</b>",
+      "",
+      "Send a short message describing the vouch in your own words. Plain text only — no formatting, no links, no media.",
+      "",
+      "<b>Keep it under 800 characters.</b>",
+    ].join("\n"),
+  );
+});
+
+test("buildPreviewTextV35 renders prose + entry id (no V3 templated heading)", () => {
+  const text = buildPreviewTextV35({
+    bodyTextEscaped: "Solid bloke, smooth pickup.",
+    entryId: 42,
+  });
+  assert.equal(
+    text,
+    [
+      "<b><u>Preview</u></b>",
+      "",
+      "Solid bloke, smooth pickup.",
+      "",
+      "<code>#42</code>",
+    ].join("\n"),
+  );
+  // Defensively assert the V3 templated heading does NOT appear in the V3.5 shape.
+  assert.doesNotMatch(text, /POS Vouch|MIX Vouch|NEG Vouch/);
+});
+
+test("buildPublishedDraftTextWithUrl includes channel post link + entry id", () => {
+  const text = buildPublishedDraftTextWithUrl({
+    entryId: 99,
+    channelPostUrl: "https://t.me/c/3744691748/901",
+  });
+  assert.equal(
+    text,
+    [
+      "<b>✓ Posted to the group</b>",
+      "",
+      "<code>#99</code>",
+      "",
+      `<a href="https://t.me/c/3744691748/901">View in channel</a>`,
+    ].join("\n"),
+  );
+});
+
+test("buildLookupBotShortDescription is the locked V3.5 copy", () => {
+  assert.equal(
+    buildLookupBotShortDescription(),
+    "Search vouches by @username. Read-only lookup bot for the Vouch Hub community.",
+  );
+});
+
+test("buildLookupBotDescription is the locked V3.5 copy", () => {
+  const text = buildLookupBotDescription();
+  assert.match(text, /Read-only lookup for the Vouch Hub community\./);
+  assert.match(text, /\/search @username/);
+  assert.match(text, /\/recent/);
+  assert.match(text, /never post vouches/);
+});
+
+test("buildAdminBotShortDescription is the locked V3.5 copy", () => {
+  assert.equal(
+    buildAdminBotShortDescription(),
+    "Admin tooling for the Vouch Hub. Restricted access — operator commands only.",
+  );
+});
+
+test("buildAdminBotDescription is the locked V3.5 copy", () => {
+  const text = buildAdminBotDescription();
+  assert.match(text, /Operator-only admin bot/);
+  assert.match(text, /freeze\/unfreeze\/audit/);
+  assert.match(text, /chat-moderation/);
+});
+
+test("buildAccountTooNewText pluralises hours correctly", () => {
+  const one = buildAccountTooNewText(1);
+  assert.match(one, /<b>1 hour<\/b>/);
+  assert.doesNotMatch(one, /1 hours/);
+  const many = buildAccountTooNewText(23);
+  assert.match(many, /<b>23 hours<\/b>/);
+});
+
+test("buildAccountTooNewText uses locked headline", () => {
+  const text = buildAccountTooNewText(12);
+  assert.match(text, /^<b>Please come back later<\/b>/);
+  assert.match(text, /We wait for new accounts to establish/);
+});
+
+test("buildModerationWarnText: vouch-shape branch points at the in-group launcher", () => {
+  const text = buildModerationWarnText({
+    groupName: "VouchVault",
+    hitSource: "regex_vouch_for_username",
+    adminBotUsername: null,
+  });
+  assert.match(text, /<b>VouchVault<\/b> was removed/);
+  assert.match(text, /Vouches must go through the bot/);
+  assert.match(text, /<b>Submit Vouch<\/b>/);
+});
+
+test("buildModerationWarnText: buy/sell branch with admin-bot username points at the admin bot", () => {
+  const text = buildModerationWarnText({
+    groupName: "VouchVault",
+    hitSource: "compound_buy_solicit",
+    adminBotUsername: "VouchAdminBot",
+  });
+  assert.match(text, /look like buy\/sell/);
+  assert.match(text, /DM <code>@VouchAdminBot<\/code>/);
+});
+
+test("buildModerationWarnText: buy/sell branch without admin-bot username falls back to 'contact an admin'", () => {
+  const text = buildModerationWarnText({
+    groupName: "VouchVault",
+    hitSource: "phrase",
+    adminBotUsername: null,
+  });
+  assert.match(text, /contact an admin/);
+  assert.doesNotMatch(text, /DM <code>@/);
+});
+
+test("buildModerationWarnText: HTML-escapes the group name", () => {
+  const text = buildModerationWarnText({
+    groupName: "Vouch & Verify <test>",
+    hitSource: "phrase",
+    adminBotUsername: null,
+  });
+  assert.match(text, /Vouch &amp; Verify &lt;test&gt;/);
 });

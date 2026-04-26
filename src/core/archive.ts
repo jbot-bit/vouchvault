@@ -608,6 +608,111 @@ export function buildAdminOnlyText(): string {
   return "<b>Admin only.</b>";
 }
 
+// ---- V3.5 (impenetrable architecture v6) locked-text additions ----
+//
+// These are tested via archiveUx.test.ts for byte-stable output. Any
+// drift requires a V3.5 spec amendment first. See
+// docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md
+// V3.5 amendment.
+
+// Wizard prompt for the free-form prose body (V3.5.2). Inserted after
+// tags, before preview, when the multi-bot/relay flow is active.
+export function buildVouchProsePromptText(): string {
+  return [
+    "<b>Last step — write the vouch</b>",
+    "",
+    "Send a short message describing the vouch in your own words. Plain text only — no formatting, no links, no media.",
+    "",
+    "<b>Keep it under 800 characters.</b>",
+  ].join("\n");
+}
+
+// V3.5 preview shape (V3.5.2). The published surface drops the V3
+// templated heading; structured fields render only via /search.
+export function buildPreviewTextV35(input: {
+  bodyTextEscaped: string;
+  entryId: number;
+}): string {
+  return [
+    "<b><u>Preview</u></b>",
+    "",
+    input.bodyTextEscaped,
+    "",
+    `<code>#${input.entryId}</code>`,
+  ].join("\n");
+}
+
+// V3.5 published-draft confirmation including channel post URL.
+export function buildPublishedDraftTextWithUrl(input: {
+  entryId: number;
+  channelPostUrl: string;
+}): string {
+  return [
+    "<b>✓ Posted to the group</b>",
+    "",
+    `<code>#${input.entryId}</code>`,
+    "",
+    `<a href="${input.channelPostUrl}">View in channel</a>`,
+  ].join("\n");
+}
+
+// V3.5 lookup bot @BotFather profile copy.
+export function buildLookupBotShortDescription(): string {
+  return "Search vouches by @username. Read-only lookup bot for the Vouch Hub community.";
+}
+
+export function buildLookupBotDescription(): string {
+  return [
+    "Read-only lookup for the Vouch Hub community.",
+    "",
+    "Type /search @username in the group to see anyone's vouch history and current status. Use /recent to see the latest entries.",
+    "",
+    "I never post vouches and never DM members on my own.",
+  ].join("\n");
+}
+
+// V3.5 admin bot @BotFather profile copy.
+export function buildAdminBotShortDescription(): string {
+  return "Admin tooling for the Vouch Hub. Restricted access — operator commands only.";
+}
+
+export function buildAdminBotDescription(): string {
+  return [
+    "Operator-only admin bot for the Vouch Hub.",
+    "",
+    "Handles freeze/unfreeze/audit commands and chat-moderation in the supergroup. If you are not an admin, none of my commands will work — that's intentional.",
+  ].join("\n");
+}
+
+// V3.5 account-age guard rejection (V3.5.3).
+export function buildAccountTooNewText(hoursRemaining: number): string {
+  const noun = hoursRemaining === 1 ? "hour" : "hours";
+  return [
+    "<b>Please come back later</b>",
+    "",
+    `We wait for new accounts to establish before allowing vouches. Try again in <b>${hoursRemaining} ${noun}</b>.`,
+  ].join("\n");
+}
+
+// V3.5 chat-moderation DM warning (V3.5 §8.4). Refactor of inline
+// strings previously hardcoded in chatModeration.ts. Locked-text
+// discipline lets us assert these via archiveUx.test.ts.
+export function buildModerationWarnText(input: {
+  groupName: string;
+  hitSource: string; // e.g. "phrase", "regex_buy_shape", "regex_vouch_for_username", "compound_buy_solicit"
+  adminBotUsername?: string | null;
+}): string {
+  const escapedGroup = escapeHtml(input.groupName);
+  if (input.hitSource.startsWith("regex_vouch_")) {
+    return `Your message in <b>${escapedGroup}</b> was removed. Vouches must go through the bot — tap <b>Submit Vouch</b> in the group to start the DM flow. Posting vouch-shaped text in chat is auto-removed.`;
+  }
+  const adminPointer =
+    input.adminBotUsername && input.adminBotUsername.length > 0
+      ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
+      : "contact an admin";
+  return `Your message in <b>${escapedGroup}</b> was removed. Posts that look like buy/sell arrangements are auto-removed. If you believe this was a mistake, ${adminPointer}.`;
+}
+
 export function buildAdminHelpText(): string {
   return [
     "<b><u>Admin commands</u></b>",

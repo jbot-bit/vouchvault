@@ -58,23 +58,60 @@ V3 was taken down by a 2,234-msg templated-bot spam-ring fingerprint. v6 archite
 - [ ] Add new tests to package.json
 - [ ] Verify: `npx tsc --noEmit` + `npm test`
 
-### Commit 5 — Multi-bot + locked text + wizard prose + age guard + mod handoff
+### Commit 5 — Locked text + chat-moderation refactor (5a, shipped)
 
-- [ ] `src/server.ts` 3-path webhook dispatch (`/webhooks/telegram/ingest`, `/lookup`, `/admin`); `/action` aliased to `/ingest`
-- [ ] Create `src/core/lookupBot.ts` + `.test.ts` (read-only `/search`, `/recent`)
-- [ ] Create `src/core/adminBot.ts` + `.test.ts` (admin commands + `runChatModeration` invocation moves here)
+Scoped down from v6 §11 commit 5 to the additive, low-risk subset. The
+wizard refactor + multi-bot dispatch are deferred to commit 5b (below)
+because they touch the V3 DM state machine and webhook routing.
+
+- [x] `src/core/archive.ts`: V3.5 locked-text builders added as **new
+      functions** alongside the existing V3 builders (no V3 shape changes):
+  - [x] `buildVouchProsePromptText`
+  - [x] `buildPreviewTextV35` (new — V3 `buildPreviewText` unchanged)
+  - [x] `buildPublishedDraftTextWithUrl` (new — V3 `buildPublishedDraftText` unchanged)
+  - [x] `buildLookupBotShortDescription`, `buildLookupBotDescription`
+  - [x] `buildAdminBotShortDescription`, `buildAdminBotDescription`
+  - [x] `buildAccountTooNewText`
+  - [x] `buildModerationWarnText`
+- [x] `src/core/archiveUx.test.ts`: locked-text assertions for every new builder
+- [x] `src/core/chatModeration.ts`: refactor inline DM strings to call
+      `buildModerationWarnText`. Reads `TELEGRAM_ADMIN_BOT_USERNAME` env
+      var to point users at the admin bot when configured
+- [x] `.env.example`: multi-bot env vars staged in commit 4
+
+### Commit 5b — Multi-bot dispatch + wizard prose + account-age guard (deferred)
+
+These items touch high-risk surfaces (DM wizard state machine, webhook
+routing) and are best executed in a separate session with focused
+attention. All env-var-gated for backwards compat.
+
+- [ ] `src/server.ts` 3-path webhook dispatch (`/webhooks/telegram/ingest`,
+      `/lookup`, `/admin`); `/action` aliased to `/ingest`
+- [ ] Create `src/core/lookupBot.ts` + `.test.ts` (read-only `/search`,
+      `/recent`; honours `message_thread_id` for forum-topic replies)
+- [ ] Create `src/core/adminBot.ts` + `.test.ts` (admin commands +
+      `runChatModeration` invocation moves here)
 - [ ] Create `src/core/multiBotDispatch.test.ts` (smoke test)
-- [ ] `src/core/archive.ts`: 9 new locked-text builders per V3.5.1 + `buildPreviewText` shape change
-- [ ] `src/core/archiveUx.test.ts`: locked-text assertions for all new builders
-- [ ] `src/core/chatModeration.ts`: refactor inline DM strings to `buildModerationWarnText`
 - [ ] `src/telegramBot.ts`:
-  - [ ] Wizard prose-collection step (800-char cap)
-  - [ ] Account-age guard at wizard start
-  - [ ] Multi-bot moderation handoff: skip moderation if `TELEGRAM_ADMIN_TOKEN` set
-  - [ ] Dual-register fallbacks for lookup/admin commands when their tokens unset
-- [ ] `.env.example`: `TELEGRAM_LOOKUP_TOKEN`, `TELEGRAM_ADMIN_TOKEN`, `TELEGRAM_ADMIN_USER_IDS`
-- [ ] Add new tests to package.json
-- [ ] Verify: `npx tsc --noEmit` + `npm test`
+  - [ ] Wizard prose-collection step inserted between tags and preview
+        (800-char cap, plain-text-only validation, no formatting entities)
+  - [ ] Wizard switches to `buildPreviewTextV35` when in prose mode
+  - [ ] Account-age guard at wizard start (call `getUserFirstSeen`,
+        reject with `buildAccountTooNewText` if `<24h`)
+  - [ ] `recordUserFirstSeen` wired into `processTelegramUpdate` (fires
+        for every observed user_id, ON CONFLICT DO NOTHING)
+  - [ ] Multi-bot moderation handoff: skip moderation if `TELEGRAM_ADMIN_TOKEN`
+        is set; otherwise moderate as today
+  - [ ] Dual-register fallbacks for `/search` and admin commands when
+        the lookup/admin tokens are unset
+- [ ] When `VV_RELAY_ENABLED=true`, ingest publish flow:
+  - [ ] Inserts row at `status='draft'` with `body_text=<reviewer prose>`
+  - [ ] Calls `publishToChannelAndCapture` to write to channel
+  - [ ] Updates row to `status='channel_published'` with
+        `channel_message_id` populated
+  - [ ] On auto-forward observed in supergroup, calls `classifyAutoForward`
+        and updates row to `status='published'` with `published_message_id`
+        (the supergroup-side message id) populated
 
 ### Commit 6 — Member-list export script
 
