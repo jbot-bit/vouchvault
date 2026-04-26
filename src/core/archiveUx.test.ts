@@ -230,6 +230,29 @@ test("bot profile text uses the locked v3.1 copy (community-framing)", () => {
   assert.ok(short.length <= 120);
 });
 
+test("rules block contains the four bullets in welcome and pinned guide", () => {
+  const surfaces = [buildWelcomeText(), buildPinnedGuideText()];
+  for (const text of surfaces) {
+    assert.match(text, /<b>Rules<\/b>/);
+    assert.match(text, /Follow Telegram's Terms of Service/);
+    assert.match(text, /Vouch only for members you actually know personally/);
+    assert.match(text, /No personal opinions about people, no rating individuals, no vouching minors/);
+    assert.match(text, /You are responsible for the accuracy of your own vouches/);
+  }
+});
+
+test("bot description carries the compact rules line (≤512 chars limit)", () => {
+  const desc = buildBotDescriptionText();
+  // The bot description has a 512-char Telegram limit and uses a compact
+  // rules line. The full block is carried by welcome / pinned only.
+  assert.match(desc, /Follow Telegram's Terms of Service/);
+  assert.match(desc, /Vouch only members you know personally/);
+  assert.match(desc, /You are responsible for your vouches/);
+  // Not the multi-bullet shape:
+  assert.equal(desc.includes("<b>Rules</b>"), false);
+  assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
+});
+
 test("locked v3 copy uses 'review' not 'verify' to avoid the marketplace ML keyword cluster", () => {
   for (const text of [
     buildWelcomeText(),

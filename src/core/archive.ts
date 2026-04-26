@@ -311,7 +311,23 @@ function fmtStatusLine(
 }
 
 function rulesLine(): string {
-  return "Follow Telegram's Terms of Service. No illegal activity, no scams.";
+  // Multi-bullet rules block. Used by welcome and pinned guide. Documents
+  // the scope a Telegram T&S reviewer would see if they arrive at the chat
+  // profile from a hostile report.
+  return [
+    "<b>Rules</b>",
+    "• Follow Telegram's Terms of Service. No illegal activity, no scams.",
+    "• Vouch only for members you actually know personally.",
+    "• No personal opinions about people, no rating individuals, no vouching minors.",
+    "• You are responsible for the accuracy of your own vouches.",
+  ].join("\n");
+}
+
+// Compact single-line variant for bot description, which has a 512-char
+// Telegram limit and can't carry the multi-bullet block. The pinned guide
+// + chat description carry the full rules.
+function rulesLineShort(): string {
+  return "Follow Telegram's Terms of Service. Vouch only members you know personally. You are responsible for your vouches.";
 }
 
 function aboutLine(): string {
@@ -552,7 +568,7 @@ export function buildBotDescriptionText(): string {
     "",
     "How it works: Tap Submit Vouch in the group, DM the bot one @username, choose result + tags, I post a clean entry back to the group.",
     "",
-    rulesLine(),
+    rulesLineShort(),
   ].join("\n");
 }
 
