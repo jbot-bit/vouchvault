@@ -20,6 +20,7 @@ import {
   formatUsername,
   getAllowedTagsForResult,
   isEntryResult,
+  isReservedTarget,
   normalizeUsername,
   parseSelectedTags,
   RESULT_LABELS,
@@ -762,6 +763,18 @@ async function applySelectedTarget(input: {
       {
         chatId: input.chatId,
         text: "Self-vouching is not allowed.",
+        replyMarkup: buildTargetRequestReplyMarkup(),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  if (isReservedTarget(input.targetUsername)) {
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: "That handle can't be a vouch subject.",
         replyMarkup: buildTargetRequestReplyMarkup(),
       },
       input.logger,

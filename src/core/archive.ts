@@ -68,6 +68,57 @@ export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
 
+// Telegram-reserved or bot-impersonation handles. Vouching any of these is
+// rejected so a member can't lend false legitimacy by pointing at an
+// official-looking @username.
+export const RESERVED_TARGET_USERNAMES: ReadonlySet<string> = new Set([
+  "telegram",
+  "spambot",
+  "botfather",
+  "notoscam",
+  "replies",
+  "gif",
+]);
+
+// Marketplace-coded substrings derived from the QA-export lexicon scan
+// (docs/runbook/opsec.md §6a). Any username containing one of these reads
+// as marketplace-shaped to a Telegram T&S classifier and a hostile reporter.
+// Substring match is case-insensitive. False-positive risk for legitimate
+// usernames is essentially zero — none of these substrings are common in
+// English handles.
+export const MARKETPLACE_USERNAME_SUBSTRINGS: ReadonlyArray<string> = [
+  "scammer", "scam_", "_scam",
+  "vendor", "vendr",
+  "_plug", "plug_",
+  "_gear", "gear_", "supply", "supplier", "supplies",
+  "seller", "_4sale", "4sale_", "for_sale",
+  "dealer", "dealr",
+  "trapper", "trapping", "trap_",
+  "coke", "cocaine",
+  "meth_", "_meth", "methhead",
+  "weed", "kush", "bud_", "_bud",
+  "oxy_", "_oxy", "perc_", "fent_", "_fent", "fentanyl",
+  "xan_", "_xan", "xanax", "bars_",
+  "mdma", "molly", "mandy", "pingers",
+  "shrooms", "psilo",
+  "lsd", "acid_", "_acid", "tabs_", "_tabs",
+  "ket_", "ketamine",
+  "legit_seller", "vouched_vendor", "approved_seller",
+];
+
+export function isReservedTarget(username: string): boolean {
+  const lower = username.trim().replace(/^@+/, "").toLowerCase();
+  if (RESERVED_TARGET_USERNAMES.has(lower)) return true;
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim()
+    .replace(/^@+/, "")
+    .toLowerCase();
+  if (botUsername && lower === botUsername) return true;
+  for (const sub of MARKETPLACE_USERNAME_SUBSTRINGS) {
+    if (lower.includes(sub)) return true;
+  }
+  return false;
+}
+
 export function normalizeUsername(input: string | null | undefined): string | null {
   if (!input) {
     return null;
