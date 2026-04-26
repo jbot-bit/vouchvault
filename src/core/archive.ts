@@ -85,6 +85,29 @@ export const TAG_LABELS: Record<EntryTag, string> = {
   item_mismatch: "Item Mismatch",
 };
 
+export const MAX_PRIVATE_NOTE_CHARS = 240;
+
+export type ValidatePrivateNoteResult =
+  | { ok: true; value: string }
+  | { ok: false; reason: "empty" | "too_long" | "control_chars" };
+
+// Validates the optional admin-only note attached to a private NEG draft.
+// Reject empty / whitespace-only (use Skip instead), reject > 240 chars,
+// reject ASCII control characters except newline (\n) and tab (\t).
+// Returns the trimmed value on success — that's what should be stored.
+export function validatePrivateNote(input: string): ValidatePrivateNoteResult {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return { ok: false, reason: "empty" };
+  if (trimmed.length > MAX_PRIVATE_NOTE_CHARS) return { ok: false, reason: "too_long" };
+  // \x00-\x08 and \x0B-\x1F covers all C0 controls except \t (0x09) and \n (0x0A).
+  // \x7F is DEL.
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x08\x0B-\x1F\x7F]/.test(trimmed)) {
+    return { ok: false, reason: "control_chars" };
+  }
+  return { ok: true, value: trimmed };
+}
+
 export const DEFAULT_DUPLICATE_COOLDOWN_HOURS = 72;
 export const DEFAULT_DRAFT_TIMEOUT_HOURS = 24;
 export const MAX_LOOKUP_ENTRIES = 5;
