@@ -109,8 +109,24 @@ async function main() {
 
   const { drizzle } = await import("drizzle-orm/node-postgres");
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
+  const pgModule = (await import("pg")).default;
+
+  // Run migrations on a SEPARATE pool that is NOT capped by statement_timeout.
+  // The runtime pool sets statement_timeout=20s to bound webhook latency, but
+  // future migrations (CREATE INDEX on a large table, data backfills) may
+  // exceed that. Migrations run once at boot, so a dedicated pool with one
+  // connection and no timeout is the right shape.
+  const migrationPool = new pgModule.Pool({
+    connectionString: process.env.DATABASE_URL,
+    max: 1,
+  });
+  try {
+    await migrate(drizzle(migrationPool), { migrationsFolder: "./migrations" });
+  } finally {
+    await migrationPool.end();
+  }
+
   const { pool } = await import("./core/storage/db.ts");
-  await migrate(drizzle(pool), { migrationsFolder: "./migrations" });
 
   const port = Number(process.env.PORT || "5000");
   const host = "0.0.0.0";
@@ -126,14 +142,18 @@ async function main() {
       }
 
       if (req.method === "GET" && req.url === "/readyz") {
+        // /readyz is unauthenticated (Railway / load-balancer health checks
+        // need to hit it). Return a generic ok:false on failure and log the
+        // detail server-side — pg's error.message can include connection
+        // string fragments and getMe error descriptions can include
+        // bot/account context, both of which are reconnaissance for an
+        // anonymous attacker.
         try {
           const { pool } = await import("./core/storage/db.ts");
           await pool.query("SELECT 1");
         } catch (error) {
-          const response = jsonResponse(
-            { ok: false, error: error instanceof Error ? error.message : String(error) },
-            503,
-          );
+          logger.error({ err: error }, "[/readyz] DB probe failed");
+          const response = jsonResponse({ ok: false }, 503);
           res.writeHead(response.statusCode, response.headers);
           res.end(response.body);
           return;
@@ -142,7 +162,8 @@ async function main() {
         if (process.env.TELEGRAM_BOT_TOKEN?.trim()) {
           const probe = await telegramGetMeProbe();
           if (!probe.ok) {
-            const response = jsonResponse({ ok: false, error: probe.error }, 503);
+            logger.error({ probeError: probe.error }, "[/readyz] Telegram getMe probe failed");
+            const response = jsonResponse({ ok: false }, 503);
             res.writeHead(response.statusCode, response.headers);
             res.end(response.body);
             return;

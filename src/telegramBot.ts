@@ -1851,6 +1851,24 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     };
   } catch (error) {
     if (error instanceof TelegramChatGoneError) {
+      // Only treat as a "group gone" event when the offending chatId is in
+      // the allowlist. answerCallbackQuery now threads chatId from DM
+      // callbacks too (positive user-id, not a group id); a 'chat not found'
+      // 400 against a deleted user account would otherwise be misclassified
+      // as a takedown of a non-existent group.
+      if (
+        error.chatId !== undefined &&
+        !allowedTelegramChatIds.has(error.chatId)
+      ) {
+        logger.warn(
+          { chatId: error.chatId, updateId },
+          "TelegramChatGoneError for non-allowlisted chat; not paging admins",
+        );
+        if (updateId != null) {
+          await releaseTelegramUpdate(updateId);
+        }
+        throw error;
+      }
       try {
         await handleChatGone({
           chatId: error.chatId,
