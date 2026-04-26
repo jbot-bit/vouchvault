@@ -63,6 +63,20 @@ export async function setChatMigrated(chatId: number, migratedToChatId: number):
 }
 
 /**
+ * Reset a previously-disabled chat back to 'active' (e.g. bot was re-added
+ * after a kick / chat-gone). Idempotent.
+ */
+export async function setChatActive(chatId: number): Promise<void> {
+  await db
+    .insert(chatSettings)
+    .values({ chatId, status: "active" })
+    .onConflictDoUpdate({
+      target: chatSettings.chatId,
+      set: { status: "active", updatedAt: new Date() },
+    });
+}
+
+/**
  * Marks the chat as gone (Telegram returned `chat not found` from a send).
  * Returns true iff the status flipped from a non-`gone` value to `gone` on
  * this call. The caller uses that signal to page admins exactly once.

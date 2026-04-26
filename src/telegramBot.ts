@@ -79,6 +79,7 @@ import {
 } from "./core/tools/telegramTools.ts";
 import {
   isChatPaused,
+  setChatActive,
   setChatGone,
   setChatKicked,
   setChatMigrated,
@@ -1237,6 +1238,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
 
 async function handleMyChatMember(update: any, logger?: LoggerLike) {
   const chatId = update?.chat?.id;
+  const oldStatus = update?.old_chat_member?.status;
   const newStatus = update?.new_chat_member?.status;
   if (typeof chatId !== "number" || typeof newStatus !== "string") {
     return;
@@ -1245,6 +1247,20 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
   if (shouldMarkChatKicked(newStatus)) {
     await setChatKicked(chatId);
     logger?.info?.("[Group] Bot lost access", { chatId, newStatus });
+    return;
+  }
+
+  // Bot re-added after kicked / gone / migrated_away → flip back to active.
+  if (
+    (newStatus === "member" || newStatus === "administrator") &&
+    (oldStatus === "left" || oldStatus === "kicked")
+  ) {
+    await setChatActive(chatId);
+    logger?.info?.("[Group] Bot re-added; reset chat status to 'active'", {
+      chatId,
+      oldStatus,
+      newStatus,
+    });
   }
 }
 
