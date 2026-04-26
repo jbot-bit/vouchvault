@@ -10,6 +10,8 @@ import {
 } from "./storage/schema.ts";
 import {
   DEFAULT_DRAFT_TIMEOUT_HOURS,
+  FREEZE_REASONS,
+  isFreezeReason,
   PROCESSED_UPDATE_RETENTION_DAYS,
   STALE_UPDATE_PROCESSING_MINUTES,
   type DraftStep,
@@ -140,13 +142,25 @@ export async function setBusinessProfileFrozen(input: {
   byTelegramId?: number | null;
 }) {
   const profile = await getOrCreateBusinessProfile(input.username);
-  const reasonTrimmed = input.reason?.trim().slice(0, 200) || null;
+
+  // Defence-in-depth: the /freeze handler validates the enum, but reject
+  // any non-enum value at the store boundary too so legacy import / replay
+  // / future callers can't write a free-text reason.
+  let reasonToStore: string | null = null;
+  if (input.isFrozen) {
+    if (!isFreezeReason(input.reason)) {
+      throw new Error(
+        `freeze_reason must be one of: ${FREEZE_REASONS.join(", ")}`,
+      );
+    }
+    reasonToStore = input.reason;
+  }
 
   const rows = await db
     .update(businessProfiles)
     .set({
       isFrozen: input.isFrozen,
-      freezeReason: input.isFrozen ? reasonTrimmed : null,
+      freezeReason: input.isFrozen ? reasonToStore : null,
       frozenAt: input.isFrozen ? new Date() : null,
       frozenByTelegramId: input.isFrozen ? (input.byTelegramId ?? null) : null,
       updatedAt: new Date(),

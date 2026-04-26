@@ -15,11 +15,13 @@ import {
   DEFAULT_DUPLICATE_COOLDOWN_HOURS,
   DEFAULT_DRAFT_TIMEOUT_HOURS,
   MAINTENANCE_EVERY_N_UPDATES,
+  FREEZE_REASONS,
   fmtDate,
   fmtDateTime,
   formatUsername,
   getAllowedTagsForResult,
   isEntryResult,
+  isFreezeReason,
   isReservedTarget,
   normalizeUsername,
   parseSelectedTags,
@@ -481,7 +483,32 @@ async function handleAdminCommand(input: {
       return;
     }
 
-    const reason = input.command === "/freeze" ? input.args.slice(1).join(" ") || null : null;
+    let reason: string | null = null;
+    if (input.command === "/freeze") {
+      const rawReason = input.args[1] ?? "";
+      if (!isFreezeReason(rawReason)) {
+        await recordAdminAction({
+          adminTelegramId: input.from.id,
+          adminUsername: input.from.username ?? null,
+          command: input.command,
+          targetChatId: input.chatId,
+          targetUsername,
+          denied: true,
+        });
+        await sendTelegramMessage(
+          {
+            chatId: input.chatId,
+            text:
+              "Reason must be one of:\n" +
+              FREEZE_REASONS.map((r) => `• <code>${r}</code>`).join("\n"),
+            ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          },
+          input.logger,
+        );
+        return;
+      }
+      reason = rawReason;
+    }
     const updated = await setBusinessProfileFrozen({
       username: targetUsername,
       isFrozen: input.command === "/freeze",

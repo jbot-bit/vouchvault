@@ -10,6 +10,31 @@ export type EntrySource = (typeof ENTRY_SOURCES)[number];
 export const ENTRY_STATUSES = ["pending", "publishing", "published", "removed"] as const;
 export type EntryStatus = (typeof ENTRY_STATUSES)[number];
 
+// Admin-template freeze reasons. Free-text reasons are an unnecessary
+// reportable surface — a reason like "scammer who took my $500" is a
+// claim a hostile target's friend could escalate. The five options below
+// cover the cases that come up; the rendered label drops underscores.
+export const FREEZE_REASONS = [
+  "unmet_commitments",
+  "community_concerns",
+  "policy_violation",
+  "at_member_request",
+  "under_review",
+] as const;
+export type FreezeReason = (typeof FREEZE_REASONS)[number];
+
+export const FREEZE_REASON_LABELS: Record<FreezeReason, string> = {
+  unmet_commitments: "unmet commitments",
+  community_concerns: "community concerns",
+  policy_violation: "policy violation",
+  at_member_request: "at member's request",
+  under_review: "under review",
+};
+
+export function isFreezeReason(value: string | null | undefined): value is FreezeReason {
+  return typeof value === "string" && (FREEZE_REASONS as readonly string[]).includes(value);
+}
+
 export const TAG_OPTIONS_BY_RESULT = {
   positive: ["good_comms", "efficient", "on_time", "good_quality"],
   mixed: ["mixed_comms", "some_delays", "acceptable_quality", "minor_issue"],
@@ -243,9 +268,15 @@ export function fmtDateTime(date: Date): string {
 }
 
 function fmtStatusLine(isFrozen: boolean, freezeReason: string | null): string {
-  return isFrozen
-    ? `Status: Frozen — <i>${escapeHtml(freezeReason ?? "no reason given")}</i>`
-    : "Status: Active";
+  if (!isFrozen) return "Status: Active";
+  // If the stored reason matches a current enum key, render the human label;
+  // legacy free-text rows (pre-enum) render verbatim until cleared by
+  // /unfreeze. Either path is HTML-escaped.
+  const label =
+    freezeReason && isFreezeReason(freezeReason)
+      ? FREEZE_REASON_LABELS[freezeReason]
+      : (freezeReason ?? "no reason given");
+  return `Status: Frozen — <i>${escapeHtml(label)}</i>`;
 }
 
 function rulesLine(): string {
