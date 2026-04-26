@@ -404,6 +404,9 @@ export function buildWelcomeText(): string {
     "3. Choose result and tags.",
     "4. I post the entry back to the group.",
     "",
+    "<b><u>Check before you deal</u></b>",
+    "Type <code>/profile @username</code> in the group to see anyone's vouch history and current status.",
+    "",
     rulesLine(),
   ].join("\n");
 }
@@ -545,6 +548,9 @@ export function buildPinnedGuideText(): string {
     "1. Tap <b>Submit Vouch</b> below.",
     "2. In DM, send only the target @username, then use the buttons.",
     "3. I post the final entry back here.",
+    "",
+    "<b><u>Check before you deal</u></b>",
+    "Type <code>/profile @username</code> here to see anyone's vouch history and current status.",
     "",
     rulesLine(),
   ].join("\n");
