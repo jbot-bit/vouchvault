@@ -415,7 +415,7 @@ export function buildBotDescriptionText(): string {
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch Hub — log and verify local-business service experiences. Open from the group launcher.";
+  return "Vouch Hub — log and review local-business service experiences. Open from the group launcher.";
 }
 
 export function buildAdminOnlyText(): string {

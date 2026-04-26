@@ -140,6 +140,18 @@ test("bot profile text uses the locked v3 copy", () => {
   assert.ok(short.length <= 120);
 });
 
+test("locked v3 copy uses 'review' not 'verify' to avoid the marketplace ML keyword cluster", () => {
+  for (const text of [
+    buildWelcomeText(),
+    buildPinnedGuideText(),
+    buildBotDescriptionText(),
+    buildBotShortDescription(),
+  ]) {
+    assert.doesNotMatch(text, /\bverify\b/i, text);
+    assert.doesNotMatch(text, /\bverified\b/i, text);
+  }
+});
+
 test("telegram UX helpers favor threaded quiet replies", () => {
   assert.equal(shouldSendThreadedLauncherReply("/vouch"), true);
   assert.equal(shouldSendThreadedLauncherReply("/lookup"), false);
