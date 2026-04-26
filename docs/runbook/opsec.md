@@ -144,6 +144,48 @@ After resolving, `/unpause` to resume vouches.
 
 ---
 
+## 6b. Chat moderation — admin reference
+
+The bot moderates every member message in any allowed chat using the lexicon and ladder defined in `src/core/chatModerationLexicon.ts`. Strikes ladder, per-chat:
+
+| Strike | Action | Reversible by |
+|---|---|---|
+| 1 | Delete + warn DM (silent if user never `/start`-ed the bot) | 30-day decay |
+| 2 | Delete + 24h mute | Mute auto-expires; 30-day decay restores count |
+| 3 | Delete + permanent ban | Telegram-native unban (group settings) |
+
+Strike count is derived from `admin_audit_log` at decision time — no separate strikes store. Each hit writes one row with `command='chat_moderation:delete'`. The 30-day decay is the SQL window in the count query; nothing to maintain.
+
+**Inspect recent moderation events:**
+
+```
+psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, target_username, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND created_at > now() - interval '7 days' ORDER BY created_at DESC"
+```
+
+**Inspect a specific user's strike history (across all chats):**
+
+```
+psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND admin_telegram_id=<id> AND created_at > now() - interval '30 days' ORDER BY created_at DESC"
+```
+
+**Manually clear strikes for a user in a specific chat (rare):**
+
+```
+psql "$DATABASE_URL" -c "DELETE FROM admin_audit_log WHERE command='chat_moderation:delete' AND admin_telegram_id=<id> AND target_chat_id=<chat>"
+```
+
+**Bot exemptions:** the bot's own messages are skipped (`is_bot` flag + id check). Inline-bot relays (`via_bot` set) are skipped. Admins are audit-logged but enforcement is skipped — admin-exempt audit rows do not contribute to anyone's strike count.
+
+**Update the lexicon:** edit `PHRASES` (or `REGEX_PATTERNS`) in `src/core/chatModerationLexicon.ts`, commit, push. Railway redeploys.
+
+**Bot admin-rights check:** the bot logs its admin status in every allowed chat at boot. Check Railway logs for `chatModeration: bot status in <id>: <status>`. If status is anything other than `administrator` or `creator`, moderation will silently fail in that chat — fix the permissions in Telegram.
+
+**First-warning DM gap:** members who have never `/start`-ed the bot receive no warning DM on their first strike (Telegram blocks bot-initiated DMs). Their message is still deleted and the strike still counts. The welcome and pinned guide instruct members to `/start` once; members who ignore that may be confused on first strike. Acceptable.
+
+**Webhook allowed_updates:** chat-moderation requires `edited_message` in the webhook's `allowed_updates`. After deploying the v4 chat-moderation code, run `npm run telegram:webhook` once to refresh the server-side webhook config. Confirm with `npm run telegram:webhook -- --info`.
+
+---
+
 ## 6a. Lexicon reference — derived from peer-group export 2026-04-26
 
 Numbers below come from a one-time scan of a 9,706-message export from a peer drug-trade circuit, used as adversarial training data for this bot's hardening. Patterns appear here for admin reference; the runtime defence is the username-substring deny-list in `src/core/archive.ts:MARKETPLACE_USERNAME_SUBSTRINGS`.

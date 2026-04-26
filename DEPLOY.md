@@ -132,6 +132,22 @@ Run this once after the v1.1 vendetta-resistant posture ships (spec `docs/superp
 
 Re-running `/remove_entry` on an already-removed entry is idempotent. Removing a NEG also clears Caution status on its target if it was the only NEG.
 
+## Step 14 — Chat moderation enablement (after deploy)
+
+After the chat-moderation v4 deploy (no migration required), do this once:
+
+1. **Refresh the webhook** so Telegram delivers `edited_message` updates:
+   ```
+   npm run telegram:webhook
+   npm run telegram:webhook -- --info
+   ```
+   Confirm `allowed_updates` in the info output includes `edited_message`.
+2. **Verify bot is admin** in every chat in `TELEGRAM_ALLOWED_CHAT_IDS`. Railway logs at boot show `chatModeration: bot status in <id>: administrator` per chat. If any chat shows anything other than `administrator` or `creator`, promote the bot in Telegram → group settings → Administrators. The bot needs `can_delete_messages` and `can_restrict_members`.
+3. **Verify privacy mode is OFF.** In BotFather: `/mybots` → select bot → Bot Settings → Group Privacy → Turn off. Without this, the bot only sees commands, not all member messages — chat moderation can't fire.
+4. **Enable member chat in any group you want moderated.** In Telegram → group settings → Permissions → enable "Send messages" for members. Recommended: also enable Slow Mode (30 seconds) and disable "Send media", "Send links", and "Send polls". Telegram-native restrictions reduce attack surface; the bot lexicon catches the rest.
+5. The bot starts moderating automatically on the next member message in any chat in `TELEGRAM_ALLOWED_CHAT_IDS`. No bot-side config.
+6. Watch `admin_audit_log` for `command='chat_moderation:delete'` rows for the first week. If a phrase is over-firing, edit `src/core/chatModerationLexicon.ts` `PHRASES` and push.
+
 ## Runbook
 
 - **Vouches stuck publishing**: SQL `SELECT id FROM vouch_entries WHERE status='publishing' AND updated_at < now() - interval '5 minutes'` → admin runs `/recover_entry <id>` per row.
