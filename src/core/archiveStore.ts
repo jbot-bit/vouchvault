@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
 
-import { db } from "./storage/db.ts";
+import { db, pool } from "./storage/db.ts";
 import {
   businessProfiles,
   chatLaunchers,
@@ -509,23 +509,46 @@ export async function saveLauncherMessage(chatId: number, messageId: number) {
   return rows[0]!;
 }
 
-export async function withChatLauncherLock<T>(chatId: number, fn: () => Promise<T>) {
-  await db.execute(sql`SELECT pg_advisory_lock(${chatId})`);
+/**
+ * `pg_advisory_lock` is a session-level lock — it must be acquired AND released
+ * on the same Postgres connection. Going through `db.execute(...)` checks out a
+ * fresh pooled connection per statement, so the previous implementation acquired
+ * the lock on connection A and tried to release it on a different connection B,
+ * leaving A's lock held forever and providing zero serialization for the body.
+ *
+ * Pinning a single client via `pool.connect()` for both the lock and the unlock
+ * is the correct fix. The body still runs on whatever pool connection it uses,
+ * but only one caller can hold the advisory lock at a time, so bodies serialize
+ * naturally — concurrent callers block at `pg_advisory_lock` on their own pinned
+ * client until the lock holder unlocks.
+ */
+async function withAdvisoryLock<T>(lockKey: number, fn: () => Promise<T>): Promise<T> {
+  const client = await pool.connect();
   try {
-    return await fn();
+    await client.query("SELECT pg_advisory_lock($1)", [lockKey]);
+    try {
+      return await fn();
+    } finally {
+      // Release on the same client. If the unlock query itself fails (e.g.
+      // statement_timeout), `client.release(true)` below will destroy the
+      // connection so PG releases all session-level locks on disconnect.
+      try {
+        await client.query("SELECT pg_advisory_unlock($1)", [lockKey]);
+      } catch {
+        // Swallow — the outer client.release(true) will reap the connection.
+      }
+    }
   } finally {
-    await db.execute(sql`SELECT pg_advisory_unlock(${chatId})`);
+    client.release();
   }
 }
 
+export async function withChatLauncherLock<T>(chatId: number, fn: () => Promise<T>) {
+  return withAdvisoryLock(chatId, fn);
+}
+
 export async function withReviewerDraftLock<T>(reviewerTelegramId: number, fn: () => Promise<T>) {
-  const lockKey = REVIEWER_DRAFT_LOCK_OFFSET + reviewerTelegramId;
-  await db.execute(sql`SELECT pg_advisory_lock(${lockKey})`);
-  try {
-    return await fn();
-  } finally {
-    await db.execute(sql`SELECT pg_advisory_unlock(${lockKey})`);
-  }
+  return withAdvisoryLock(REVIEWER_DRAFT_LOCK_OFFSET + reviewerTelegramId, fn);
 }
 
 export async function reserveTelegramUpdate(updateId: number) {
