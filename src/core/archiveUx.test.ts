@@ -117,7 +117,7 @@ test("buildArchiveEntryText uses MIX prefix for mixed-result entries", () => {
   assert.match(text, /^<b>MIX Vouch &gt; @bobbiz<\/b>/);
 });
 
-test("buildPreviewText mirrors the posted format under a Preview heading", () => {
+test("buildPreviewText mirrors the posted format under a Preview heading + attestation", () => {
   const text = buildPreviewText({
     reviewerUsername: "alice",
     targetUsername: "bobbiz",
@@ -133,8 +133,57 @@ test("buildPreviewText mirrors the posted format under a Preview heading", () =>
       "<b>POS Vouch &gt; @bobbiz</b>",
       "<b>From:</b> <b>@alice</b>",
       "<b>Tags:</b> Good Comms, On Time",
+      "",
+      "<i>By confirming, you declare you personally know this member and stand behind this vouch. You are responsible for what you submit.</i>",
     ].join("\n"),
   );
+});
+
+test("buildPreviewText includes the honest-opinion attestation line", () => {
+  const text = buildPreviewText({
+    reviewerUsername: "alice",
+    targetUsername: "bobbiz",
+    result: "positive",
+    tags: ["good_comms"],
+  });
+  assert.match(
+    text,
+    /By confirming, you declare you personally know this member and stand behind this vouch\./,
+  );
+});
+
+test("buildPreviewText shows admin-only-note label only when note provided", () => {
+  const without = buildPreviewText({
+    reviewerUsername: "alice",
+    targetUsername: "bobbiz",
+    result: "negative",
+    tags: ["poor_comms"],
+  });
+  assert.equal(without.includes("Admin-only note"), false);
+
+  const withNote = buildPreviewText({
+    reviewerUsername: "alice",
+    targetUsername: "bobbiz",
+    result: "negative",
+    tags: ["poor_comms"],
+    privateNote: "they did not show up twice",
+  });
+  assert.match(
+    withNote,
+    /Admin-only note \(not published\):<\/i> they did not show up twice/,
+  );
+});
+
+test("buildPreviewText HTML-escapes the admin-only note", () => {
+  const text = buildPreviewText({
+    reviewerUsername: "alice",
+    targetUsername: "bobbiz",
+    result: "negative",
+    tags: ["poor_comms"],
+    privateNote: "owes <script>",
+  });
+  assert.match(text, /owes &lt;script&gt;/);
+  assert.equal(text.includes("<script>"), false);
 });
 
 test("welcome text uses locked v3 wording", () => {

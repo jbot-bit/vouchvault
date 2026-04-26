@@ -1224,6 +1224,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
             targetUsername: latestTargetUsername,
             result: latestResult,
             tags: latestSelectedTags,
+            privateNote: validation.value,
           }),
           replyMarkup: buildPreviewKeyboard(),
         },
@@ -1684,6 +1685,8 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       await updateDraftByReviewerTelegramId(reviewerTelegramId, { step: "preview" });
 
       await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+      // POS/MIX path — no privateNote (validator and DB constraint both
+      // forbid notes on non-NEG entries).
       await editTelegramMessage(
         {
           chatId,
@@ -1735,6 +1738,8 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
             targetUsername: latestTargetUsername,
             result: latestResult,
             tags: latestSelectedTags,
+            privateNote:
+              latestResult === "negative" ? (latestDraft?.privateNote ?? null) : null,
           }),
           replyMarkup: buildPreviewKeyboard(),
         },

@@ -354,14 +354,26 @@ export function buildPreviewText(input: {
   targetUsername: string;
   result: EntryResult;
   tags: EntryTag[];
+  privateNote?: string | null;
 }): string {
-  return [
+  const lines = [
     "<b><u>Preview</u></b>",
     "",
     fmtVouchHeading(input.result, input.targetUsername),
     `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
     `<b>Tags:</b> ${fmtTags(input.tags)}`,
-  ].join("\n");
+  ];
+  if (input.privateNote && input.privateNote.length > 0) {
+    lines.push("");
+    lines.push(
+      `<i>Admin-only note (not published):</i> ${escapeHtml(input.privateNote)}`,
+    );
+  }
+  lines.push("");
+  lines.push(
+    "<i>By confirming, you declare you personally know this member and stand behind this vouch. You are responsible for what you submit.</i>",
+  );
+  return lines.join("\n");
 }
 
 export function buildWelcomeText(): string {
