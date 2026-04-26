@@ -137,6 +137,27 @@ function parseCliArguments(argv: string[]): CliOptions {
 async function main() {
   const options = parseCliArguments(process.argv.slice(2));
   const { replayLegacyExport } = await import("../src/core/legacyImport.ts");
+
+  // SIGINT/SIGTERM handler. First signal aborts the controller — the import
+  // loop checks input.signal.aborted at the top of each iteration, finishes
+  // the in-flight step, and persists a final checkpoint. Second signal
+  // hard-exits in case the in-flight step is itself stuck.
+  const controller = new AbortController();
+  let interrupted = false;
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (interrupted) {
+      console.error(`Received second ${signal}; hard-exiting.`);
+      process.exit(130);
+    }
+    interrupted = true;
+    console.error(
+      `Received ${signal}; stopping after current step. Press Ctrl-C again to hard-exit.`,
+    );
+    controller.abort();
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   const result = await replayLegacyExport({
     exportFilePath: options.exportFilePath,
     reviewReportPath: options.reviewReportPath,
@@ -147,12 +168,14 @@ async function main() {
     maxImports: options.maxImports,
     throttleMs: options.throttleMs,
     logger: console,
+    signal: controller.signal,
   });
 
   console.info(
     JSON.stringify(
       {
         completed: result.completed,
+        aborted: result.aborted,
         sourceChatId: result.sourceChatId,
         targetGroupChatId: result.targetGroupChatId,
         reviewReportPath: result.reviewReportPath,
@@ -165,7 +188,11 @@ async function main() {
     ),
   );
 
-  if (!result.completed) {
+  // 130 is the conventional exit code for SIGINT-interrupted CLI processes.
+  // 1 is generic failure. 0 only on a clean full-completion run.
+  if (result.aborted) {
+    process.exitCode = 130;
+  } else if (!result.completed) {
     process.exitCode = 1;
   }
 }

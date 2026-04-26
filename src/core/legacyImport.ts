@@ -51,6 +51,7 @@ export type LegacyReplayFailure = {
 
 export type LegacyReplayResult = {
   completed: boolean;
+  aborted: boolean;
   sourceChatId: number;
   targetGroupChatId: number;
   reviewReportPath: string;
@@ -69,6 +70,13 @@ export type ReplayLegacyExportInput = {
   maxImports?: number;
   throttleMs?: number;
   logger?: LoggerLike;
+  /**
+   * Optional cancel signal. When aborted, the loop finishes the in-flight
+   * step (whatever publish/skip is currently mid-await) and breaks cleanly,
+   * persisting a final checkpoint so a resume is straightforward. Useful in
+   * the CLI script for handling SIGINT mid-run.
+   */
+  signal?: AbortSignal;
 };
 export type LegacyReplayCheckpoint = {
   status: "running" | "completed" | "failed";
@@ -309,7 +317,17 @@ export async function replayLegacyExport(
 
   await persistCheckpoint("running");
 
+  let aborted = false;
   for (const message of sortedMessages) {
+    if (input.signal?.aborted) {
+      aborted = true;
+      logger.info?.(
+        { summary, lastProcessedSourceMessageId },
+        "[Legacy Import] Aborted via signal; persisting checkpoint and exiting cleanly.",
+      );
+      break;
+    }
+
     summary.totalScanned += 1;
 
     const decision = parseLegacyExportMessage({ message, sourceChatId, botSenders });
@@ -463,7 +481,7 @@ export async function replayLegacyExport(
     }
   }
 
-  await persistCheckpoint(failure == null ? "completed" : "failed");
+  await persistCheckpoint(aborted ? "running" : failure == null ? "completed" : "failed");
 
   await writeLegacyReviewReport({
     exportFilePath,
@@ -492,7 +510,8 @@ export async function replayLegacyExport(
   );
 
   return {
-    completed: failure == null,
+    completed: !aborted && failure == null,
+    aborted,
     sourceChatId,
     targetGroupChatId,
     reviewReportPath,
