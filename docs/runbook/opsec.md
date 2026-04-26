@@ -229,3 +229,192 @@ Permanent bans on the bot itself (`getMe` returns 401) are usually unrecoverable
 - **Member dispute resolution.** Handle in-group, no automation.
 - **Negative vouch retraction.** Use `/remove_entry <id>` if the entry was made in error; document the rationale in the admin audit log via `recordAdminAction({ reason: ... })`.
 - **Pavel Durov's legal status.** Not actionable from the admin side. Watch the news; if Telegram itself goes down or pivots, this runbook is moot and you start from a different threat model.
+
+---
+
+## 10. TBC26 mirror posture (v6)
+
+The v6 architecture (`docs/superpowers/specs/2026-04-26-vouchvault-impenetrable-architecture-v6.md`) is matched to TBC26's surviving practices, **not** their experimental ones. Three takedown events between 2025 and 2026 taught TBC26 that bot/supergroup/admin-account redundancy and channel-as-archive recovery beat any single hardening trick. We rebuild a cleaner version of the same shape.
+
+### 10.1 Operator bot stack (5 bots total)
+
+| Bot | Role | Privacy mode | Token env var |
+|---|---|---|---|
+| **Ingest** (`@VouchVault_bot`) | DM wizard → DB write → channel publish | **OFF** (needs to see auto-forwarded messages in supergroup for relay capture) | `TELEGRAM_BOT_TOKEN` (alias `TELEGRAM_INGEST_TOKEN`) |
+| **Lookup** (new custom) | In-supergroup `/search`, `/recent`. Read-only DB. | ON (commands + mentions only) | `TELEGRAM_LOOKUP_TOKEN` |
+| **Admin** (new custom) | `/freeze`, `/unfreeze`, `/audit`, `/relayhealth`; chat-moderation runs here | **OFF** (correction to v6 §3.1 — needs full chat visibility to moderate) | `TELEGRAM_ADMIN_TOKEN` |
+| **Captcha** (`@GroupHelpBot` or `@shieldy_bot`) | Username-required + captcha at join | n/a (off-the-shelf) | n/a |
+| **User-history** (`@SangMata_beta_bot`) | Members query `@SangMata_beta_bot allhistory <user_id>` | n/a (off-the-shelf) | n/a |
+
+Smaller than TBC26's 21-bot stack. Add more only when a specific gap surfaces.
+
+### 10.2 Distribution
+
+- Single Request-to-Join invite link. Manual approval per request.
+- Never share publicly. Distribute via the bot's `/start` deep-link or via existing-member DM.
+- **No folder distribution.** TBC26's leaked folder (KB:F4.3) was the attack vector that hit their sister groups. We don't run sister groups, but the principle holds.
+
+### 10.3 Growth pacing
+
+- **First month after launch:** ≤10–20 Request-to-Join approvals per day.
+- **Established (≥3 months in):** ≤50/day.
+- **During recovery event (post-takedown):** caps lifted; one-time spike acceptable.
+- **Members can invite — but only via the bot's deep-link.** Raw link sharing is disabled at the supergroup permission level.
+
+### 10.4 Account hygiene
+
+- Bot tokens created from a Telegram user account active for ≥6 months. Fresh accounts creating bots = fast classifier-driven bans.
+- New bots warmed in a low-traffic test group for 1–2 weeks before production rollout.
+- Privacy mode for ingest + admin bots DISABLED in @BotFather (per §10.1).
+- At least one alt admin account in case main is compromised.
+
+---
+
+## 11. Channel-pair operator setup + recovery procedure
+
+### 11.1 Concept
+
+The architecture target (v6 §2, §4) is a **forum-mode supergroup linked to a channel via Telegram-native channel-discussion**. The bot publishes to the channel; Telegram auto-forwards into the supergroup's General topic. The channel **survives independently** of the supergroup — that's the END ROAD WORK pattern (KB:F2.3) and our primary takedown-recovery asset.
+
+```
+                 VouchVault Archive (channel, broadcast type)
+                          │
+                          │ channel-discussion link (auto-forward)
+                          ▼
+                 VouchVault (forum-mode supergroup)
+                 Topics: Vouches | Chat | Lookups | Banned Logs
+```
+
+### 11.2 One-time setup checklist
+
+- [ ] Create the **VouchVault Archive** channel (broadcast type, private, manual subscribe).
+- [ ] Convert the existing supergroup to **forum mode** (Group Settings → Topics).
+- [ ] Create the four topics in this order: **Vouches** (renamed from default General), **Chat**, **Lookups**, **Banned Logs**. The topic auto-forwarded posts land in is the General topic — keep that as Vouches.
+- [ ] In the channel: Settings → Discussion → link the supergroup. Telegram now auto-forwards channel posts into the supergroup's General topic with `is_automatic_forward: true`.
+- [ ] Add the **ingest bot** to the channel as admin with `post_messages` only. Add it to the supergroup as a regular member (read-only — needed for relay capture in v6 §4.1).
+- [ ] Add the **lookup bot** to the supergroup as a regular member, send + read.
+- [ ] Add the **admin bot** to the supergroup as admin with `can_delete_messages` + `can_restrict_members`.
+- [ ] Set env vars in Railway: `TELEGRAM_CHANNEL_ID`, `TELEGRAM_LOOKUP_TOKEN`, `TELEGRAM_ADMIN_TOKEN`, `TELEGRAM_ADMIN_USER_IDS`. Set `VV_RELAY_ENABLED=true` only after verifying the channel-discussion link works manually (post a test message in the channel and confirm it auto-forwards into the General topic).
+- [ ] Run `npm run telegram:webhook` to refresh `allowed_updates` for each bot.
+
+### 11.3 Recovery — supergroup gone, channel survives
+
+This is the canonical recovery procedure for a takedown event (replaces §4 above when the channel-pair is in place).
+
+1. **Confirm the takedown.** Channel still reachable in Telegram, supergroup is gone or `chat not found`.
+2. **Create a new private supergroup** with the §2 hardening settings + forum mode + four topics from §11.2.
+3. **Link the new supergroup to the surviving channel** as discussion group. New posts to the channel will auto-forward into the new supergroup going forward.
+4. **Replay the channel archive into the new supergroup** via the mass-forward script (added in v6 commit 7):
+
+   ```bash
+   npm run replay:to-telegram -- --destination-chat-id <new-supergroup-id>
+   ```
+
+   The script reads the DB for all `vouch_entries` rows with `channel_message_id IS NOT NULL` and forwards each from the channel to the new destination via `forwardMessages` (Bot API 7.0+, batches up to 100 per call, throttled ≤25 msgs/sec). Idempotent via the `replay_log` table — safe to rerun.
+
+5. **Update env vars** in Railway: change `TELEGRAM_ALLOWED_CHAT_IDS` to the new supergroup ID. Service redeploys.
+6. **Pin the guide** in the new supergroup: `npm run telegram:onboarding -- --guide-chat-id <new-id> --pin-guide`.
+7. **Notify admins** via bot DM with the new invite link.
+8. **Notify members** by importing the saved member-contacts CSV (§14) into the operator's personal Telegram and DM-ing the new invite link directly.
+
+### 11.4 Recovery — channel itself is gone
+
+Worst case. The channel is the source of truth on the wire; if it's gone, the DB is the only remaining record.
+
+1. **Create a new channel** + new supergroup, link them.
+2. **Re-publish from DB** into the new channel via the steady-state path (`sendMessage` per row). The new channel's history starts there; old vouches re-appear with their original metadata embedded in the prose body.
+3. Members rejoin via member-contacts CSV (§14).
+
+This is slower than channel-survives recovery but bounded by your DB content, not Telegram's whims.
+
+---
+
+## 12. 5-phase bot rollout (multi-bot transition)
+
+The transition from single-bot (existing) to 3-bot (v6) rolls out in phases. Each phase is independently safe and reversible.
+
+| Phase | Action | Verification | Rollback |
+|---|---|---|---|
+| **A** | Current state — ingest bot is supergroup admin, handles everything (DM wizard + chat-moderation + admin commands). | `/healthz` returns ok; existing flow works. | n/a |
+| **B** | Provision lookup + admin tokens via @BotFather. Add both to the supergroup with the §10.1 permissions. Set `TELEGRAM_LOOKUP_TOKEN` + `TELEGRAM_ADMIN_TOKEN` in Railway. Deploy. | `/healthz` shows all three bots `configured: true`. `/readyz` returns 200 (per-bot getMe ok). Lookup bot responds to `/search` in supergroup; admin bot responds to `/freeze` in DM. | Unset the new env vars. Service redeploys; ingest dual-register fallbacks resume handling everything. |
+| **C** | Verify admin bot moderation. Send a known lexicon-hit message in the supergroup; admin bot should delete + DM warn. Inspect `admin_audit_log` for the row tagged with the admin bot's identity. | Audit row present, message gone, DM received. | If admin bot can't moderate, leave `TELEGRAM_ADMIN_TOKEN` unset — ingest moderates as today (env-var gated handoff per v6 §8.5). |
+| **D** | Demote ingest bot from supergroup admin to regular member (read-only). It only needs read access for relay capture, plus DM access (which is bot-account-global, not per-chat). | Wizard flow still works (uses DM, not supergroup admin rights). Relay capture still works. | Re-promote ingest to admin in Telegram UI. |
+| **E** | Set `VV_RELAY_ENABLED=true`. Ingest now publishes to channel; channel auto-forwards into supergroup; ingest captures the auto-forward and updates the DB row. | New vouch end-to-end: DB row goes to `status='published'` with both `channel_message_id` and `supergroup_message_id` set. `/healthz` shows `channel.stale_relay_rows: 0`. | Set `VV_RELAY_ENABLED=false`. Ingest reverts to direct supergroup publish. |
+
+**Order matters.** B before C (need admin bot online to verify it can moderate). D before E (ingest must be member-only to capture the auto-forward without echoing). Skip phases as needed if reverting to single-bot temporarily.
+
+---
+
+## 13. Adversary-aware ops, bot rotation, ToS literacy, TBC monitoring
+
+### 13.1 Adversary-aware operations
+
+KB:F4.3 — the threat model includes an active human adversary running a mass-reporting Python script and (in TBC's case) a publicly-distributed folder leak.
+
+- **Single Request-to-Join invite link.** Never folder-share. Never paste in publicly searchable channels.
+- **At least one alt admin account** in case the main operator's account is compromised.
+- **Save member @s as contacts pre-emptively** (§14 protocol). Recover-via-DM is the fallback when supergroup is unreachable.
+- **Periodic admin-list audit.** ≤5 admins. Each admin is an attack surface.
+
+### 13.2 Bot rotation runbook
+
+KB:F5.3 — bot replacement is **routine, not emergency**. BALFROCAK rotates bots intentionally, even when nothing is wrong.
+
+**Quarterly review:** is any bot showing elevated error rate, classifier-flag indicators, or slow `/readyz` responses?
+
+If yes, rotate:
+
+1. Provision a replacement via @BotFather. Same role permissions; new token.
+2. Add the replacement bot to the channel + supergroup with the same permissions as the bot it's replacing.
+3. Update the relevant token env var in Railway. Service redeploys.
+4. Verify `/healthz` + `/readyz` come up green. Test the bot's role end-to-end (ingest: DM wizard; lookup: `/search`; admin: `/freeze`).
+5. Delete the old bot via @BotFather. Token revokes.
+
+Do **not** wait for a takedown event to discover a token is dead. Quarterly cadence keeps the swap muscle warm.
+
+### 13.3 ToS literacy
+
+KB:F5.4 — BALFROCAK rereads Telegram ToS regularly: "One post can wipe this whole operation."
+
+**Quarterly:** operator re-reads:
+- Telegram Terms of Service
+- Bot Platform Policy
+- Recent Telegram enforcement guidance / announcements
+
+**Always:** group avatar / name / description stay generic and community-flavoured. **No** marketplace language anywhere — avoid: verify, certified, approved, trusted, premium, guarantee, escrow, deal, vendor, merchant. (Reiterates §2 — restated as a v6-mandatory item.)
+
+### 13.4 TBC monitoring habit
+
+Re-export TBC26 every ~3 months and re-run the analysis (KB §7 protocol). Pull learnings into this opsec doc additively. Keep this discipline — it's how we catch new defensive patterns without rebuilding the model from scratch each time.
+
+---
+
+## 14. Member-list export protocol
+
+KB:F5.1 — BALFROCAK direct quote: *"Member lists of a group hold more value and benefits than backup groups."* We adopt the same posture.
+
+### 14.1 What the script does
+
+`scripts/exportMemberContacts.ts` (added in v6 commit 6) queries the DB for every known member `(telegram_id, username, first_seen, last_seen)` and writes a CSV to stdout. Operator redirects to a local file:
+
+```bash
+npm run export:members > members-2026-04.csv
+```
+
+### 14.2 What the operator does with it
+
+- **Save the CSV in a password manager** or other admin-only storage. Treat it as recovery material — not for distribution.
+- **Import the CSV into the operator's personal Telegram as contacts** (Settings → Privacy → Contacts → Import). Contacts can be DM'd reliably and re-invited without invitation prompts.
+- **Refresh monthly**, plus on-demand before any anticipated risk event (e.g. a noisy weekend, a known mass-report incident in adjacent communities).
+
+### 14.3 What it does NOT do
+
+- ❌ Send anything to anyone. CSV export only.
+- ❌ Include private notes, freeze status, or other sensitive metadata. Only `(telegram_id, @username, first_seen, last_seen)`.
+- ❌ Include reviewers who have only DM'd the bot but never joined the supergroup, **unless** they've published at least one vouch (those count as members for our purposes).
+
+### 14.4 Why this matters during recovery
+
+- **Supergroup gone, channel survives:** the operator can't bulk-invite via the supergroup admin UI — the supergroup doesn't exist anymore. Saved contacts let the operator DM each member directly with the new invite link.
+- **DB-loss event:** the CSV is a snapshot of canonical member identities outside Postgres. Re-bootstrap a fresh DB by joining members, harvesting `users_first_seen` rows on first interaction.
+- **Operator can directly DM members during a takedown event** even if all groups are unreachable.
