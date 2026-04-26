@@ -30,15 +30,21 @@ export type ReplaySummary = {
   skippedAlreadyForwarded: number;
 };
 
-// Pure helper: chunk an ordered list of source message ids into batches
-// of up to FORWARD_BATCH_SIZE.
+// Pure helper: chunk source message ids into batches of up to
+// FORWARD_BATCH_SIZE. Bot API requires `message_ids` to be in
+// "strictly increasing order" per
+// https://core.telegram.org/bots/api#forwardmessages — we sort the
+// full input first so callers don't need to remember this. Sort is
+// numeric and ascending; duplicates are de-duplicated since Telegram
+// would reject them anyway.
 export function batchMessageIds(
   ids: ReadonlyArray<number>,
   batchSize: number = FORWARD_BATCH_SIZE,
 ): ReadonlyArray<ReadonlyArray<number>> {
+  const sorted = Array.from(new Set(ids)).sort((a, b) => a - b);
   const out: number[][] = [];
-  for (let i = 0; i < ids.length; i += batchSize) {
-    out.push(ids.slice(i, i + batchSize));
+  for (let i = 0; i < sorted.length; i += batchSize) {
+    out.push(sorted.slice(i, i + batchSize));
   }
   return out;
 }

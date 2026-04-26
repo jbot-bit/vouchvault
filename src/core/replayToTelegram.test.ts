@@ -36,6 +36,26 @@ test("batchMessageIds: respects custom batch size", () => {
   );
 });
 
+test("batchMessageIds: sorts input ascending (Bot API requires strictly increasing)", () => {
+  // Per https://core.telegram.org/bots/api#forwardmessages — message_ids
+  // must be in strictly increasing order. The helper sorts so callers
+  // don't have to.
+  const batches = batchMessageIds([5, 2, 8, 1, 3], 2);
+  assert.deepEqual(
+    batches.map((b) => [...b]),
+    [
+      [1, 2],
+      [3, 5],
+      [8],
+    ],
+  );
+});
+
+test("batchMessageIds: dedupes (Telegram would reject duplicates anyway)", () => {
+  const batches = batchMessageIds([3, 1, 2, 1, 3, 2], 10);
+  assert.deepEqual(batches.map((b) => [...b]), [[1, 2, 3]]);
+});
+
 test("filterAlreadyForwarded: skips ids in the already-set, preserves order", () => {
   const r = filterAlreadyForwarded([1, 2, 3, 4, 5], new Set([2, 4]));
   assert.deepEqual([...r.remaining], [1, 3, 5]);

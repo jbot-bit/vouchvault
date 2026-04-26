@@ -79,39 +79,61 @@ because they touch the V3 DM state machine and webhook routing.
       var to point users at the admin bot when configured
 - [x] `.env.example`: multi-bot env vars staged in commit 4
 
-### Commit 5b — Multi-bot dispatch + wizard prose + account-age guard (deferred)
+### Commit 5b — Wizard prose + account-age guard + channel relay
 
-These items touch high-risk surfaces (DM wizard state machine, webhook
-routing) and are best executed in a separate session with focused
-attention. All env-var-gated for backwards compat.
+**Architecture revision (2026-04-27):** v6 originally specced multi-bot
+(ingest + lookup + admin) and 4 forum topics. Both dropped per user
+direction. Impenetrability comes from the **channel-as-recovery-asset
+pattern + member-list export + account-age guard + prose body** — not
+from bot count. Splitting bots is plumbing, not structural redundancy at
+our scale.
 
-- [ ] `src/server.ts` 3-path webhook dispatch (`/webhooks/telegram/ingest`,
-      `/lookup`, `/admin`); `/action` aliased to `/ingest`
-- [ ] Create `src/core/lookupBot.ts` + `.test.ts` (read-only `/search`,
-      `/recent`; honours `message_thread_id` for forum-topic replies)
-- [ ] Create `src/core/adminBot.ts` + `.test.ts` (admin commands +
-      `runChatModeration` invocation moves here)
-- [ ] Create `src/core/multiBotDispatch.test.ts` (smoke test)
-- [ ] `src/telegramBot.ts`:
-  - [ ] Wizard prose-collection step inserted between tags and preview
-        (800-char cap, plain-text-only validation, no formatting entities)
-  - [ ] Wizard switches to `buildPreviewTextV35` when in prose mode
-  - [ ] Account-age guard at wizard start (call `getUserFirstSeen`,
-        reject with `buildAccountTooNewText` if `<24h`)
-  - [ ] `recordUserFirstSeen` wired into `processTelegramUpdate` (fires
-        for every observed user_id, ON CONFLICT DO NOTHING)
-  - [ ] Multi-bot moderation handoff: skip moderation if `TELEGRAM_ADMIN_TOKEN`
-        is set; otherwise moderate as today
-  - [ ] Dual-register fallbacks for `/search` and admin commands when
-        the lookup/admin tokens are unset
-- [ ] When `VV_RELAY_ENABLED=true`, ingest publish flow:
-  - [ ] Inserts row at `status='draft'` with `body_text=<reviewer prose>`
-  - [ ] Calls `publishToChannelAndCapture` to write to channel
-  - [ ] Updates row to `status='channel_published'` with
-        `channel_message_id` populated
-  - [ ] On auto-forward observed in supergroup, calls `classifyAutoForward`
-        and updates row to `status='published'` with `published_message_id`
-        (the supergroup-side message id) populated
+Final v6 stack:
+
+- 1 custom bot (ingest, with admin commands + moderation built in)
+- 2 off-the-shelf (captcha + sangmata)
+- Forum-mode supergroup linked to a channel
+- 3 topics: Vouches (General, auto-forward target) | Chat | Banned Logs
+- Native Telegram search handles discovery; `/search` and `/recent`
+  stay in ingest as V3-archive shims and become redundant after the
+  operator runs `npm run replay:to-telegram` to backfill legacy.
+
+Done sub-commits:
+
+- [x] **5b-1** — `awaiting_prose` DraftStep + `validateVouchProse` /
+      `classifyVouchProseMessage` / `buildVouchProseRejectionText` +
+      migration 0012 (vouchDrafts.body_text). 12 tests.
+- [x] **5b-2** — `extractUpdateUserId` pure helper +
+      `recordUserFirstSeen` fired-and-forgotten in
+      `processTelegramUpdate` after the idempotency reservation. 9 tests.
+- [x] **5b-3** — Account-age guard at wizard start; prose-collection
+      step wired into all three → preview transitions when
+      `VV_RELAY_ENABLED=true`; new `awaiting_prose` text handler.
+
+Remaining:
+
+- [ ] **5b-4** — Channel relay publish + capture wiring under
+      `VV_RELAY_ENABLED`. State machine: `pending` →
+      `channel_published` → `published`. `classifyAutoForward` matches
+      the auto-forwarded supergroup message back to the channel-side
+      row by `forward_origin.message_id`. Confirm action picks up
+      `bodyText` from the draft and routes through
+      `publishToChannelAndCapture` instead of the V3 direct-supergroup
+      path.
+- [ ] **5b-5** — Update CLAUDE.md + opsec.md + v6 spec to reflect the
+      simplification (single ingest bot, 3-topic plan, native-search-
+      as-canonical read path, no separate lookup or admin bot in v6).
+
+Dropped (out of scope for v6 set-and-forget):
+
+- ❌ Multi-bot dispatch (3-path webhook)
+- ❌ `src/core/lookupBot.ts`
+- ❌ `src/core/adminBot.ts`
+- ❌ `multiBotDispatch.test.ts`
+- ❌ `TELEGRAM_LOOKUP_TOKEN` / `TELEGRAM_ADMIN_TOKEN` env vars
+
+If a specific failure mode justifies splitting bots later, provision
+the new bot then with a fresh spec/plan. Don't pre-build it.
 
 ### Commit 6 — Member-list export script
 
