@@ -95,11 +95,10 @@ export async function refreshGroupLauncher(chatId: number, logger?: any) {
           logger,
         );
       } catch (error) {
-        logger?.warn("⚠️ [Archive] Failed to delete previous launcher", {
-          error,
-          chatId,
-          messageId: existing.messageId,
-        });
+        logger?.warn(
+          { error, chatId, messageId: existing.messageId },
+          "[Archive] Failed to delete previous launcher",
+        );
       }
     }
 

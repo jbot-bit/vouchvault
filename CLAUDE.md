@@ -86,7 +86,7 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 ## Logging
 
 - `src/core/logger.ts` exports `createLogger()` which returns a pino logger with redact paths for `*.token`, `*.secret`, `*.password`, `*.api_key`, `*.authorization`. `LOG_LEVEL` env var controls level (`info` default).
-- The pino logger is what `server.ts` passes into `processTelegramUpdate`; downstream handlers receive it as `LoggerLike`. Prefer pino's `logger.info({ ...ctx }, "msg")` form — putting the object first makes its fields structured (and redacted), not part of the message string.
+- The pino logger is what `server.ts` passes into `processTelegramUpdate`; downstream handlers receive it as `LoggerLike`. **Always** use pino's `logger.info({ ...ctx }, "msg")` form — putting the object first makes its fields structured (and redacted) in the JSON output. The msg-first form `logger.info("msg", { ctx })` silently drops the object as a printf-interpolation arg, so structured fields disappear from logs and redaction stops applying.
 
 ## Long messages
 

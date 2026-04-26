@@ -559,7 +559,7 @@ async function handleAdminCommand(input: {
           input.logger,
         );
       } catch (error) {
-        input.logger?.warn("Failed to delete published entry", { error, entryId });
+        input.logger?.warn({ error, entryId }, "Failed to delete published entry");
       }
     }
 
@@ -1315,22 +1315,28 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
 
   const text = buildVelocityAlertText(alert);
   const adminIds = [...getAdminIds()];
+  let successes = 0;
   for (const adminId of adminIds) {
     try {
       await sendTelegramMessage({ chatId: adminId, text, parseMode: "HTML" }, logger);
+      successes += 1;
     } catch (error) {
-      logger?.warn?.("Failed to DM admin about member-velocity alert", {
-        adminId,
-        chatId,
-        error,
-      });
+      logger?.warn?.(
+        { adminId, chatId, error },
+        "Failed to DM admin about member-velocity alert",
+      );
     }
   }
-  logger?.info?.("[Group] Member-velocity alert fired", {
-    chatId,
-    kind: alert.kind,
-    count: alert.count,
-  });
+  if (adminIds.length > 0 && successes === 0) {
+    logger?.error?.(
+      { chatId, adminCount: adminIds.length, kind: alert.kind, count: alert.count },
+      "Member-velocity alert reached zero admins; check operator visibility",
+    );
+  }
+  logger?.info?.(
+    { chatId, kind: alert.kind, count: alert.count, adminsReached: successes },
+    "[Group] Member-velocity alert fired",
+  );
 }
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
@@ -1713,7 +1719,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       try {
         await clearDraftByReviewerTelegramId(reviewerTelegramId);
       } catch (error) {
-        logger?.warn("Failed to clear published draft", { error, reviewerTelegramId });
+        logger?.warn({ error, reviewerTelegramId }, "Failed to clear published draft");
       }
 
       try {
@@ -1726,11 +1732,10 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           logger,
         );
       } catch (error) {
-        logger?.warn("Failed to answer publish callback", {
-          error,
-          reviewerTelegramId,
-          entryId: createdEntry.id,
-        });
+        logger?.warn(
+          { error, reviewerTelegramId, entryId: createdEntry.id },
+          "Failed to answer publish callback",
+        );
       }
 
       const publishedEntry = await getArchiveEntryById(createdEntry.id);
@@ -1756,11 +1761,10 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           logger,
         );
       } catch (error) {
-        logger?.warn("Failed to edit published draft message", {
-          error,
-          reviewerTelegramId,
-          entryId: createdEntry.id,
-        });
+        logger?.warn(
+          { error, reviewerTelegramId, entryId: createdEntry.id },
+          "Failed to edit published draft message",
+        );
       }
       return;
     }
@@ -1786,7 +1790,7 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     sourceChatId != null &&
     !allowedTelegramChatIds.has(sourceChatId)
   ) {
-    logger.info("Ignoring Telegram update from chat outside allowlist", { sourceChatId });
+    logger.info({ sourceChatId }, "Ignoring Telegram update from chat outside allowlist");
     return { handled: false, ignored: true };
   }
 
@@ -1794,7 +1798,7 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
   if (updateId != null) {
     const reservation = await reserveTelegramUpdate(updateId);
     if (!reservation.reserved) {
-      logger.info("Duplicate Telegram update ignored", { updateId, status: reservation.status });
+      logger.info({ updateId, status: reservation.status }, "Duplicate Telegram update ignored");
       return { handled: true, duplicate: true };
     }
 
@@ -1802,7 +1806,7 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
       try {
         await runArchiveMaintenance();
       } catch (error) {
-        logger.warn("Archive maintenance failed", { updateId, error });
+        logger.warn({ updateId, error }, "Archive maintenance failed");
       }
     }
   }
@@ -1818,9 +1822,10 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
         typeof chatMemberChatId === "number" &&
         !allowedTelegramChatIds.has(chatMemberChatId)
       ) {
-        logger.info("Ignoring chat_member update from chat outside allowlist", {
-          chatId: chatMemberChatId,
-        });
+        logger.info(
+          { chatId: chatMemberChatId },
+          "Ignoring chat_member update from chat outside allowlist",
+        );
       } else {
         await handleChatMember(payload.chat_member, logger);
       }
@@ -1873,10 +1878,10 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
         }
         return { handled: true, chatGone: true };
       } catch (handlerError) {
-        logger.error("chat-gone handler failed; releasing update", {
-          err: handlerError,
-          chatId: error.chatId,
-        });
+        logger.error(
+          { err: handlerError, chatId: error.chatId, updateId },
+          "chat-gone handler failed; releasing update",
+        );
         // Fall through to release + rethrow original chat-gone error so
         // Telegram can retry the inbound update once the DB recovers.
       }
