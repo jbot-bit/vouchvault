@@ -627,14 +627,17 @@ export function buildVouchProsePromptText(): string {
   ].join("\n");
 }
 
-// V3.5 preview shape (V3.5.2). The published surface drops the V3
-// templated heading; structured fields render only via /search.
+// V3.5 preview shape (V3.5.2 / v6 §4.4). The published surface drops
+// the V3 templated heading; structured fields render only via /search.
+// Heading is <i>Preview</i> per spec (distinct from V3's <b><u>Preview</u></b>
+// so the wizard's prose-mode preview is visually distinguishable from
+// the V3 structured-mode preview during the rollout window).
 export function buildPreviewTextV35(input: {
   bodyTextEscaped: string;
   entryId: number;
 }): string {
   return [
-    "<b><u>Preview</u></b>",
+    "<i>Preview</i>",
     "",
     input.bodyTextEscaped,
     "",

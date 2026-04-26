@@ -540,7 +540,7 @@ test("buildPreviewTextV35 renders prose + entry id (no V3 templated heading)", (
   assert.equal(
     text,
     [
-      "<b><u>Preview</u></b>",
+      "<i>Preview</i>",
       "",
       "Solid bloke, smooth pickup.",
       "",
@@ -549,6 +549,8 @@ test("buildPreviewTextV35 renders prose + entry id (no V3 templated heading)", (
   );
   // Defensively assert the V3 templated heading does NOT appear in the V3.5 shape.
   assert.doesNotMatch(text, /POS Vouch|MIX Vouch|NEG Vouch/);
+  // V3 uses <b><u>Preview</u></b>; V3.5 uses <i>Preview</i> per spec.
+  assert.doesNotMatch(text, /<b><u>Preview/);
 });
 
 test("buildPublishedDraftTextWithUrl includes channel post link + entry id", () => {

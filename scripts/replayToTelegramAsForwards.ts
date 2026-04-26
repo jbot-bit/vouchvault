@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 
 import { db, pool } from "../src/core/storage/db.ts";
 import { replayLog, vouchEntries } from "../src/core/storage/schema.ts";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { callTelegramAPI } from "../src/core/tools/telegramTools.ts";
 import {
   replayChannelArchive,
@@ -117,14 +117,18 @@ async function main(): Promise<void> {
 
   // Source message ids in publish order. Filter to entries that have
   // a channel-side message id (i.e. were published via the channel
-  // relay path) so we can actually forward them.
+  // relay path) so we can actually forward them. Include both
+  // 'published' (auto-forward observed) AND 'channel_published' rows
+  // (channel post landed but auto-forward was lost) — for recovery,
+  // the channel post is the recovery asset, so any row with a
+  // channel_message_id is forwardable.
   const rows = await db
     .select({ channelMessageId: vouchEntries.channelMessageId })
     .from(vouchEntries)
     .where(
       and(
         isNotNull(vouchEntries.channelMessageId),
-        eq(vouchEntries.status, "published"),
+        inArray(vouchEntries.status, ["published", "channel_published"]),
       ),
     )
     .orderBy(vouchEntries.createdAt, vouchEntries.id);
