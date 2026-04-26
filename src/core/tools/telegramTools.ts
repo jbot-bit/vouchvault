@@ -147,6 +147,69 @@ export async function deleteTelegramMessage(
   );
 }
 
+export async function restrictChatMember(
+  input: {
+    chatId: number;
+    telegramId: number;
+    untilDate?: number;
+    canSendMessages?: boolean;
+  },
+  logger?: any,
+) {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "restrictChatMember",
+      {
+        chat_id: input.chatId,
+        user_id: input.telegramId,
+        permissions: {
+          can_send_messages: input.canSendMessages ?? false,
+          can_send_media_messages: false,
+          can_send_polls: false,
+          can_send_other_messages: false,
+          can_add_web_page_previews: false,
+          can_change_info: false,
+          can_invite_users: false,
+          can_pin_messages: false,
+        },
+        until_date: input.untilDate,
+      },
+      logger,
+      input.chatId,
+    ),
+  );
+}
+
+export async function banChatMember(
+  input: { chatId: number; telegramId: number; untilDate?: number },
+  logger?: any,
+) {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "banChatMember",
+      {
+        chat_id: input.chatId,
+        user_id: input.telegramId,
+        until_date: input.untilDate,
+      },
+      logger,
+      input.chatId,
+    ),
+  );
+}
+
+export async function getChatMember(
+  input: { chatId: number; telegramId: number },
+  logger?: any,
+) {
+  return callTelegramAPI(
+    "getChatMember",
+    { chat_id: input.chatId, user_id: input.telegramId },
+    logger,
+    input.chatId,
+  );
+}
+
 export async function answerTelegramCallbackQuery(
   input: {
     callbackQueryId: string;
@@ -184,6 +247,18 @@ export async function getTelegramBotUsername(logger?: any): Promise<string | nul
     typeof result?.username === "string" ? result.username.replace(/^@+/, "") : null;
 
   return cachedBotUsername;
+}
+
+let cachedBotId: number | null = null;
+
+export async function getTelegramBotId(logger?: any): Promise<number | null> {
+  if (cachedBotId != null) return cachedBotId;
+  const result = await callTelegramAPI("getMe", {}, logger);
+  const id = (result as { id?: number } | null)?.id;
+  if (typeof id === "number") {
+    cachedBotId = id;
+  }
+  return cachedBotId;
 }
 
 export function buildUrlInlineKeyboard(text: string, url: string) {
