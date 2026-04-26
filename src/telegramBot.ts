@@ -1088,6 +1088,24 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     }
 
     if (command === "/lookup") {
+      // /lookup is admin-only — it returns the full audit list including
+      // private NEGs and the admin-only private_note. The group-context
+      // /lookup is gated below; the DM context must match.
+      if (!isAdmin(message.from?.id)) {
+        await recordAdminAction({
+          adminTelegramId: message.from?.id ?? 0,
+          adminUsername: message.from?.username ?? null,
+          command,
+          targetChatId: chatId,
+          targetUsername: args[0] ?? null,
+          denied: true,
+        });
+        await sendTelegramMessage(
+          { chatId, text: buildAdminOnlyText() },
+          logger,
+        );
+        return;
+      }
       await handleLookupCommand({
         chatId,
         rawUsername: args[0],

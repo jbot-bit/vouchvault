@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { db, pool } from "./storage/db.ts";
 import {
@@ -492,10 +492,19 @@ export async function markArchiveEntryRemoved(entryId: number) {
 }
 
 export async function getRecentArchiveEntries(limit: number) {
+  // /recent is member-callable in group + DM. It must NOT leak private NEGs
+  // (status='published' AND publishedMessageId IS NULL — the v1.1 vendetta-
+  // resistant shape). Filter on publishedMessageId IS NOT NULL: legacy public
+  // NEGs (which had a real message_id) still appear; new private NEGs don't.
   return db
     .select()
     .from(vouchEntries)
-    .where(eq(vouchEntries.status, "published"))
+    .where(
+      and(
+        eq(vouchEntries.status, "published"),
+        isNotNull(vouchEntries.publishedMessageId),
+      ),
+    )
     .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
     .limit(limit);
 }
