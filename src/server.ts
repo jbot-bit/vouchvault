@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
 
 import { validateBootEnv } from "./core/bootValidation.ts";
 import { installGracefulShutdown } from "./core/gracefulShutdown.ts";
@@ -6,6 +7,19 @@ import { createLogger } from "./core/logger.ts";
 import { callTelegramAPI } from "./core/tools/telegramTools.ts";
 import { TelegramRateLimitError } from "./core/typedTelegramErrors.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
+
+// Constant-time compare for the webhook secret. Plain `!==` leaks length and
+// prefix-match timing to an attacker who can measure response latency. The
+// secret is high-entropy (32 hex bytes via setTelegramWebhook) so brute-force
+// is impractical, but timingSafeEqual is the documented best practice and
+// closes the side-channel cleanly.
+function safeStringEquals(a: string | string[] | undefined, b: string): boolean {
+  if (typeof a !== "string") return false;
+  const aBuf = Buffer.from(a);
+  const bBuf = Buffer.from(b);
+  if (aBuf.length !== bBuf.length) return false;
+  return timingSafeEqual(aBuf, bBuf);
+}
 
 const logger = createLogger();
 
@@ -151,7 +165,7 @@ async function main() {
       if (req.method === "POST" && req.url === "/webhooks/telegram/action") {
         if (webhookSecret) {
           const providedSecret = req.headers["x-telegram-bot-api-secret-token"];
-          if (providedSecret !== webhookSecret) {
+          if (!safeStringEquals(providedSecret, webhookSecret)) {
             const response = textResponse("Forbidden", 403);
             res.writeHead(response.statusCode, response.headers);
             res.end(response.body);
