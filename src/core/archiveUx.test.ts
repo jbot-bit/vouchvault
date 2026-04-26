@@ -108,7 +108,7 @@ test("buildPreviewText mirrors the posted format under a Preview heading", () =>
 test("welcome text uses locked v3 wording", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
-  assert.match(text, /Log and verify local-business service experiences/);
+  assert.match(text, /Log and review local-business service experiences/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
   assert.match(text, /Tap <b>Submit Vouch<\/b> in the group/);
   assert.match(text, /Send the target @username here/);
@@ -129,7 +129,7 @@ test("pinned guide text uses locked v3 wording", () => {
 
 test("bot profile text uses the locked v3 copy", () => {
   const desc = buildBotDescriptionText();
-  assert.match(desc, /Log and verify local-business service experiences/);
+  assert.match(desc, /Log and review local-business service experiences/);
   assert.match(desc, /Tap Submit Vouch/);
   assert.match(desc, /Lawful use only/);
   assert.ok(desc.length <= 512);
