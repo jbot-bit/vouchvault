@@ -78,6 +78,7 @@ import {
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
 import {
+  isChatDisabled,
   isChatPaused,
   setChatActive,
   setChatGone,
@@ -1260,28 +1261,33 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
     return;
   }
 
-  // Bot re-added after kicked / gone / migrated_away → flip back to active.
-  if (
-    (newStatus === "member" || newStatus === "administrator") &&
-    (oldStatus === "left" || oldStatus === "kicked")
-  ) {
-    await setChatActive(chatId);
-    try {
-      await recordAdminAction({
-        adminTelegramId: 0,
-        adminUsername: null,
-        command: "system.chat_readded",
-        targetChatId: chatId,
-        denied: false,
-      });
-    } catch (err) {
-      logger?.warn?.("Failed to write chat-readded audit entry", { chatId, err });
+  // Bot is now present (member/administrator). If the chat row is currently
+  // in any disabled state (kicked / gone / migrated_away), flip it back to
+  // 'active'. This deliberately ignores oldStatus — Telegram's
+  // my_chat_member events don't always carry a clean kicked→member
+  // transition (e.g. when a chat marked 'gone' from a transient API quirk
+  // resolves, the next event may show oldStatus='member' already), and
+  // staying disabled in that case would leave the bot silently dead in a
+  // working chat.
+  if (newStatus === "member" || newStatus === "administrator") {
+    if (await isChatDisabled(chatId)) {
+      await setChatActive(chatId);
+      try {
+        await recordAdminAction({
+          adminTelegramId: 0,
+          adminUsername: null,
+          command: "system.chat_readded",
+          targetChatId: chatId,
+          denied: false,
+        });
+      } catch (err) {
+        logger?.warn?.({ chatId, err }, "Failed to write chat-readded audit entry");
+      }
+      logger?.info?.(
+        { chatId, oldStatus, newStatus },
+        "[Group] Bot present in disabled chat; reset chat status to 'active'",
+      );
     }
-    logger?.info?.("[Group] Bot re-added; reset chat status to 'active'", {
-      chatId,
-      oldStatus,
-      newStatus,
-    });
   }
 }
 
@@ -1335,7 +1341,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
 
   if (!data.startsWith("archive:") || !reviewerTelegramId || !chatId || !messageId) {
     if (callbackQuery.id) {
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id }, logger);
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
     }
     return;
   }
@@ -1349,6 +1355,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       await answerTelegramCallbackQuery(
         {
           callbackQueryId: callbackQuery.id,
+          chatId,
           text: "Open the bot in DM to start.",
           showAlert: true,
         },
@@ -1366,6 +1373,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       await answerTelegramCallbackQuery(
         {
           callbackQueryId: callbackQuery.id,
+          chatId,
           text: "That launcher is no longer active.",
           showAlert: true,
         },
@@ -1374,7 +1382,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       return;
     }
 
-    await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id }, logger);
+    await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
     await startDraftFlow({
       chatId,
       from: callbackQuery.from,
@@ -1390,6 +1398,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       await answerTelegramCallbackQuery(
         {
           callbackQueryId: callbackQuery.id,
+          chatId,
           text: "Start again from the launcher.",
         },
         logger,
@@ -1402,6 +1411,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       await answerTelegramCallbackQuery(
         {
           callbackQueryId: callbackQuery.id,
+          chatId,
           text: "Draft expired. Start again.",
           showAlert: true,
         },
@@ -1426,7 +1436,8 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     if (action === "cancel") {
       await clearDraftByReviewerTelegramId(reviewerTelegramId);
       await answerTelegramCallbackQuery(
-        { callbackQueryId: callbackQuery.id, text: "Cancelled." },
+        { callbackQueryId: callbackQuery.id,
+          chatId, text: "Cancelled." },
         logger,
       );
       await editTelegramMessage(
@@ -1444,7 +1455,8 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     if (action === "result") {
       if (!value || !isEntryResult(value) || !targetUsername) {
         await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id, text: "Choose a target first." },
+          { callbackQueryId: callbackQuery.id,
+          chatId, text: "Choose a target first." },
           logger,
         );
         return;
@@ -1457,7 +1469,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         step: "selecting_tags",
       });
 
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id }, logger);
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
       await editTelegramMessage(
         {
           chatId,
@@ -1486,7 +1498,8 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         !getAllowedTagsForResult(latestResult).includes(value as EntryTag)
       ) {
         await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id, text: "Choose a result first." },
+          { callbackQueryId: callbackQuery.id,
+          chatId, text: "Choose a result first." },
           logger,
         );
         return;
@@ -1498,7 +1511,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         step: "selecting_tags",
       });
 
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id }, logger);
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
       await editTelegramMessage(
         {
           chatId,
@@ -1524,6 +1537,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "Select at least one tag.",
           },
           logger,
@@ -1533,7 +1547,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
 
       await updateDraftByReviewerTelegramId(reviewerTelegramId, { step: "preview" });
 
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id }, logger);
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
       await editTelegramMessage(
         {
           chatId,
@@ -1566,6 +1580,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "Draft is incomplete.",
           },
           logger,
@@ -1577,6 +1592,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "This draft no longer points to an active group. Start again from the current launcher.",
             showAlert: true,
           },
@@ -1601,6 +1617,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "You need a public @username.",
             showAlert: true,
           },
@@ -1613,6 +1630,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "Vouching is paused.",
             showAlert: true,
           },
@@ -1626,6 +1644,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "That target is currently frozen.",
           },
           logger,
@@ -1643,6 +1662,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "A recent entry already exists for that target.",
           },
           logger,
@@ -1679,7 +1699,15 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       try {
         await refreshGroupLauncher(latestTargetGroupChatId, logger);
       } catch (error) {
-        logger?.warn("Failed to refresh launcher", { error, groupChatId: latestTargetGroupChatId });
+        // Rethrow chat-gone so processTelegramUpdate's outer catch can route
+        // to handleChatGone. Swallowing it here would leave the chat
+        // permanently un-flagged and we'd silently log "Failed to refresh
+        // launcher" forever.
+        if (error instanceof TelegramChatGoneError) throw error;
+        logger?.warn?.(
+          { error, groupChatId: latestTargetGroupChatId },
+          "Failed to refresh launcher",
+        );
       }
 
       try {
@@ -1692,6 +1720,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         await answerTelegramCallbackQuery(
           {
             callbackQueryId: callbackQuery.id,
+          chatId,
             text: "Posted.",
           },
           logger,
@@ -1739,6 +1768,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     await answerTelegramCallbackQuery(
       {
         callbackQueryId: callbackQuery.id,
+          chatId,
         text: "Unsupported action.",
       },
       logger,
