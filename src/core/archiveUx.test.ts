@@ -186,38 +186,47 @@ test("buildPreviewText HTML-escapes the admin-only note", () => {
   assert.equal(text.includes("<script>"), false);
 });
 
-test("welcome text uses locked v3 wording", () => {
+test("welcome text uses locked v3.1 wording (community-framing)", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
-  assert.match(text, /Log and review local-business service experiences/);
+  assert.match(text, /Vouch for members you personally know/);
+  assert.match(text, /community helps each other find trustworthy people to deal with/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
   assert.match(text, /Tap <b>Submit Vouch<\/b> in the group/);
   assert.match(text, /Send the target @username here/);
   assert.match(text, /Choose result and tags/);
   assert.match(text, /I post the entry back to the group/);
-  assert.match(text, /Lawful use only — follow Telegram's Terms of Service/);
+  assert.match(text, /Follow Telegram's Terms of Service/);
+  // No commerce vocabulary in the locked copy.
+  assert.equal(text.includes("local-business"), false);
+  assert.equal(text.includes("service experiences"), false);
 });
 
-test("pinned guide text uses locked v3 wording", () => {
+test("pinned guide text uses locked v3.1 wording (community-framing)", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
+  assert.match(text, /Vouch for members you personally know/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
   assert.match(text, /Tap <b>Submit Vouch<\/b> below/);
   assert.match(text, /In DM, send only the target @username/);
   assert.match(text, /I post the final entry back here/);
-  assert.match(text, /Lawful use only/);
+  assert.match(text, /Follow Telegram's Terms of Service/);
+  assert.equal(text.includes("local-business"), false);
 });
 
-test("bot profile text uses the locked v3 copy", () => {
+test("bot profile text uses the locked v3.1 copy (community-framing)", () => {
   const desc = buildBotDescriptionText();
-  assert.match(desc, /Log and review local-business service experiences/);
+  assert.match(desc, /community vouch hub for members who personally know each other/);
   assert.match(desc, /Tap Submit Vouch/);
-  assert.match(desc, /Lawful use only/);
+  assert.match(desc, /Follow Telegram's Terms of Service/);
+  assert.equal(desc.includes("local-business"), false);
+  assert.equal(desc.includes("service experiences"), false);
   assert.ok(desc.length <= 512);
 
   const short = buildBotShortDescription();
   assert.match(short, /Vouch Hub/);
-  assert.match(short, /local-business service experiences/);
+  assert.match(short, /community vouches between members who know each other/);
+  assert.equal(short.includes("local-business"), false);
   assert.ok(short.length <= 120);
 });
 

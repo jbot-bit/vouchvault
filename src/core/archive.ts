@@ -315,7 +315,7 @@ function rulesLine(): string {
 }
 
 function aboutLine(): string {
-  return "A business hub for local businesses to share and verify service experiences.";
+  return "A community vouch hub for members who personally know each other.";
 }
 
 export function buildArchiveEntryText(input: {
@@ -380,7 +380,7 @@ export function buildWelcomeText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Log and review local-business service experiences with the community.",
+    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
     "",
     "<b><u>How to vouch</u></b>",
     "1. Tap <b>Submit Vouch</b> in the group.",
@@ -388,8 +388,7 @@ export function buildWelcomeText(): string {
     "3. Choose result and tags.",
     "4. I post the entry back to the group.",
     "",
-    "<b>Rules</b>",
-    "Lawful use only — follow Telegram's Terms of Service.",
+    rulesLine(),
   ].join("\n");
 }
 
@@ -524,15 +523,14 @@ export function buildPinnedGuideText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Log and review local-business service experiences with the community.",
+    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
     "",
     "<b><u>How to vouch</u></b>",
     "1. Tap <b>Submit Vouch</b> below.",
     "2. In DM, send only the target @username, then use the buttons.",
     "3. I post the final entry back here.",
     "",
-    "<b>Rules</b>",
-    "Lawful use only — follow Telegram's Terms of Service.",
+    rulesLine(),
   ].join("\n");
 }
 
@@ -550,16 +548,16 @@ export function buildPublishedDraftText(targetUsername: string, result: EntryRes
 
 export function buildBotDescriptionText(): string {
   return [
-    "Log and review local-business service experiences with the community.",
+    "A community vouch hub for members who personally know each other. Log honest vouches; help others find trustworthy people to deal with.",
     "",
     "How it works: Tap Submit Vouch in the group, DM the bot one @username, choose result + tags, I post a clean entry back to the group.",
     "",
-    "Lawful use only — follow Telegram's Terms of Service.",
+    rulesLine(),
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch Hub — log and review local-business service experiences. Open from the group launcher.";
+  return "Vouch Hub — community vouches between members who know each other. Open from the group launcher.";
 }
 
 export function buildAdminOnlyText(): string {
