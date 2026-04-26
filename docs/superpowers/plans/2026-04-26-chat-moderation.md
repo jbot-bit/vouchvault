@@ -1,12 +1,12 @@
-# Chat Moderation v3 Implementation Plan
+# Chat Moderation v4 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Spec:** `docs/superpowers/specs/2026-04-26-chat-moderation-design.md` (v3 — set-and-forget edition).
+**Spec:** `docs/superpowers/specs/2026-04-26-chat-moderation-design.md` (v4 — set-and-forget, audited, sim-tested edition).
 
-**Goal:** Scan every member message in any allowed chat, delete on lexicon hit, escalate via per-chat strikes ladder (warn → 24h mute → ban). Strike count derives from `admin_audit_log` (30-day window) — no new table, no JSON file, no admin command. **One new module + one new test file. Two existing files modified.**
+**Goal:** Scan every member message in any allowed chat, delete on lexicon hit, escalate via per-chat strikes ladder (warn → 24h mute → ban). Strike count derives from `admin_audit_log` (30-day window). One new module + one test file. No new tables, no JSON, no new admin commands. Plus: extend the v1.1 username deny-list with chat-phrase tokens to close the username-layer evasion vector.
 
-**Architecture:** `src/core/chatModeration.ts` carries the lexicon constants, normaliser, scanner, ladder decision, and `runChatModeration` orchestration. `src/core/tools/telegramTools.ts` gains `restrictChatMember`, `banChatMember`, `getChatMember` wrappers. `src/telegramBot.ts` calls `runChatModeration` once at the top of group-message and edited-message branches, and logs bot-admin status for each allowed chat at boot.
+**Architecture:** `src/core/chatModeration.ts` carries lexicon, normaliser, scanner, ladder, audit-derived count, orchestration. `src/core/tools/telegramTools.ts` gains three wrappers. `src/telegramBot.ts` calls `runChatModeration` first in group + edited-message branches. `src/server.ts` triggers boot-time admin-rights logging fire-and-forget. `src/core/archive.ts` extends `MARKETPLACE_USERNAME_SUBSTRINGS` and updates welcome/pinned copy. V3-locked tests in `archiveUx.test.ts` updated to match.
 
 **Tech Stack:** TypeScript with `--experimental-strip-types`, Node `node:test`, drizzle-orm, Postgres, pino, Telegram Bot API via `src/core/tools/telegramTools.ts`.
 
@@ -22,15 +22,18 @@
 
 | File | Status | Responsibility |
 |---|---|---|
-| `src/core/chatModeration.ts` | **Create** | Lexicon constants, `normalize`, `findHits`, `decideStrikeAction`, `getRecentStrikeCount`, `runChatModeration` |
-| `src/core/chatModeration.test.ts` | **Create** | Unit tests for normaliser, scanner, ladder, runner (with injected fakes for DB + Telegram side-effects) |
-| `src/core/tools/telegramTools.ts` | Modify | Add `restrictChatMember`, `banChatMember`, `getChatMember` wrappers |
-| `src/telegramBot.ts` | Modify | Call `runChatModeration` first in group-message + edited-message branches; emit boot-time admin-rights log |
-| `package.json` | Modify | Append `chatModeration.test.ts` to `scripts.test` |
-| `docs/runbook/opsec.md` | Modify | New §6b chat-moderation admin reference |
-| `DEPLOY.md` | Modify | New §14 chat moderation enablement |
+| `src/core/chatModeration.ts` | **Create** | Lexicon, `normalize`, `findHits`, `decideStrikeAction`, `getRecentStrikeCount`, `runChatModeration`, `logBotAdminStatusForChats` |
+| `src/core/chatModeration.test.ts` | **Create** | Unit tests for pure helpers; orchestration via manual e2e |
+| `src/core/tools/telegramTools.ts` | Modify | Add `restrictChatMember`, `banChatMember`, `getChatMember` |
+| `src/telegramBot.ts` | Modify | Wire `runChatModeration` into group + edited-message branches; pass bot id and isAdmin |
+| `src/server.ts` | Modify | Call `logBotAdminStatusForChats` after webhook setup, fire-and-forget |
+| `src/core/archive.ts` | Modify | Extend `MARKETPLACE_USERNAME_SUBSTRINGS` with chat-phrase tokens; update welcome/pinned copy with chat-moderation block |
+| `src/core/archiveUx.test.ts` | Modify | V3-locked tests assert new welcome/pinned wording |
+| `package.json` | Modify | Append `chatModeration.test.ts` |
+| `docs/runbook/opsec.md` | Modify | New §6b admin reference |
+| `DEPLOY.md` | Modify | New §14 enablement |
 
-**No migration. No JSON file. No new admin command. No new schema.**
+**No migration. No new schema. No JSON. No new admin command.**
 
 ---
 
@@ -41,7 +44,7 @@
 
 - [ ] **Step 1: Append the wrappers**
 
-After the existing `deleteTelegramMessage` function in `src/core/tools/telegramTools.ts`:
+After the existing `deleteTelegramMessage` function:
 
 ```ts
 export async function restrictChatMember(
@@ -108,22 +111,18 @@ export async function getChatMember(
 }
 ```
 
-- [ ] **Step 2: Type-check**
-
-Run: `npx tsc --noEmit`
-Expected: clean.
-
-- [ ] **Step 3: Commit**
+- [ ] **Step 2: Type-check + commit**
 
 ```bash
+npx tsc --noEmit
 git add src/core/tools/telegramTools.ts
 git commit -m "$(cat <<'EOF'
 feat(telegram): add restrictChatMember, banChatMember, getChatMember
 
 Three wrappers mirroring deleteTelegramMessage. restrictChatMember
-sets a default mute (can_send_messages=false) with optional
+sets default mute (can_send_messages=false) with optional
 until_date. banChatMember bans permanently when until_date is
-omitted. getChatMember used by the boot-time admin-rights check.
+omitted. getChatMember used by boot-time admin-rights check.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -132,7 +131,92 @@ EOF
 
 ---
 
-## Task 2: `chatModeration.ts` — full module
+## Task 2: Extend `MARKETPLACE_USERNAME_SUBSTRINGS` for chat-phrase tokens
+
+**Files:**
+- Modify: `src/core/archive.ts`
+- Modify: `src/core/reservedTargets.test.ts`
+
+- [ ] **Step 1: Add new substrings**
+
+In `src/core/archive.ts`, extend `MARKETPLACE_USERNAME_SUBSTRINGS` with the chat-moderation phrase tokens (closes the username-layer evasion vector — §4.9 of spec):
+
+```ts
+export const MARKETPLACE_USERNAME_SUBSTRINGS: ReadonlyArray<string> = [
+  // ... existing entries unchanged ...
+  "legit_seller", "vouched_vendor", "approved_seller",
+  // Chat-moderation phrase tokens that could appear in usernames.
+  // Closing the evasion vector where a vouch target like @pm_me_now
+  // would otherwise pass the deny-list and get published in a vouch.
+  "pm_", "_pm",
+  "selling", "_selling", "selling_",
+  "buying", "_buying", "buying_",
+  "wickr", "wickr_", "_wickr",
+  "threema", "_threema",
+  "wtb_", "_wtb",
+  "wts_", "_wts",
+  "wtt_", "_wtt",
+  "hmu_", "_hmu",
+];
+```
+
+- [ ] **Step 2: Update `reservedTargets.test.ts`**
+
+Append test cases:
+
+```ts
+test("chat-moderation phrase tokens are rejected in usernames", () => {
+  for (const handle of [
+    "pm_me_now",
+    "best_selling",
+    "selling_now",
+    "buying_today",
+    "wickr_user",
+    "_threema",
+    "ohwtb_today",
+    "wts_now",
+    "hmu_quick",
+  ]) {
+    assert.equal(isReservedTarget(handle), true, handle);
+  }
+});
+
+test("chat-moderation tokens don't false-positive on benign overlaps", () => {
+  // 'pm' alone (not bracketed) is allowed; 'selling' inside common words
+  // doesn't appear in normal English (it's already a marketplace verb).
+  for (const handle of [
+    "alice",
+    "calmness",
+    "bobsmith",
+  ]) {
+    assert.equal(isReservedTarget(handle), false, handle);
+  }
+});
+```
+
+- [ ] **Step 3: Run tests + commit**
+
+```bash
+npx tsc --noEmit && npm test
+git add src/core/archive.ts src/core/reservedTargets.test.ts
+git commit -m "$(cat <<'EOF'
+feat(deny-list): close username-layer chat-phrase evasion vector
+
+Extends MARKETPLACE_USERNAME_SUBSTRINGS with the chat-moderation
+phrase tokens that could plausibly appear in a vouch target's
+@username (pm_, selling, wickr, wtb, wts, etc.). Without this,
+a member could vouch @pm_me_now and the bot would publish a vouch
+heading containing 'pm me now' which a hostile reporter could
+screenshot and report.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 3: `chatModeration.ts` — full module + tests
 
 **Files:**
 - Create: `src/core/chatModeration.ts`
@@ -247,40 +331,61 @@ test("decideStrikeAction: count < 1 throws", () => {
   assert.throws(() => decideStrikeAction(0));
 });
 
-// ---- Lexicon shape ----
+// ---- PHRASES shape ----
 
-test("PHRASES is non-empty and all entries are non-empty lowercase strings", () => {
+test("PHRASES non-empty, lowercase, alphabetised", () => {
   assert.ok(PHRASES.length > 0);
   for (const p of PHRASES) {
     assert.equal(typeof p, "string");
     assert.ok(p.length > 0);
     assert.equal(p, p.toLowerCase());
   }
+  const sorted = [...PHRASES].sort();
+  assert.deepEqual([...PHRASES], sorted, "PHRASES must be alphabetised for diff readability");
 });
 
-test("STRIKE_DECAY_DAYS is 30", () => {
+test("PHRASES contains no known false-positive vocabulary", () => {
+  // Suncoast V3 uses these in normal social chat per the empirical scan.
+  // If any of these ever leak into PHRASES, members will be falsely flagged.
+  const FALSE_POSITIVE_GUARD = [
+    "bud", "fire", "k", "mdma", "pingas", "caps",
+    "weed", "kush", "molly", "xan", "tabs", "acid",
+    "ket", "coke", "meth",
+  ];
+  for (const fp of FALSE_POSITIVE_GUARD) {
+    assert.ok(
+      !PHRASES.includes(fp),
+      `PHRASES must not contain false-positive vocab '${fp}' — see spec §4.1`,
+    );
+  }
+});
+
+test("constants drift guard", () => {
   assert.equal(STRIKE_DECAY_DAYS, 30);
+  assert.equal(MUTE_DURATION_HOURS, 24);
 });
 ```
 
-- [ ] **Step 2: Append to `package.json`**
+Append `src/core/chatModeration.test.ts` to `package.json`'s `scripts.test`.
 
-In `scripts.test`, append `src/core/chatModeration.test.ts`.
+- [ ] **Step 2: Run, expect failure**
 
-- [ ] **Step 3: Run, expect failure**
+```bash
+npm test
+```
+Expected: FAIL — module doesn't exist.
 
-Run: `npm test`
-Expected: FAIL — `chatModeration.ts` doesn't exist.
-
-- [ ] **Step 4: Implement the module**
+- [ ] **Step 3: Implement the module**
 
 Create `src/core/chatModeration.ts`:
 
 ```ts
 import { and, eq, gte, sql } from "drizzle-orm";
+import { not, like, isNull, or } from "drizzle-orm";
 
 import { db } from "./storage/db.ts";
 import { adminAuditLog } from "./storage/schema.ts";
+import { recordAdminAction } from "./adminAuditStore.ts";
 import {
   banChatMember,
   deleteTelegramMessage,
@@ -296,11 +401,11 @@ export const STRIKE_DECAY_DAYS = 30;
 export const MUTE_DURATION_HOURS = 24;
 export const MODERATION_COMMAND = "chat_moderation:delete";
 
-// Empirically derived from the four chat exports: phrases that fired
-// dozens of times in the abuse corpus and 0–4 times in the target community.
-// Drug names are deliberately excluded — Suncoast V3 uses bud / fire / k /
-// mdma / pingas / caps in normal chat, so blocking them creates false-positives.
-// The high-precision discriminator is commerce-shape phrasing.
+// Empirically derived from four chat exports (~24k messages). Each phrase
+// fired dozens of times in the abuse corpus and 0–4 times in the target
+// community. Drug names are deliberately excluded — Suncoast V3 uses
+// bud / fire / k / mdma / pingas / caps in normal chat. The high-precision
+// discriminator is commerce-shape phrasing, not vocabulary.
 export const PHRASES: ReadonlyArray<string> = [
   "briar", "buying", "come thru", "dm me", "drop off", "f2f",
   "front", "got some", "got the", "hit me up", "hmu", "holding",
@@ -310,9 +415,8 @@ export const PHRASES: ReadonlyArray<string> = [
   "what u sell", "wickr", "wickr me", "wtb", "wts", "wtt",
 ];
 
-// Format-perfect artefacts. These never appear legitimately in the target
-// community per the empirical scan (0 wallets, 0 emails, ~10 phones across
-// 24k messages — all in the abuse corpus).
+// Format-perfect artefacts. Empirical scan: 0 wallets, 0 emails, ~10 phones,
+// 41 off-platform-comm references, 136 t.me invite links across 24k messages.
 const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "tme_invite",    re: /t\.me\/\+|t\.me\/joinchat|telegram\.me\/\+/i },
   { name: "phone",         re: /\b\+?\d[\d\s\-]{7,}\d\b/ },
@@ -344,14 +448,12 @@ export type HitResult =
 const PHRASES_SET: ReadonlySet<string> = new Set(PHRASES.map((p) => p.toLowerCase()));
 
 export function findHits(text: string): HitResult {
-  // Phrase pass: normalise + word-boundary match via space-padded includes().
   const padded = ` ${normalize(text)} `;
   for (const phrase of PHRASES_SET) {
     if (padded.includes(` ${phrase} `)) {
       return { matched: true, source: "phrase" };
     }
   }
-  // Regex pass: original (non-normalised) text. Format-perfect.
   for (const { name, re } of REGEX_PATTERNS) {
     if (re.test(text)) {
       return { matched: true, source: `regex_${name}` };
@@ -376,9 +478,9 @@ export function decideStrikeAction(strikeCount: number): StrikeAction {
   return { kind: "ban" };
 }
 
-// ---- Strike count from audit log (no new table) ----
+// ---- Strike count from audit log ----
 
-export async function getRecentStrikeCount(
+async function getRecentStrikeCount(
   chatId: number,
   telegramId: number,
 ): Promise<number> {
@@ -393,12 +495,17 @@ export async function getRecentStrikeCount(
         eq(adminAuditLog.adminTelegramId, telegramId),
         gte(adminAuditLog.createdAt, cutoff),
         eq(adminAuditLog.denied, false),
+        // Exclude admin-exempt rows from contributing to anyone's count.
+        or(
+          isNull(adminAuditLog.reason),
+          not(like(adminAuditLog.reason, "%(admin_exempt)%")),
+        ),
       ),
     );
   return rows[0]?.count ?? 0;
 }
 
-// ---- Logger interface (compatible with the project's LoggerLike) ----
+// ---- Logger interface ----
 
 type Logger = {
   info?: (...args: any[]) => void;
@@ -406,40 +513,28 @@ type Logger = {
   error?: (...args: any[]) => void;
 };
 
-// ---- Audit row insertion ----
-
-async function insertModerationAudit(input: {
-  chatId: number;
-  telegramId: number;
-  username: string | null;
-  reason: string;
-}): Promise<void> {
-  await db.insert(adminAuditLog).values({
-    adminTelegramId: input.telegramId,
-    adminUsername: input.username,
-    command: MODERATION_COMMAND,
-    targetChatId: input.chatId,
-    targetUsername: input.username,
-    reason: input.reason,
-    denied: false,
-  });
-}
-
 // ---- Orchestration ----
 
 export type RunChatModerationInput = {
-  message: any; // Telegram Message shape
-  isAdmin: (telegramId: number) => boolean;
+  message: any;
+  isAdmin: (telegramId: number | null | undefined) => boolean;
+  botTelegramId: number;
   logger?: Logger;
 };
 
 export async function runChatModeration(
   input: RunChatModerationInput,
 ): Promise<{ deleted: boolean }> {
-  const { message, isAdmin, logger } = input;
+  const { message, isAdmin, botTelegramId, logger } = input;
 
-  const fromId = message.from?.id;
-  if (!fromId) return { deleted: false };
+  const fromId: number | undefined = message.from?.id;
+  if (typeof fromId !== "number") return { deleted: false };
+
+  // Skip the bot itself (belt-and-braces: is_bot flag + id check).
+  if (message.from?.is_bot === true) return { deleted: false };
+  if (fromId === botTelegramId) return { deleted: false };
+  // Skip messages relayed via inline bots.
+  if (message.via_bot != null) return { deleted: false };
 
   const text = typeof message.text === "string" ? message.text : "";
   const caption = typeof message.caption === "string" ? message.caption : "";
@@ -456,20 +551,22 @@ export async function runChatModeration(
       ? message.chat.title
       : `chat ${message.chat.id}`;
 
-  // Audit row first — record the hit even if the enforcement steps fail.
-  await insertModerationAudit({
-    chatId: message.chat.id,
-    telegramId: fromId,
-    username,
+  // Audit row first — record the hit even if subsequent steps fail.
+  await recordAdminAction({
+    adminTelegramId: fromId,
+    adminUsername: username,
+    command: MODERATION_COMMAND,
+    targetChatId: message.chat.id,
+    targetUsername: username,
     reason: adminSender ? `${hit.source} (admin_exempt)` : hit.source,
+    denied: false,
   });
 
   if (adminSender) {
     return { deleted: false };
   }
 
-  // Best-effort delete. If the bot lacks rights this fails; the strike
-  // still applies and the audit row is already recorded.
+  // Delete is the most important action; do it first and tolerate failure.
   try {
     await deleteTelegramMessage(
       { chatId: message.chat.id, messageId: message.message_id },
@@ -482,8 +579,24 @@ export async function runChatModeration(
     );
   }
 
-  // Count includes the row we just inserted (the audit row IS this strike).
-  const count = await getRecentStrikeCount(message.chat.id, fromId);
+  // Strike count + ladder. If the count query fails, fail-safe: skip
+  // enforcement (delete already happened, audit already recorded). The next
+  // hit catches up.
+  let count: number;
+  try {
+    count = await getRecentStrikeCount(message.chat.id, fromId);
+  } catch (error) {
+    logger?.warn?.(
+      { error, fromId, chatId: message.chat.id },
+      "chatModeration: getRecentStrikeCount failed; skipping enforcement",
+    );
+    return { deleted: true };
+  }
+  if (count < 1) {
+    // Defensive: the audit row insert above guarantees count ≥ 1, but if
+    // some race makes it 0, treat as warn rather than throwing.
+    count = 1;
+  }
   const action = decideStrikeAction(count);
 
   if (action.kind === "warn") {
@@ -543,8 +656,7 @@ async function safeSendDm(
   try {
     await sendTelegramMessage({ chatId: telegramId, text: htmlText }, logger);
   } catch (error) {
-    // User may have blocked the bot or never DM'd it. The moderation action
-    // stands regardless — DM is best-effort.
+    // User may have blocked the bot or never DM'd it. Best-effort.
     logger?.info?.(
       { error, telegramId },
       "chatModeration: DM delivery failed (non-fatal)",
@@ -583,29 +695,26 @@ export async function logBotAdminStatusForChats(
 }
 ```
 
-- [ ] **Step 5: Run, expect pass**
-
-Run: `npx tsc --noEmit && npm test`
-Expected: clean + all green.
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Run + commit**
 
 ```bash
+npx tsc --noEmit && npm test
 git add src/core/chatModeration.ts src/core/chatModeration.test.ts package.json
 git commit -m "$(cat <<'EOF'
 feat(moderation): chat moderation module — lexicon, scanner, ladder
 
-Single module containing the empirically-derived lexicon constants
-(PHRASES + REGEX_PATTERNS), the leet/punctuation normaliser,
-findHits scanner, decideStrikeAction ladder decision,
-getRecentStrikeCount (derived from admin_audit_log 30-day window),
-and runChatModeration orchestration. Boot-time helper
-logBotAdminStatusForChats logs admin status per allowed chat so
-operators see at a glance if the bot lacks admin rights anywhere.
+Single module: PHRASES + REGEX_PATTERNS, normaliser, findHits,
+decideStrikeAction, getRecentStrikeCount (derived from
+admin_audit_log 30-day window), runChatModeration orchestration,
+logBotAdminStatusForChats boot helper.
 
-No new tables, no new admin commands, no JSON files. Strike state
-is the count of moderation rows in admin_audit_log within the decay
-window — automatic decay, no maintenance.
+No new tables, no new admin commands, no JSON. Strike state IS the
+count of audit rows in the decay window — automatic decay, no
+maintenance.
+
+Bot self-skip: is_bot OR id-equals-bot OR via_bot. Admin-exempt
+rows tagged in reason and excluded from count via SQL filter.
+DB count-query failure fail-safe to delete-only.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -614,12 +723,13 @@ EOF
 
 ---
 
-## Task 3: Wire moderation into `telegramBot.ts`
+## Task 4: Wire moderation into `telegramBot.ts` + boot helper into `server.ts`
 
 **Files:**
 - Modify: `src/telegramBot.ts`
+- Modify: `src/server.ts`
 
-- [ ] **Step 1: Add imports**
+- [ ] **Step 1: Add imports + bot-id capture in `telegramBot.ts`**
 
 In the import block at the top of `src/telegramBot.ts`:
 
@@ -628,11 +738,30 @@ import {
   logBotAdminStatusForChats,
   runChatModeration,
 } from "./core/chatModeration.ts";
+import { getTelegramBotUsername } from "./core/tools/telegramTools.ts";
 ```
 
-- [ ] **Step 2: Hook moderation into `handleGroupMessage`**
+(`getTelegramBotUsername` already exists in `telegramTools.ts` and caches the bot's `getMe` result. We need the bot's `id`, not username; if `getTelegramBotUsername` doesn't expose the id, add a sibling `getTelegramBotId` to `telegramTools.ts`. Implement this as part of this task — read the existing `getTelegramBotUsername` to mirror its pattern.)
 
-Find `handleGroupMessage` (search for `async function handleGroupMessage`). Right after the migration-handling early returns and before the command-parse logic, insert:
+In `telegramTools.ts`, add alongside `getTelegramBotUsername`:
+
+```ts
+let cachedBotId: number | null = null;
+
+export async function getTelegramBotId(logger?: any): Promise<number | null> {
+  if (cachedBotId != null) return cachedBotId;
+  const result = await callTelegramAPI("getMe", {}, logger);
+  const id = (result as { id?: number } | null)?.id;
+  if (typeof id === "number") {
+    cachedBotId = id;
+  }
+  return cachedBotId;
+}
+```
+
+- [ ] **Step 2: Hook `runChatModeration` into `handleGroupMessage`**
+
+Find `async function handleGroupMessage`. Right after the migration handling and before command parsing:
 
 ```ts
 async function handleGroupMessage(message: any, logger?: LoggerLike) {
@@ -645,20 +774,24 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   // ── Chat moderation runs first; a delete short-circuits all other handling.
-  const mod = await runChatModeration({
-    message,
-    isAdmin,
-    logger,
-  });
-  if (mod.deleted) return;
+  const botId = await getTelegramBotId(logger);
+  if (typeof botId === "number") {
+    const mod = await runChatModeration({
+      message,
+      isAdmin,
+      botTelegramId: botId,
+      logger,
+    });
+    if (mod.deleted) return;
+  }
 
   // ... existing command parsing continues ...
 }
 ```
 
-- [ ] **Step 3: Hook moderation into edited messages**
+- [ ] **Step 3: Hook into edited messages**
 
-Find the dispatcher in `processTelegramUpdate` (search for `payload.message`). Add an `edited_message` branch alongside the existing message branch:
+Find `processTelegramUpdate` (search for `payload.message`). Add an `edited_message` branch alongside the existing message dispatch:
 
 ```ts
 if (payload.edited_message) {
@@ -670,54 +803,70 @@ if (payload.edited_message) {
     typeof editedChatId === "number" &&
     allowedTelegramChatIds.has(editedChatId)
   ) {
-    await runChatModeration({
-      message: edited,
-      isAdmin,
-      logger,
-    });
+    const botId = await getTelegramBotId(logger);
+    if (typeof botId === "number") {
+      await runChatModeration({
+        message: edited,
+        isAdmin,
+        botTelegramId: botId,
+        logger,
+      });
+    }
   }
 }
 ```
 
-(Place this branch wherever `payload.message` is dispatched; mirror the same allowlist + non-private guard.)
+- [ ] **Step 4: Boot-time admin-rights log in `server.ts`**
 
-- [ ] **Step 4: Add boot-time admin-rights log**
-
-Find the place where the bot announces it has booted (search for `getMe`, or for the `cachedBotUsername` initialisation, or for the application startup function). After the bot's own `telegram_id` is known, call:
+In `src/server.ts`, after the webhook is registered (or after the bot starts listening — wherever is the latest point in startup before the server begins serving), add:
 
 ```ts
-const botMe = await callTelegramAPI("getMe", {}, logger);
-const botTelegramId = (botMe as { id?: number } | null)?.id;
-if (typeof botTelegramId === "number") {
+import {
+  logBotAdminStatusForChats,
+} from "./core/chatModeration.ts";
+import { getTelegramBotId } from "./core/tools/telegramTools.ts";
+
+// ... existing startup code ...
+
+// Fire-and-forget: log the bot's admin status in every allowed chat so
+// operators see at-a-glance if the bot lacks admin rights anywhere
+// (silent-failure mode otherwise). Errors are logged warn; the function
+// must not block boot.
+void (async () => {
+  const botId = await getTelegramBotId(logger);
+  if (typeof botId !== "number") {
+    logger.warn("chatModeration: could not determine bot id at boot; admin-rights check skipped");
+    return;
+  }
   await logBotAdminStatusForChats(
     Array.from(allowedTelegramChatIds),
-    botTelegramId,
+    botId,
     logger,
   );
-}
+})();
 ```
 
-(If the existing boot path doesn't have a clean place to add this, add it once the webhook is registered or when the first allowed-chats list is parsed. The exact placement is implementation-detail; the requirement is that this runs once per process at startup.)
+(Imports for `allowedTelegramChatIds` already exist in `server.ts` if it's the entry point; if not, expose them from `telegramChatConfig.ts`.)
 
-- [ ] **Step 5: Type-check + run tests**
-
-Run: `npx tsc --noEmit && npm test`
-Expected: clean + all 156+ tests still green (the new module's tests don't touch the DB; existing tests are unaffected).
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Type-check + run tests + commit**
 
 ```bash
-git add src/telegramBot.ts
+npx tsc --noEmit && npm test
+git add src/telegramBot.ts src/server.ts src/core/tools/telegramTools.ts
 git commit -m "$(cat <<'EOF'
 feat(moderation): wire chat moderation into group + edited-message paths
 
-runChatModeration runs first in handleGroupMessage; on hit it deletes
-the message and applies the strike action, short-circuiting all
-subsequent command handling. edited_message updates from any allowed
-non-private chat are routed through the same handler so edited-into-
-dirty content is caught. Boot-time logBotAdminStatusForChats logs
-the bot's status in each allowed chat so operators see at-a-glance if
-the bot lacks admin rights anywhere (silent failure mode otherwise).
+runChatModeration runs first in handleGroupMessage; on hit it
+deletes and applies the strike action, short-circuiting subsequent
+command handling. edited_message updates from any allowed
+non-private chat are routed through the same handler.
+
+server.ts launches logBotAdminStatusForChats fire-and-forget after
+boot so operators see the bot's admin status in each allowed chat
+in Railway logs (silent-fail mode is otherwise invisible).
+
+getTelegramBotId added to telegramTools.ts mirroring the existing
+getTelegramBotUsername — caches the bot's getMe id.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -726,14 +875,102 @@ EOF
 
 ---
 
-## Task 4: OPSEC runbook §6b
+## Task 5: Welcome / pinned chat-moderation block + V3-locked test sync
+
+**Files:**
+- Modify: `src/core/archive.ts`
+- Modify: `src/core/archiveUx.test.ts`
+
+- [ ] **Step 1: Add the chat-moderation block to welcome / pinned guide**
+
+In `src/core/archive.ts`, find `buildWelcomeText` and `buildPinnedGuideText`. Add a new block after the existing `<u>Check before you deal</u>` section and before `rulesLine()`:
+
+For `buildWelcomeText`:
+
+```ts
+export function buildWelcomeText(): string {
+  return [
+    "<b>Welcome to the Vouch Hub</b>",
+    "",
+    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
+    "",
+    "<b><u>How to vouch</u></b>",
+    "1. Tap <b>Submit Vouch</b> in the group.",
+    "2. Send the target @username here.",
+    "3. Choose result and tags.",
+    "4. I post the entry back to the group.",
+    "",
+    "<b><u>Check before you deal</u></b>",
+    "Type <code>/profile @username</code> in the group to see anyone's vouch history and current status.",
+    "",
+    "<b><u>Chat moderation</u></b>",
+    "Posts that look like buy/sell arrangements are auto-removed. Three removals in 30 days = ban.",
+    "Send <code>/start</code> to me once so I can DM you when one of your messages is auto-removed.",
+    "",
+    rulesLine(),
+  ].join("\n");
+}
+```
+
+For `buildPinnedGuideText`, mirror the same chat-moderation block in the analogous position.
+
+- [ ] **Step 2: Update V3-locked tests**
+
+In `src/core/archiveUx.test.ts`, extend the welcome-text and pinned-guide-text tests:
+
+```ts
+test("welcome text uses locked v3.1 wording (community-framing) and points at /profile and chat-moderation", () => {
+  const text = buildWelcomeText();
+  // ... existing assertions ...
+  assert.match(text, /Check before you deal/);
+  assert.match(text, /\/profile @username/);
+  assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
+  assert.match(text, /auto-removed. Three removals in 30 days = ban/);
+  assert.match(text, /Send <code>\/start<\/code> to me once/);
+  // ... existing negative assertions for commerce vocab ...
+});
+
+test("pinned guide text uses locked v3.1 wording (community-framing) and points at /profile and chat-moderation", () => {
+  const text = buildPinnedGuideText();
+  // ... existing assertions ...
+  assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
+  assert.match(text, /Send <code>\/start<\/code> to me once/);
+});
+```
+
+- [ ] **Step 3: Run + commit**
+
+```bash
+npx tsc --noEmit && npm test
+git add src/core/archive.ts src/core/archiveUx.test.ts
+git commit -m "$(cat <<'EOF'
+docs(copy): welcome + pinned guide announce chat moderation
+
+New 'Chat moderation' block under the existing 'Check before you
+deal' section: posts that look like buy/sell arrangements are
+auto-removed, three removals in 30 days = ban, and members are
+asked to /start the bot once so warnings can be DM'd. The
+/start instruction closes the gap where Telegram blocks
+bot-initiated DMs to users who haven't opened a conversation.
+
+V3-locked tests in archiveUx.test.ts updated in the same commit
+per CLAUDE.md V3-lock policy.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 6: OPSEC runbook §6b
 
 **Files:**
 - Modify: `docs/runbook/opsec.md`
 
 - [ ] **Step 1: Append §6b**
 
-Insert after §6a (the lexicon reference) and before §7 (appeals contacts):
+Insert after §6a and before §7:
 
 ```markdown
 ---
@@ -744,11 +981,11 @@ The bot moderates every member message in any allowed chat using the lexicon and
 
 | Strike | Action | Reversible by |
 |---|---|---|
-| 1 | Delete + warn DM | 30-day decay |
+| 1 | Delete + warn DM (silent if user never /start-ed the bot) | 30-day decay |
 | 2 | Delete + 24h mute | Mute auto-expires; 30-day decay restores count |
 | 3 | Delete + permanent ban | Telegram-native unban (group settings) |
 
-Strike count is derived from the existing `admin_audit_log` table at decision time — no separate strikes store. Each hit writes one row with `command='chat_moderation:delete'`. The 30-day decay is the SQL window in the count query; nothing to maintain.
+Strike count is derived from `admin_audit_log` at decision time — no separate strikes store. Each hit writes one row with `command='chat_moderation:delete'`. The 30-day decay is the SQL window in the count query.
 
 **Inspect recent moderation events:**
 
@@ -762,15 +999,19 @@ psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, target_username, rea
 psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND admin_telegram_id=<id> AND created_at > now() - interval '30 days' ORDER BY created_at DESC"
 \`\`\`
 
-**Manually clear strikes for a user in a specific chat (rare; usually unnecessary):**
+**Manually clear strikes for a user in a specific chat (rare):**
 
 \`\`\`
 psql "$DATABASE_URL" -c "DELETE FROM admin_audit_log WHERE command='chat_moderation:delete' AND admin_telegram_id=<id> AND target_chat_id=<chat>"
 \`\`\`
 
-**Update the lexicon:** edit `PHRASES` (or `REGEX_PATTERNS`) in `src/core/chatModeration.ts`, commit, push. Railway redeploys; the next-started container has the new lexicon.
+**Bot exemptions:** the bot's own messages are skipped (is_bot flag + id check). Inline-bot relays (`via_bot` set) are skipped. Admins are audit-logged but enforcement is skipped — admin-exempt audit rows do not contribute to anyone's strike count.
+
+**Update the lexicon:** edit `PHRASES` (or `REGEX_PATTERNS`) in `src/core/chatModeration.ts`, commit, push. Railway redeploys.
 
 **Bot admin-rights check:** the bot logs its admin status in every allowed chat at boot. Check Railway logs for messages of the form `chatModeration: bot status in <id>: <status>`. If status is anything other than `administrator` or `creator`, moderation will silently fail in that chat — fix the permissions in Telegram.
+
+**First-warning DM gap:** members who have never `/start`-ed the bot receive no warning DM on their first strike (Telegram blocks bot-initiated DMs). Their message is still deleted and the strike still counts. The welcome and pinned guide instruct members to `/start` once; members who ignore that may be confused on first strike. Acceptable.
 
 ---
 ```
@@ -780,12 +1021,12 @@ psql "$DATABASE_URL" -c "DELETE FROM admin_audit_log WHERE command='chat_moderat
 ```bash
 git add docs/runbook/opsec.md
 git commit -m "$(cat <<'EOF'
-docs(opsec): chat moderation §6b — strikes ladder + audit queries
+docs(opsec): chat moderation §6b — strikes ladder + admin queries
 
-Admin reference for the v3 chat moderation: ladder summary, SQL
-queries for recent events / per-user history / manual strike clear,
-lexicon update procedure (edit TS constant + push), bot admin-rights
-check at boot.
+Admin reference: ladder summary, SQL queries (recent events,
+per-user history, manual clear), exemption rules (bot self,
+inline-bot relays, admins), lexicon update procedure, boot
+admin-rights check, and the first-warning DM gap caveat.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -794,25 +1035,25 @@ EOF
 
 ---
 
-## Task 5: DEPLOY.md §14
+## Task 7: DEPLOY.md §14
 
 **Files:**
 - Modify: `DEPLOY.md`
 
 - [ ] **Step 1: Append §14**
 
-After the existing `## Step 13 — Vendetta-resistant posture: legacy NEG cleanup`, add:
+After the existing §13:
 
 ```markdown
 ## Step 14 — Chat moderation enablement (after deploy)
 
-After the chat-moderation v3 deploy (no migration required — derives state from existing tables), enable member chat in any group you want moderated:
+After the chat-moderation v4 deploy (no migration required), enable member chat in any group you want moderated:
 
 1. In Telegram → group settings → Permissions → enable "Send messages" for members.
-2. Recommended: also enable Slow Mode (30 seconds), and disable "Send media", "Send links", and "Send polls" so members can only send text. Telegram's native restrictions reduce attack surface; the bot lexicon catches the rest.
+2. Recommended: also enable Slow Mode (30 seconds), and disable "Send media", "Send links", and "Send polls" so members can only send text.
 3. The bot starts moderating automatically on the next member message in any chat in `TELEGRAM_ALLOWED_CHAT_IDS`. No bot-side config.
 4. Verify admin rights: check Railway logs for `chatModeration: bot status in <id>: administrator` — one line per chat at boot.
-5. Watch `admin_audit_log` for `command='chat_moderation:delete'` rows for the first week. If a phrase is over-firing, edit `src/core/chatModeration.ts` `PHRASES` and push — Railway auto-deploys.
+5. Watch `admin_audit_log` for `command='chat_moderation:delete'` rows for the first week. If a phrase is over-firing, edit `src/core/chatModeration.ts` `PHRASES` and push.
 ```
 
 - [ ] **Step 2: Commit**
@@ -820,12 +1061,11 @@ After the chat-moderation v3 deploy (no migration required — derives state fro
 ```bash
 git add DEPLOY.md
 git commit -m "$(cat <<'EOF'
-docs(deploy): chat moderation v3 enablement step
+docs(deploy): chat moderation v4 enablement step
 
-After the v3 deploy (no migration needed), enable member chat in
+After the v4 deploy (no migration needed), enable member chat in
 Telegram group settings; bot moderation starts automatically.
-Recommends Telegram-native slow mode + media restriction as
-complementary defences. Boot logs reveal admin-rights state.
+Railway logs show bot admin status per allowed chat at boot.
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
@@ -836,52 +1076,55 @@ EOF
 
 ## Final verification
 
-- [ ] **Step 1: Full test suite**
+- [ ] **Step 1: Full test suite + type-check**
 
-Run: `npm test`
-Expected: all green; 156+ existing tests + ~16 new tests in `chatModeration.test.ts`.
+```bash
+npx tsc --noEmit && npm test
+```
+Expected: clean + all green.
 
-- [ ] **Step 2: Type-check**
+- [ ] **Step 2: Verify commits**
 
-Run: `npx tsc --noEmit`
-Expected: clean.
+```bash
+git log --oneline -10
+```
+Expected: 7 new commits, scoped + Co-Authored-By trailer.
 
-- [ ] **Step 3: Verify the commits**
+- [ ] **Step 3: Report**
 
-Run: `git log --oneline -8`
-Expected: 5 new commits + the v3 spec/plan revision commits, each scoped + with the Co-Authored-By trailer.
-
-- [ ] **Step 4: Report to user**
-
-Brief summary: tasks done, commits hash range, lexicon size (`PHRASES.length` + 4 regex patterns), no migration required, boot admin-rights log message to look for in Railway.
+Brief summary: tasks done, commits hash range, lexicon size, no migration required, boot admin-rights log message to look for.
 
 Do **not** push.
 
 ---
 
-## Self-review checklist
+## Self-review
 
-**Spec coverage (each numbered §):**
+**Spec coverage:**
 
-- §4.1 Lexicon as TS constants → Task 2 (PHRASES + REGEX_PATTERNS in chatModeration.ts)
-- §4.2 Normaliser → Task 2 (`normalize`)
-- §4.3 Strike count from audit log → Task 2 (`getRecentStrikeCount`)
-- §4.4 Strikes ladder → Task 2 (`decideStrikeAction`)
-- §4.5 What gets scanned → Task 3 (handleGroupMessage hook + edited_message hook; `runChatModeration` reads text + caption)
-- §4.6 Multi-group behaviour → Task 3 (uses `allowedTelegramChatIds` allowlist)
-- §4.7 Boot-time admin-rights visibility → Task 2 (`logBotAdminStatusForChats`) + Task 3 (call site)
-- §5 Architecture → Tasks 1-3
-- §6 Verification → Final verification
-- §7 Risks → captured in spec; no code task
-- §8 Out of scope → no code task
-- §9 Forward compatibility → no code task
+| Spec § | Task |
+|---|---|
+| 4.1 PHRASES + REGEX_PATTERNS | Task 3 |
+| 4.2 normalize | Task 3 |
+| 4.3 getRecentStrikeCount + DB error handling + admin-exempt SQL filter | Task 3 |
+| 4.4 ladder + bot-self-skip + admin-exempt | Task 3 |
+| 4.5 message + caption + edited_message scanning | Tasks 3, 4 |
+| 4.6 multi-group | Task 4 (uses allowedTelegramChatIds) |
+| 4.7 boot admin-rights log fire-and-forget | Tasks 3, 4 |
+| 4.8 welcome/pinned chat-moderation block + /start instruction | Task 5 |
+| 4.9 username-layer evasion: extend MARKETPLACE_USERNAME_SUBSTRINGS | Task 2 |
+| 4.10 bot-id belt-and-braces | Tasks 3, 4 (botTelegramId param) |
+| 5 architecture | Tasks 1–5 |
+| 6 verification | Final verification |
 
 **Placeholders:** none.
 
 **Type / symbol consistency:**
-- `runChatModeration` defined in Task 2, consumed in Task 3 ✓
-- `logBotAdminStatusForChats` defined in Task 2, consumed in Task 3 ✓
-- `restrictChatMember` / `banChatMember` / `getChatMember` defined in Task 1, consumed in Task 2 ✓
-- `MODERATION_COMMAND` constant used both for inserting audit rows (Task 2) and OPSEC SQL queries (Task 4) — keep aligned
+- `runChatModeration` defined in Task 3, consumed in Task 4 ✓
+- `logBotAdminStatusForChats` defined in Task 3, consumed in Task 4 ✓
+- `restrictChatMember` / `banChatMember` / `getChatMember` defined in Task 1, consumed in Task 3 ✓
+- `getTelegramBotId` defined in Task 4 (telegramTools.ts), consumed in Task 4 ✓
+- `MODERATION_COMMAND` consistent between Task 3 (insert) and OPSEC SQL queries (Task 6) ✓
+- Extended `MARKETPLACE_USERNAME_SUBSTRINGS` defined in Task 2, used by existing `isReservedTarget` ✓
 
 All consistent. No spec requirement without a task.
