@@ -104,6 +104,8 @@ import {
 import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
+import { recordUserFirstSeen } from "./core/userTracking.ts";
+import { extractUpdateUserId } from "./core/webhookUserId.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
@@ -2034,6 +2036,18 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
         logger.warn({ updateId, error }, "Archive maintenance failed");
       }
     }
+  }
+
+  // V3.5.3 / v6 §5: record first-seen timestamp for the originating
+  // user. Fire-and-forget — a DB hiccup here must not block webhook
+  // processing, and the wizard's account-age guard fail-closes on
+  // missing rows anyway. ON CONFLICT DO NOTHING in the helper means
+  // duplicate calls for a known user are no-ops.
+  const observedUserId = extractUpdateUserId(payload);
+  if (observedUserId != null) {
+    void recordUserFirstSeen(observedUserId).catch((error) => {
+      logger.warn({ error, observedUserId }, "recordUserFirstSeen failed (non-fatal)");
+    });
   }
 
   try {
