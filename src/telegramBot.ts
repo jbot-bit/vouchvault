@@ -267,13 +267,22 @@ function buildAdminNotePromptText(): string {
   ].join("\n");
 }
 
-function buildReplyOptions(replyToMessageId?: number | null, disableNotification = false) {
+function buildReplyOptions(
+  replyToMessageId?: number | null,
+  disableNotification = false,
+  messageThreadId?: number | null,
+) {
+  const threadOptions =
+    typeof messageThreadId === "number" ? { messageThreadId } : {};
   if (replyToMessageId == null) {
-    return disableNotification ? { disableNotification } : {};
+    return {
+      ...threadOptions,
+      ...(disableNotification ? { disableNotification } : {}),
+    };
   }
 
   return {
-    ...buildThreadedGroupReplyOptions(replyToMessageId),
+    ...buildThreadedGroupReplyOptions(replyToMessageId, messageThreadId),
     disableNotification,
   };
 }
@@ -281,12 +290,13 @@ function buildReplyOptions(replyToMessageId?: number | null, disableNotification
 async function sendGroupLauncherReply(input: {
   chatId: number;
   replyToMessageId: number;
+  messageThreadId?: number | null;
   logger?: LoggerLike;
   text?: string;
 }) {
   return sendLauncherPrompt(input.chatId, input.logger, {
     text: input.text ?? buildGroupLauncherReplyText(),
-    ...buildThreadedGroupReplyOptions(input.replyToMessageId),
+    ...buildThreadedGroupReplyOptions(input.replyToMessageId, input.messageThreadId),
   });
 }
 
@@ -393,6 +403,7 @@ async function handleLookupCommand(input: {
   chatId: number;
   rawUsername: string | null | undefined;
   replyToMessageId?: number | null;
+  messageThreadId?: number | null;
   disableNotification?: boolean;
   logger?: LoggerLike;
 }) {
@@ -402,7 +413,7 @@ async function handleLookupCommand(input: {
       {
         chatId: input.chatId,
         text: "Lookup requires /lookup @username.",
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -430,7 +441,7 @@ async function handleLookupCommand(input: {
           privateNote: entry.privateNote ?? null,
         })),
       }),
-      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
     },
     input.logger,
   );
@@ -440,6 +451,7 @@ async function handleSearchCommand(input: {
   chatId: number;
   rawUsername: string | null | undefined;
   replyToMessageId?: number | null;
+  messageThreadId?: number | null;
   disableNotification?: boolean;
   logger?: LoggerLike;
 }) {
@@ -449,7 +461,7 @@ async function handleSearchCommand(input: {
       {
         chatId: input.chatId,
         text: "Use: /search @username.",
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -464,7 +476,7 @@ async function handleSearchCommand(input: {
         ...summary,
         hasCaution: summary.totals.negative > 0,
       }),
-      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
     },
     input.logger,
   );
@@ -473,6 +485,7 @@ async function handleSearchCommand(input: {
 async function handleRecentCommand(input: {
   chatId: number;
   replyToMessageId?: number | null;
+  messageThreadId?: number | null;
   disableNotification?: boolean;
   logger?: LoggerLike;
 }) {
@@ -491,7 +504,7 @@ async function handleRecentCommand(input: {
           source: entry.source as EntrySource,
         })),
       ),
-      ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+      ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
     },
     input.logger,
   );
@@ -502,6 +515,7 @@ async function handleAdminCommand(input: {
   args: string[];
   chatId: number;
   replyToMessageId?: number | null;
+  messageThreadId?: number | null;
   disableNotification?: boolean;
   from: any;
   logger?: LoggerLike;
@@ -519,7 +533,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: buildAdminOnlyText(),
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -541,7 +555,7 @@ async function handleAdminCommand(input: {
         {
           chatId: input.chatId,
           text: `Use: ${input.command} @username${input.command === "/freeze" ? " [reason]" : ""}.`,
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
@@ -566,7 +580,7 @@ async function handleAdminCommand(input: {
             text:
               "Reason must be one of:\n" +
               FREEZE_REASONS.map((r) => `• <code>${r}</code>`).join("\n"),
-            ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+            ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
           },
           input.logger,
         );
@@ -593,7 +607,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: `${formatUsername(updated.username)} is now ${updated.isFrozen ? "frozen" : "active"}.`,
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -614,7 +628,7 @@ async function handleAdminCommand(input: {
         {
           chatId: input.chatId,
           text: "Send /remove_entry &lt;id&gt;",
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
@@ -635,7 +649,7 @@ async function handleAdminCommand(input: {
         {
           chatId: input.chatId,
           text: `Entry #${entryId} not found.`,
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
@@ -678,7 +692,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: `Entry #${entryId} removed.`,
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -698,7 +712,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: buildFrozenListText(rows),
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -719,7 +733,7 @@ async function handleAdminCommand(input: {
         {
           chatId: input.chatId,
           text: "Use: /recover_entry &lt;id&gt;.",
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
@@ -739,7 +753,7 @@ async function handleAdminCommand(input: {
         {
           chatId: input.chatId,
           text: `Entry #${entryId} not found.`,
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
@@ -759,7 +773,7 @@ async function handleAdminCommand(input: {
         {
           chatId: input.chatId,
           text: `Entry #${entryId} is in status="${entry.status}", no recovery needed.`,
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
@@ -778,7 +792,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: `Entry #${entryId} reset to pending.`,
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -802,7 +816,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: input.command === "/pause" ? "Vouching paused." : "Vouching resumed.",
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -821,7 +835,7 @@ async function handleAdminCommand(input: {
       {
         chatId: input.chatId,
         text: buildAdminHelpText(),
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
     );
@@ -1395,10 +1409,17 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   const { command, args } = getCommandParts(text);
   const chatId = message.chat.id;
 
+  // Forum-mode: preserve topic context for every bot reply. Bot API:
+  // https://core.telegram.org/bots/api#sendmessage (message_thread_id).
+  // Without this, replies to a /search in a topic land in General.
+  const messageThreadId =
+    typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
+
   if (shouldSendThreadedLauncherReply(command)) {
     await sendGroupLauncherReply({
       chatId,
       replyToMessageId: message.message_id,
+      messageThreadId,
       logger,
     });
     return;
@@ -1408,6 +1429,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     await handleRecentCommand({
       chatId,
       replyToMessageId: message.message_id,
+      messageThreadId,
       disableNotification: true,
       logger,
     });
@@ -1428,7 +1450,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
         {
           chatId,
           text: buildAdminOnlyText(),
-          ...buildReplyOptions(message.message_id, true),
+          ...buildReplyOptions(message.message_id, true, messageThreadId),
         },
         logger,
       );
@@ -1438,6 +1460,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       chatId,
       rawUsername: args[0],
       replyToMessageId: message.message_id,
+      messageThreadId,
       disableNotification: true,
       logger,
     });
@@ -1461,6 +1484,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       chatId,
       rawUsername: args[0],
       replyToMessageId: message.message_id,
+      messageThreadId,
       disableNotification: true,
       logger,
     });
@@ -1482,6 +1506,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       args,
       chatId,
       replyToMessageId: message.message_id,
+      messageThreadId,
       disableNotification: true,
       from: message.from,
       logger,

@@ -65,6 +65,11 @@ export function buildTelegramSendMessageParams(input: {
   disableNotification?: boolean;
   replyMarkup?: Record<string, unknown>;
   protectContent?: boolean;
+  // Forum-mode supergroups: when the inbound message originates in a
+  // topic, callers should pass message_thread_id so the bot's reply
+  // stays in the same topic. Bot API:
+  // https://core.telegram.org/bots/api#sendmessage
+  messageThreadId?: number;
 }) {
   return {
     chat_id: input.chatId,
@@ -72,6 +77,7 @@ export function buildTelegramSendMessageParams(input: {
     parse_mode: input.parseMode ?? "HTML",
     disable_notification: input.disableNotification,
     protect_content: input.protectContent,
+    message_thread_id: input.messageThreadId,
     reply_parameters:
       input.replyToMessageId == null
         ? undefined
@@ -93,6 +99,7 @@ export async function sendTelegramMessage(
     disableNotification?: boolean;
     replyMarkup?: Record<string, unknown>;
     protectContent?: boolean;
+    messageThreadId?: number;
   },
   logger?: any,
 ) {
