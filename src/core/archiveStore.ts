@@ -376,6 +376,7 @@ export async function createArchiveEntry(input: {
   legacySourceTimestamp?: Date | null;
   createdAt?: Date;
   privateNote?: string | null;
+  bodyText?: string | null;
 }) {
   // Defence-in-depth: a private_note is only valid on a NEG entry. The DM
   // flow already gates the awaiting_admin_note step on result==='negative',
@@ -407,6 +408,7 @@ export async function createArchiveEntry(input: {
       legacySourceTimestamp: input.legacySourceTimestamp ?? null,
       status: "pending",
       privateNote: input.privateNote ?? null,
+      bodyText: input.bodyText ?? null,
       createdAt: input.createdAt ?? new Date(),
       updatedAt: new Date(),
     })
@@ -459,6 +461,50 @@ export async function markArchiveEntryPublishing(entryId: number) {
     .returning();
 
   return updated[0] ?? null;
+}
+
+// V3.5.4 channel-relay path: after a successful channel send the
+// entry holds the channel-side message_id but the supergroup auto-
+// forward hasn't been observed yet. Status 'channel_published' is the
+// in-between state. Same race-guard as setArchiveEntryPublishedMessageId.
+export async function setArchiveEntryChannelPublished(
+  entryId: number,
+  channelMessageId: number,
+) {
+  const rows = await db
+    .update(vouchEntries)
+    .set({
+      channelMessageId,
+      status: "channel_published",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(vouchEntries.id, entryId), eq(vouchEntries.status, "publishing")))
+    .returning();
+  return rows[0] ?? null;
+}
+
+// Auto-forward observed: link the supergroup-side message id and
+// flip to 'published'. Lookup keys on (channel_message_id, source
+// channel) — the relay capture handler matches before calling here.
+export async function captureSupergroupForward(input: {
+  channelMessageId: number;
+  supergroupMessageId: number;
+}) {
+  const rows = await db
+    .update(vouchEntries)
+    .set({
+      publishedMessageId: input.supergroupMessageId,
+      status: "published",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(vouchEntries.channelMessageId, input.channelMessageId),
+        eq(vouchEntries.status, "channel_published"),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
 }
 
 export async function setArchiveEntryStatus(entryId: number, status: EntryStatus) {

@@ -114,6 +114,8 @@ import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 import { getUserFirstSeen, recordUserFirstSeen } from "./core/userTracking.ts";
 import { checkAccountAge } from "./core/accountAge.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
+import { classifyAutoForward } from "./core/relayCapture.ts";
+import { captureSupergroupForward } from "./core/archiveStore.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
@@ -153,6 +155,62 @@ function isAdmin(telegramId: number | null | undefined): boolean {
 // compat — default-off keeps the V3 path intact.
 function isRelayEnabled(): boolean {
   return process.env.VV_RELAY_ENABLED === "true";
+}
+
+// Returns the channel id when the relay is enabled AND TELEGRAM_CHANNEL_ID
+// is a safe integer; null otherwise. Misconfiguration falls back to
+// direct publish (relay considered disabled).
+function resolveRelayChannelId(): number | null {
+  if (!isRelayEnabled()) return null;
+  const raw = process.env.TELEGRAM_CHANNEL_ID?.trim();
+  if (!raw) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) ? id : null;
+}
+
+// Match an inbound auto-forwarded supergroup message back to its
+// channel-side row (status='channel_published') and flip to
+// 'published' with the supergroup-side message_id populated. No-op
+// when the inbound message isn't an auto-forward from our channel.
+async function captureAutoForwardIfMatched(
+  message: any,
+  logger?: LoggerLike,
+): Promise<void> {
+  const channelId = resolveRelayChannelId();
+  if (channelId == null) return;
+  const allowed = [...allowedTelegramChatIds];
+  const match = classifyAutoForward({
+    message,
+    expectedChannelId: channelId,
+    allowedSupergroupIds: allowed,
+  });
+  if (!match.matched) return;
+  const updated = await captureSupergroupForward({
+    channelMessageId: match.channelMessageId,
+    supergroupMessageId: match.supergroupMessageId,
+  });
+  if (updated == null) {
+    // Either the row was already 'published' (duplicate auto-forward
+    // — Telegram doesn't double-send but we tolerate the no-op) or
+    // the row is in a different state (race with /remove_entry, or
+    // the channel post wasn't ours). Either way, nothing actionable.
+    logger?.info?.(
+      {
+        channelMessageId: match.channelMessageId,
+        supergroupMessageId: match.supergroupMessageId,
+      },
+      "relayCapture: no row in channel_published status to update",
+    );
+    return;
+  }
+  logger?.info?.(
+    {
+      entryId: updated.id,
+      channelMessageId: match.channelMessageId,
+      supergroupMessageId: match.supergroupMessageId,
+    },
+    "relayCapture: auto-forward matched and row flipped to published",
+  );
 }
 
 function getCommandParts(text: string) {
@@ -1387,6 +1445,24 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
+  // V3.5.4 channel-relay capture. When the bot's own channel post is
+  // auto-forwarded into the supergroup, Telegram sets
+  // is_automatic_forward + forward_origin (post-Bot-API-7.0). Match
+  // it back to the channel-published row and flip status='published'
+  // with the supergroup-side message id. Fires BEFORE moderation so
+  // the bot-via-channel post isn't accidentally moderated. The
+  // existing runChatModeration self-skip (is_bot + via_bot) covers
+  // the case where moderation does see it — the auto-forward's
+  // sender_chat is the channel, not a user, so the moderator's
+  // from?.is_bot check is the relevant guard.
+  if (resolveRelayChannelId() != null && message?.is_automatic_forward === true) {
+    try {
+      await captureAutoForwardIfMatched(message, logger);
+    } catch (error) {
+      logger?.warn?.({ err: error }, "relayCapture: handler failed (non-fatal)");
+    }
+  }
+
   // ── Chat moderation runs first. A delete short-circuits everything,
   // including command parsing — a member cannot smuggle a phrase past
   // moderation by prefixing it with a slash command.
@@ -2071,6 +2147,9 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         result: latestResult,
         selectedTags: latestSelectedTags,
         privateNote: latestResult === "negative" ? (latestDraft?.privateNote ?? null) : null,
+        // V3.5.2 — promote the wizard's prose body onto the entry.
+        // Null on V3 path (VV_RELAY_ENABLED=false), set on V3.5 path.
+        bodyText: latestDraft?.bodyText ?? null,
       });
 
       await publishArchiveEntryRecord(createdEntry, logger);
