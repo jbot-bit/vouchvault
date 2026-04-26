@@ -42,10 +42,10 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
 
     // update().returning() always returns the updated row
     const updated = rows[0]!;
-    logger?.info?.("Updated Telegram user record", {
-      userId: updated.id,
-      telegramId: input.telegramId,
-    });
+    logger?.info?.(
+      { userId: updated.id, telegramId: input.telegramId },
+      "Updated Telegram user record",
+    );
     return updated;
   }
 
@@ -62,16 +62,16 @@ export async function createOrUpdateUser(input: UserIdentityInput, logger?: any)
 
     // insert().returning() always returns the inserted row
     const created = rows[0]!;
-    logger?.info?.("Created Telegram user record", {
-      userId: created.id,
-      telegramId: input.telegramId,
-    });
+    logger?.info?.(
+      { userId: created.id, telegramId: input.telegramId },
+      "Created Telegram user record",
+    );
     return created;
   } catch (error) {
-    logger?.warn?.("Concurrent user create detected, retrying lookup", {
-      telegramId: input.telegramId,
-      error,
-    });
+    logger?.warn?.(
+      { telegramId: input.telegramId, error },
+      "Concurrent user create detected, retrying lookup",
+    );
 
     const retried = await db
       .select()

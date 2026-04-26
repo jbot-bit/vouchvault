@@ -393,7 +393,7 @@ export async function replayLegacyExport(
       }
 
       if (maxImports != null && summary.imported >= maxImports) {
-        logger.info?.("[Legacy Import] Reached --max-imports limit, stopping early.", { maxImports });
+        logger.info?.({ maxImports }, "[Legacy Import] Reached --max-imports limit, stopping early.");
         break;
       }
 
@@ -446,7 +446,7 @@ export async function replayLegacyExport(
     }
 
     if (maxImports != null && summary.imported >= maxImports) {
-      logger.info?.("[Legacy Import] Reached --max-imports limit, stopping early.", { maxImports });
+      logger.info?.({ maxImports }, "[Legacy Import] Reached --max-imports limit, stopping early.");
       break;
     }
   }
@@ -477,16 +477,19 @@ export async function replayLegacyExport(
     failure,
   });
 
-  logger.info?.("[Legacy Import] Replay summary", {
-    exportFilePath,
-    sourceChatId,
-    targetGroupChatId,
-    dryRun,
-    summary,
-    failure,
-    reviewReportPath,
-    checkpointPath,
-  });
+  logger.info?.(
+    {
+      exportFilePath,
+      sourceChatId,
+      targetGroupChatId,
+      dryRun,
+      summary,
+      failure,
+      reviewReportPath,
+      checkpointPath,
+    },
+    "[Legacy Import] Replay summary",
+  );
 
   return {
     completed: failure == null,

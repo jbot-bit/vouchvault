@@ -1131,7 +1131,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   const migration = parseChatMigration(message);
   if (migration) {
     await setChatMigrated(migration.oldId, migration.newId);
-    logger?.info?.("[Group] Chat migrated to supergroup", migration);
+    logger?.info?.(migration, "[Group] Chat migrated to supergroup");
     return;
   }
   if (message?.migrate_to_chat_id != null) {
@@ -1257,7 +1257,7 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
 
   if (shouldMarkChatKicked(newStatus)) {
     await setChatKicked(chatId);
-    logger?.info?.("[Group] Bot lost access", { chatId, newStatus });
+    logger?.info?.({ chatId, newStatus }, "[Group] Bot lost access");
     return;
   }
 

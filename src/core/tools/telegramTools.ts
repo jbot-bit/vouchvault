@@ -33,7 +33,7 @@ export async function callTelegramAPI(
 
   const data = await response.json();
   if (!data.ok) {
-    logger?.error?.("Telegram API call failed", { method, params, error: data });
+    logger?.error?.({ method, params, error: data }, "Telegram API call failed");
     const desc = String(data.description ?? "");
     const code = Number(data.error_code ?? 0);
     if (code === 429) {

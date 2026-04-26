@@ -71,17 +71,17 @@ export async function sendLauncherPrompt(
 export async function refreshGroupLauncher(chatId: number, logger?: any) {
   await withChatLauncherLock(chatId, async () => {
     if (await isChatDisabled(chatId)) {
-      logger?.info?.("[Archive] Skipping launcher refresh for disabled chat", { chatId });
+      logger?.info?.({ chatId }, "[Archive] Skipping launcher refresh for disabled chat");
       return;
     }
 
     const existing = await getLauncherByChatId(chatId);
 
     if (existing && isLauncherDebounceActive(existing.updatedAt, Date.now())) {
-      logger?.info?.("[Archive] Launcher refresh debounced", {
-        chatId,
-        ageMs: Date.now() - existing.updatedAt.getTime(),
-      });
+      logger?.info?.(
+        { chatId, ageMs: Date.now() - existing.updatedAt.getTime() },
+        "[Archive] Launcher refresh debounced",
+      );
       return;
     }
 
