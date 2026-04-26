@@ -82,6 +82,7 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 - All outbound calls go through `src/core/tools/telegramTools.ts`. The four public sends (`sendTelegramMessage`, `editTelegramMessage`, `deleteTelegramMessage`, `answerTelegramCallbackQuery`) auto-wrap `callTelegramAPI` with `withTelegramRetry` (one retry on 429, honouring `retry_after`). Don't `fetch` Telegram directly from elsewhere; route new methods through `callTelegramAPI`.
 - Failures throw typed errors from `src/core/typedTelegramErrors.ts`: `TelegramRateLimitError` (429), `TelegramForbiddenError` (403 blocked / not-a-member), `TelegramChatGoneError` (400 chat not found), `TelegramApiError` (everything else). Branch with `instanceof`, never on `error.message`.
+- **Before changing any Telegram method call**, verify against `docs/runbook/telegram-references.md` and the linked Bot API docs. Field names get deprecated; `allowed_updates` is server-side state that needs `npm run telegram:webhook` to refresh; bots can't initiate DMs. The references doc is the canonical first stop — don't reason from memory.
 
 ## Logging
 
