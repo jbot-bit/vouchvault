@@ -64,12 +64,14 @@ export function buildTelegramSendMessageParams(input: {
   allowSendingWithoutReply?: boolean;
   disableNotification?: boolean;
   replyMarkup?: Record<string, unknown>;
+  protectContent?: boolean;
 }) {
   return {
     chat_id: input.chatId,
     text: input.text,
     parse_mode: input.parseMode ?? "HTML",
     disable_notification: input.disableNotification,
+    protect_content: input.protectContent,
     reply_parameters:
       input.replyToMessageId == null
         ? undefined
@@ -90,6 +92,7 @@ export async function sendTelegramMessage(
     allowSendingWithoutReply?: boolean;
     disableNotification?: boolean;
     replyMarkup?: Record<string, unknown>;
+    protectContent?: boolean;
   },
   logger?: any,
 ) {

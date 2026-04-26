@@ -10,7 +10,7 @@ import { createLogger } from "./logger.ts";
 // fields in structured logs. We can't read the redact paths off the
 // logger object, so we serialize through a captured stream and assert
 // against the bytes that would have been emitted.
-function loggerWithCapturedStream(): { lines: string[]; logger: ReturnType<typeof pino> } {
+function loggerWithCapturedStream() {
   const lines: string[] = [];
   const stream = new Writable({
     write(chunk, _encoding, callback) {
@@ -19,11 +19,10 @@ function loggerWithCapturedStream(): { lines: string[]; logger: ReturnType<typeo
     },
   });
 
-  // Mirror the production createLogger() configuration. If
-  // src/core/logger.ts changes shape, this test must change too —
-  // intentional, since it's verifying what production logs emit.
-  const reference = createLogger();
-  void reference; // sanity-check the production constructor still imports
+  // Sanity-check that the production constructor still imports cleanly;
+  // we use a separate pino instance below for the assertion stream so we
+  // can capture its serialized output deterministically.
+  void createLogger();
 
   const logger = pino(
     {

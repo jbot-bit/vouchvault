@@ -114,6 +114,7 @@ export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, 
       {
         chatId: entry.chatId,
         text: buildArchiveEntryPostText(entry),
+        protectContent: true,
       },
       logger,
     );
