@@ -114,6 +114,14 @@ export function isEntryResult(value: string | null | undefined): value is EntryR
   return value != null && ENTRY_RESULTS.includes(value as EntryResult);
 }
 
+// Returns true when this entry should be published to the host group as a
+// visible message; false when the entry is recorded in the DB but no group
+// post is sent. NEG entries are private — they contribute to /profile
+// Caution status without producing a vendetta-fuel feed artefact.
+export function shouldPublishToGroup(result: EntryResult): boolean {
+  return result !== "negative";
+}
+
 export function isEntrySource(value: string | null | undefined): value is EntrySource {
   return value != null && ENTRY_SOURCES.includes(value as EntrySource);
 }

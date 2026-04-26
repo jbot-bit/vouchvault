@@ -4,6 +4,7 @@ import {
   isEntrySource,
   isEntryType,
   parseSelectedTags,
+  shouldPublishToGroup,
   type EntryResult,
   type EntrySource,
   type EntryType,
@@ -72,7 +73,16 @@ function isDeterministicTelegramApiFailure(error: unknown): boolean {
   return error instanceof TelegramApiError;
 }
 
-export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, logger?: any) {
+export { shouldPublishToGroup } from "./archive.ts";
+
+export type PublishResult =
+  | { message_id: number; reused: boolean }
+  | { message_id: null; reused: false; private: true };
+
+export async function publishArchiveEntryRecord(
+  entry: PublishableArchiveEntry,
+  logger?: any,
+): Promise<PublishResult> {
   const latestEntry = await getArchiveEntryById(entry.id);
   const currentEntry = latestEntry ?? entry;
 
@@ -106,6 +116,21 @@ export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, 
     }
 
     throw new Error(`Failed to reserve archive entry #${entry.id} for publishing.`);
+  }
+
+  const normalized = normalizePublishableEntry(entry);
+
+  // Private NEG path: the row is reserved; transition to 'published' with no
+  // Telegram message_id and skip the send. /profile @x picks it up via the
+  // Caution predicate without exposing a reportable feed artefact.
+  if (!shouldPublishToGroup(normalized.result)) {
+    const recorded = await setArchiveEntryStatus(entry.id, "published");
+    if (recorded == null) {
+      // Race with /remove_entry — the row's status was no longer 'publishing'
+      // when we tried to flip to 'published'. Nothing to do; the remove won.
+      return { message_id: null, reused: false, private: true };
+    }
+    return { message_id: null, reused: false, private: true };
   }
 
   let published;
