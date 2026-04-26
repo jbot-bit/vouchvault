@@ -140,7 +140,37 @@ async function main() {
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/healthz") {
-        const response = jsonResponse({ ok: true });
+        // v6 §10.4: surface stale relay rows so a broken channel-discussion
+        // link is visible to ops. A stale row = channel post written
+        // (channel_message_id IS NOT NULL) but auto-forward not yet observed
+        // (channel publish but supergroup_message_id IS NULL i.e. status
+        // still 'channel_published') and >5 min old. Best-effort: if the
+        // probe fails, /healthz still returns ok:true for liveness.
+        const channelId = process.env.TELEGRAM_CHANNEL_ID?.trim();
+        const relayEnabled = process.env.VV_RELAY_ENABLED === "true";
+        let staleRelayRows: number | null = null;
+        if (relayEnabled && channelId) {
+          try {
+            const { pool } = await import("./core/storage/db.ts");
+            const r = await pool.query(
+              "SELECT count(*)::int AS n FROM vouch_entries " +
+                "WHERE channel_message_id IS NOT NULL " +
+                "AND status = 'channel_published' " +
+                "AND created_at < now() - interval '5 minutes'",
+            );
+            staleRelayRows = r.rows[0]?.n ?? 0;
+          } catch (error) {
+            logger.warn({ err: error }, "[/healthz] stale relay probe failed");
+          }
+        }
+        const body: Record<string, unknown> = { ok: true };
+        if (relayEnabled) {
+          body.channel = {
+            configured: Boolean(channelId),
+            stale_relay_rows: staleRelayRows ?? 0,
+          };
+        }
+        const response = jsonResponse(body);
         res.writeHead(response.statusCode, response.headers);
         res.end(response.body);
         return;
