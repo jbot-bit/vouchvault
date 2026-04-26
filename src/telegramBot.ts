@@ -398,7 +398,11 @@ async function handleProfileCommand(input: {
   await sendTelegramMessage(
     {
       chatId: input.chatId,
-      text: buildProfileText({ targetUsername, ...summary }),
+      text: buildProfileText({
+        targetUsername,
+        ...summary,
+        hasCaution: summary.totals.negative > 0,
+      }),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
     },
     input.logger,
@@ -1243,25 +1247,18 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/profile") {
-    if (!isAdmin(message.from?.id)) {
-      await recordAdminAction({
-        adminTelegramId: message.from?.id ?? 0,
-        adminUsername: message.from?.username ?? null,
-        command,
-        targetChatId: chatId,
-        targetUsername: args[0] ?? null,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildAdminOnlyText(),
-          ...buildReplyOptions(message.message_id, true),
-        },
-        logger,
-      );
-      return;
-    }
+    // Open to all members in the host group — /profile is the read path for
+    // the Caution status (private NEGs aren't published, so this is how the
+    // community signal flows). Audit row recorded non-denied for soft
+    // visibility on who is checking whom.
+    await recordAdminAction({
+      adminTelegramId: message.from?.id ?? 0,
+      adminUsername: message.from?.username ?? null,
+      command,
+      targetChatId: chatId,
+      targetUsername: args[0] ?? null,
+      denied: false,
+    });
     await handleProfileCommand({
       chatId,
       rawUsername: args[0],

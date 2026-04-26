@@ -267,16 +267,23 @@ export function fmtDateTime(date: Date): string {
   return escapeHtml(`${day}/${month}/${year} ${hours}:${minutes}`);
 }
 
-function fmtStatusLine(isFrozen: boolean, freezeReason: string | null): string {
-  if (!isFrozen) return "Status: Active";
-  // If the stored reason matches a current enum key, render the human label;
-  // legacy free-text rows (pre-enum) render verbatim until cleared by
-  // /unfreeze. Either path is HTML-escaped.
-  const label =
-    freezeReason && isFreezeReason(freezeReason)
-      ? FREEZE_REASON_LABELS[freezeReason]
-      : (freezeReason ?? "no reason given");
-  return `Status: Frozen — <i>${escapeHtml(label)}</i>`;
+function fmtStatusLine(
+  isFrozen: boolean,
+  freezeReason: string | null,
+  hasCaution: boolean = false,
+): string {
+  if (isFrozen) {
+    // Frozen wins over Caution. If the stored reason matches a current enum
+    // key, render the human label; legacy free-text rows (pre-enum) render
+    // verbatim until cleared by /unfreeze. Either path is HTML-escaped.
+    const label =
+      freezeReason && isFreezeReason(freezeReason)
+        ? FREEZE_REASON_LABELS[freezeReason]
+        : (freezeReason ?? "no reason given");
+    return `Status: Frozen — <i>${escapeHtml(label)}</i>`;
+  }
+  if (hasCaution) return "Status: Caution";
+  return "Status: Active";
 }
 
 function rulesLine(): string {
@@ -539,16 +546,22 @@ export function buildProfileText(input: {
   isFrozen: boolean;
   freezeReason: string | null;
   recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
+  hasCaution: boolean;
 }): string {
+  // Member-visible profile. The Negative count is hidden — admins still see
+  // it via /lookup, which renders the full per-entry audit list including
+  // the private_note column. NEG entries in `recent` are also filtered so a
+  // member can't infer the count by listing.
   const lines = [
     `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`,
-    `Positive: ${input.totals.positive} • Mixed: ${input.totals.mixed} • Negative: ${input.totals.negative}`,
-    fmtStatusLine(input.isFrozen, input.freezeReason),
+    `Positive: ${input.totals.positive} • Mixed: ${input.totals.mixed}`,
+    fmtStatusLine(input.isFrozen, input.freezeReason, input.hasCaution),
   ];
-  if (input.recent.length > 0) {
+  const visible = input.recent.filter((r) => r.result !== "negative");
+  if (visible.length > 0) {
     lines.push("");
     lines.push("<b>Last 5 entries</b>");
-    for (const r of input.recent) {
+    for (const r of visible) {
       lines.push(`<b>#${r.id}</b> — ${fmtResult(r.result)} • ${fmtDate(r.createdAt)}`);
     }
   }

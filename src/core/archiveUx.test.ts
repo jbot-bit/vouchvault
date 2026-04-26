@@ -247,7 +247,7 @@ test("buildFrozenListText caps at 10 rows and notes the remainder", () => {
   assert.match(text, /…and 3 more — refine with \/lookup @x/);
 });
 
-test("buildProfileText renders totals, status and last 5 entries", () => {
+test("buildProfileText member view shows P/M counts (Negative hidden) and Caution status when negatives exist", () => {
   const text = buildProfileText({
     targetUsername: "bobbiz",
     totals: { positive: 4, mixed: 1, negative: 2 },
@@ -257,26 +257,45 @@ test("buildProfileText renders totals, status and last 5 entries", () => {
       { id: 42, result: "positive", createdAt: new Date(Date.UTC(2026, 3, 5, 12)) },
       { id: 41, result: "negative", createdAt: new Date(Date.UTC(2026, 3, 4, 12)) },
     ],
+    hasCaution: true,
   });
 
   assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
-  assert.match(text, /Positive: 4 • Mixed: 1 • Negative: 2/);
-  assert.match(text, /Status: Active/);
+  assert.match(text, /Positive: 4 • Mixed: 1/);
+  // Negative count is hidden from members.
+  assert.equal(text.includes("Negative"), false);
+  assert.match(text, /Status: Caution/);
   assert.match(text, /<b>Last 5 entries<\/b>/);
   assert.match(text, /<b>#42<\/b> — <b>Positive<\/b> • 05\/04\/2026/);
-  assert.match(text, /<b>#41<\/b> — <b>Negative<\/b> • 04\/04\/2026/);
+  // NEG #41 must be filtered out of the member-visible recent list.
+  assert.equal(text.includes("#41"), false);
 });
 
-test("buildProfileText shows Frozen status with reason when frozen, no recent block when none", () => {
+test("buildProfileText shows Active when no NEGs and not frozen", () => {
+  const text = buildProfileText({
+    targetUsername: "alice",
+    totals: { positive: 3, mixed: 0, negative: 0 },
+    isFrozen: false,
+    freezeReason: null,
+    recent: [],
+    hasCaution: false,
+  });
+  assert.match(text, /Status: Active/);
+});
+
+test("buildProfileText shows Frozen status (enum label) when frozen, no recent block when none", () => {
   const text = buildProfileText({
     targetUsername: "icebox",
     totals: { positive: 0, mixed: 0, negative: 1 },
     isFrozen: true,
-    freezeReason: "scam attempt 2025-12",
+    freezeReason: "policy_violation",
     recent: [],
+    hasCaution: true,
   });
 
-  assert.match(text, /Status: Frozen — <i>scam attempt 2025-12<\/i>/);
+  assert.match(text, /Status: Frozen — <i>policy violation<\/i>/);
+  // Frozen wins over Caution.
+  assert.equal(text.includes("Status: Caution"), false);
   assert.doesNotMatch(text, /Last 5 entries/);
 });
 

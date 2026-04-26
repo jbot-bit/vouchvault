@@ -55,17 +55,20 @@ test("frozen_list stays under <= 4096 chars even with 50 long-reason rows", () =
   assert.match(text, /…and \d+ more/);
 });
 
-test("profile text stays under <= 4096 chars even with degenerate reason length", () => {
+test("profile text stays under <= 4096 chars even with a long legacy free-text reason", () => {
+  // Legacy free-text reasons (pre-enum) render verbatim and could in theory
+  // be long; verify the ceiling guard holds.
   const text = buildProfileText({
-    targetUsername: "scammer",
+    targetUsername: "icebox",
     totals: { positive: 0, mixed: 0, negative: 99 },
     isFrozen: true,
     freezeReason: "x".repeat(200),
     recent: Array.from({ length: 5 }).map((_, i) => ({
       id: 1000 + i,
-      result: "negative" as const,
+      result: "positive" as const,
       createdAt: new Date(Date.UTC(2026, 3, 5, 12)),
     })),
+    hasCaution: true,
   });
   assert.ok(text.length <= 4096);
 });
