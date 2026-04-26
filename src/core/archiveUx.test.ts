@@ -199,7 +199,7 @@ test("welcome text uses locked v3.2 wording (community-framing, /profile, chat-m
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /\/profile @username/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
-  assert.match(text, /auto-removed and the poster is removed from the group/);
+  assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
   // No commerce vocabulary in the locked copy.
@@ -218,7 +218,7 @@ test("pinned guide text uses locked v3.2 wording (community-framing, /profile, c
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /\/profile @username/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
-  assert.match(text, /auto-removed and the poster is removed from the group/);
+  assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
   assert.equal(text.includes("local-business"), false);

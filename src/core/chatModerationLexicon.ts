@@ -20,13 +20,23 @@ export const PHRASES: ReadonlyArray<string> = [
   "what's the price", "wickr", "wickr me", "wtb", "wts", "wtt",
 ];
 
-// Format-perfect artefacts. Empirical scan: 0 wallets, 0 emails, ~10 phones,
-// 41 off-platform-comm references, 136 t.me invite links across 24k messages.
+// Format-perfect artefacts + vouch-shape patterns. Empirical scan:
+// 0 wallets, 0 emails, ~10 phones, 41 off-platform-comm references,
+// 136 t.me invite links across 24k messages. Vouch-shape patterns
+// catch members trying to type their own vouches in chat instead
+// of going through the bot's DM flow — those are reportable artefacts
+// (unstructured "vouch" claims in the public chat) and only the bot
+// should publish vouch-shaped content. The bot's own posts are skipped
+// upstream via the is_bot + id-equals-bot check, so the bot's heading
+// "POS Vouch > @target" doesn't moderate itself.
 const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
-  { name: "tme_invite",    re: /t\.me\/\+|t\.me\/joinchat|telegram\.me\/\+/i },
-  { name: "phone",         re: /\b\+?\d[\d\s\-]{7,}\d\b/ },
-  { name: "crypto_wallet", re: /\b(bc1[a-z0-9]{20,90}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})\b/ },
-  { name: "email",         re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/ },
+  { name: "tme_invite",         re: /t\.me\/\+|t\.me\/joinchat|telegram\.me\/\+/i },
+  { name: "phone",              re: /\b\+?\d[\d\s\-]{7,}\d\b/ },
+  { name: "crypto_wallet",      re: /\b(bc1[a-z0-9]{20,90}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})\b/ },
+  { name: "email",              re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/ },
+  { name: "vouch_heading",      re: /\b(?:pos|neg|mix)\s+vouch\b/i },
+  { name: "vouch_for_username", re: /\bvouch(?:ing|ed)?\b[^\n]{0,30}@[A-Za-z]/i },
+  { name: "vouch_shorthand",    re: /[+\-]vouch\b/i },
 ];
 
 const LEET_MAP: Record<string, string> = {

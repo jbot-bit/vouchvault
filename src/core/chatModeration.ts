@@ -1,18 +1,20 @@
 // Chat moderation orchestration — audit row + Telegram side effects
-// (delete, ban, DM). Pure helpers (lexicon, normalise, findHits) live in
+// (delete, DM). Pure helpers (lexicon, normalise, findHits) live in
 // `src/core/chatModerationLexicon.ts` so they can be unit-tested
 // without DATABASE_URL.
 //
-// Policy: lexicon hit → delete + ban. No strikes, no decay, no counting.
-// The lexicon is empirically tuned to fire zero false-positives in the
-// target community (Suncoast V3, 0 hits across 2,565 messages on the
-// commerce-shape discriminators). A hostile actor gets one shot per
-// account; a legitimate member who somehow trips the lexicon DMs an
-// admin and is unbanned via Telegram's native UI in seconds.
+// Policy: lexicon hit → delete the message + best-effort DM warn.
+// No bans, no mutes, no strikes, no counting. The lexicon is
+// empirically tuned to fire near-zero false-positives in the target
+// community (0 hits across 2,565 Suncoast messages on the commerce-
+// shape discriminators), so the per-hit cost to legitimate members
+// is bounded to a single deleted message + a polite DM. Persistent
+// hostile actors who keep posting hits keep having their posts
+// vanish — the artefact never lands. Operators ban manually via
+// Telegram-native UI if a determined attacker exhausts their patience.
 
 import { recordAdminAction } from "./adminAuditStore.ts";
 import {
-  banChatMember,
   deleteTelegramMessage,
   getChatMember,
   sendTelegramMessage,
@@ -93,10 +95,8 @@ export async function runChatModeration(
     return { deleted: false };
   }
 
-  // Delete + ban. Both tolerate failure independently — one failing
-  // doesn't cancel the other (e.g., bot lacks delete rights but still
-  // has ban rights, or vice versa). The boot-time admin-rights log
-  // surfaces missing permissions.
+  // Delete the offending message. Best-effort — the bot may lack
+  // delete rights (surfaced in boot admin-rights log).
   try {
     await deleteTelegramMessage(
       { chatId: message.chat.id, messageId: message.message_id },
@@ -109,23 +109,15 @@ export async function runChatModeration(
     );
   }
 
-  try {
-    await banChatMember(
-      { chatId: message.chat.id, telegramId: fromId },
-      logger,
-    );
-  } catch (error) {
-    logger?.warn?.({ error }, "chatModeration: banChatMember failed");
-  }
-
-  // Best-effort notification. Silent for users who never /start-ed
+  // Best-effort DM warning. Silent for users who never /start-ed
   // the bot (Telegram blocks bot-initiated DMs); the welcome / pinned
-  // guide instructs members to /start once.
-  await safeSendDm(
-    fromId,
-    `Your message in <b>${escapeHtml(groupName)}</b> was removed and your account was removed from the group. If you believe this is an error, contact an admin.`,
-    logger,
-  );
+  // guide instructs members to /start once. The vouch-shape branch
+  // gets a tailored message pointing at the proper flow.
+  const isVouchShape = hit.source.startsWith("regex_vouch_");
+  const dmText = isVouchShape
+    ? `Your message in <b>${escapeHtml(groupName)}</b> was removed. Vouches must go through the bot — tap <b>Submit Vouch</b> in the group to start the DM flow. Posting vouch-shaped text in chat is auto-removed.`
+    : `Your message in <b>${escapeHtml(groupName)}</b> was removed. Posts that look like buy/sell arrangements are auto-removed. If you believe this was in error, contact an admin.`;
+  await safeSendDm(fromId, dmText, logger);
 
   return { deleted: true };
 }

@@ -147,24 +147,6 @@ export async function deleteTelegramMessage(
   );
 }
 
-export async function banChatMember(
-  input: { chatId: number; telegramId: number; untilDate?: number },
-  logger?: any,
-) {
-  return withTelegramRetry(() =>
-    callTelegramAPI(
-      "banChatMember",
-      {
-        chat_id: input.chatId,
-        user_id: input.telegramId,
-        until_date: input.untilDate,
-      },
-      logger,
-      input.chatId,
-    ),
-  );
-}
-
 export async function getChatMember(
   input: { chatId: number; telegramId: number },
   logger?: any,

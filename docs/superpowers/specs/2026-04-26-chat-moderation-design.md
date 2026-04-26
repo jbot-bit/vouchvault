@@ -1,11 +1,13 @@
-# Chat moderation v5 — one-strike-ban edition
+# Chat moderation v6 — delete + warn (gentle) edition
 
 **Date:** 2026-04-26
 **Audience:** maintainers
 **Builds on:** `docs/superpowers/specs/2026-04-26-vendetta-resistant-posture-design.md` (v1.1) and `docs/runbook/opsec.md` §6a (lexicon reference)
-**Revision:** v5 supersedes v4. v5 deletes the strikes ladder entirely. v4's 3-strikes-with-30-day-decay was tracking infrastructure pretending to be fairness — in practice it gave hostile actors three free attempts and burdened the operator with audit-query state forever. v5 collapses to **one step: lexicon hit → delete + ban**. The empirical lexicon fires near-zero false positives in the target community; legitimate members who trip it DM an admin and get unbanned via Telegram-native UI. Hostile actors burn one account per attempt and are gone.
+**Revision:** v6 supersedes v5. v5's one-strike-ban was harsh on legitimate members who slip up once. v6 softens to **delete + DM warn**, no ban. A persistent hostile actor who keeps posting hits accomplishes nothing — every attempt vanishes — but isn't auto-banned; operators handle determined abusers manually via Telegram-native UI.
 
-v5 net diff vs v4: drops `decideStrikeAction`, `getRecentStrikeCount`, `STRIKE_DECAY_DAYS`, `MUTE_DURATION_HOURS`, the `restrictChatMember` Telegram tool wrapper, and ~80 lines of orchestration. v5 keeps everything that mattered: the empirically-derived lexicon, the leet-decoding normaliser, bot/admin/inline-bot exemptions, audit-row insertion, edit-message scanning, multi-group support, and the boot-time admin-rights log.
+v6 also adds **vouch-shape detection**: members trying to publish a vouch by typing `POS Vouch @x` / `vouch for @x` / `+vouch @x` in chat now have those messages auto-deleted. The bot's own structured vouch posts are skipped via the existing self-skip (`is_bot` + id-equals-bot), so the bot doesn't moderate its own headings.
+
+v6 net diff vs v5: drops the `banChatMember` call from orchestration and the `banChatMember` Telegram tool wrapper. Adds three vouch-shape regex patterns to the lexicon. Splits the DM warning text in two: a generic "buy/sell arrangement" template and a "vouches must go through the bot" template. Lexicon and normaliser unchanged.
 
 ## 1. Context
 
