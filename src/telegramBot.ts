@@ -79,11 +79,14 @@ import {
 } from "./core/tools/telegramTools.ts";
 import {
   isChatPaused,
+  setChatGone,
   setChatKicked,
   setChatMigrated,
   setChatPaused,
 } from "./core/chatSettingsStore.ts";
 import { recordAdminAction } from "./core/adminAuditStore.ts";
+import { handleChatGone } from "./core/chatGoneHandler.ts";
+import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
@@ -1716,6 +1719,34 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
       handled: Boolean(payload.callback_query || payload.message || payload.my_chat_member),
     };
   } catch (error) {
+    if (error instanceof TelegramChatGoneError) {
+      await handleChatGone({
+        chatId: error.chatId,
+        adminTelegramIds: [...getAdminIds()],
+        logger,
+        deps: {
+          setChatGone,
+          sendDM: (input) =>
+            sendTelegramMessage(
+              { chatId: input.chatId, text: input.text, parseMode: "HTML" },
+              logger,
+            ),
+          recordAudit: (entry) =>
+            recordAdminAction({
+              adminTelegramId: 0,
+              adminUsername: null,
+              command: entry.command,
+              targetChatId: entry.targetChatId,
+              denied: entry.denied,
+            }),
+        },
+      });
+      if (updateId != null) {
+        await completeTelegramUpdate(updateId);
+      }
+      return { handled: true, chatGone: true };
+    }
+
     if (updateId != null) {
       await releaseTelegramUpdate(updateId);
     }
