@@ -5,9 +5,11 @@ import {
   timestamp,
   boolean,
   bigint,
+  bigserial,
   index,
   unique,
   uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -131,6 +133,33 @@ export const usersFirstSeen = pgTable("users_first_seen", {
   telegramId: bigint("telegram_id", { mode: "number" }).primaryKey(),
   firstSeen: timestamp("first_seen").notNull().defaultNow(),
 });
+
+export const replayLog = pgTable(
+  "replay_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    replayRunId: uuid("replay_run_id").notNull(),
+    sourceChatId: bigint("source_chat_id", { mode: "number" }).notNull(),
+    sourceMessageId: integer("source_message_id").notNull(),
+    destinationChatId: bigint("destination_chat_id", { mode: "number" }).notNull(),
+    destinationMessageId: integer("destination_message_id"),
+    replayedAt: timestamp("replayed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => {
+    return {
+      runSourceDestUnique: uniqueIndex("replay_log_run_source_dest_unique").on(
+        table.replayRunId,
+        table.sourceChatId,
+        table.sourceMessageId,
+        table.destinationChatId,
+      ),
+      destinationIdx: index("replay_log_destination_idx").on(
+        table.destinationChatId,
+        table.replayedAt,
+      ),
+    };
+  },
+);
 
 export const chatSettings = pgTable("chat_settings", {
   chatId: bigint("chat_id", { mode: "number" }).primaryKey(),
