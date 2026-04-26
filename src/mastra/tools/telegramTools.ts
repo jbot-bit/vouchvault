@@ -32,6 +32,7 @@ export function buildTelegramSendMessageParams(input: {
   replyToMessageId?: number;
   allowSendingWithoutReply?: boolean;
   disableNotification?: boolean;
+  protectContent?: boolean;
   replyMarkup?: Record<string, unknown>;
 }) {
   return {
@@ -39,6 +40,7 @@ export function buildTelegramSendMessageParams(input: {
     text: input.text,
     parse_mode: input.parseMode ?? "HTML",
     disable_notification: input.disableNotification,
+    protect_content: input.protectContent,
     reply_parameters: input.replyToMessageId == null
       ? undefined
       : {
@@ -56,6 +58,7 @@ export async function sendTelegramMessage(input: {
   replyToMessageId?: number;
   allowSendingWithoutReply?: boolean;
   disableNotification?: boolean;
+  protectContent?: boolean;
   replyMarkup?: Record<string, unknown>;
 }, logger?: any) {
   return callTelegramAPI("sendMessage", buildTelegramSendMessageParams(input), logger);
