@@ -50,6 +50,13 @@
       "when": 1777096186710,
       "tag": "0006_vouch_entries_status_check",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782950400000,
+      "tag": "0007_processed_updates_updated_at_idx",
+      "breakpoints": true
     }
   ]
 }
