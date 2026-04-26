@@ -71,7 +71,7 @@ When the live group is gone, ratelimited, or under active attack, switch over. E
 
 ## 5. SQL → Telegram-export-JSON recipe (DR)
 
-For replaying live `vouch_entries` into a fresh group as if they were a Telegram export. This is the manual replacement for the deferred `live-DB-to-export-JSON` script.
+For replaying live `vouch_entries` into a fresh group's DB. **Replay-as-DB-only:** since the unified-search-archive design (`docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`), `replay:legacy` only writes to the DB and does **not** post anything to the host group. This eliminates V3's takedown vector (a 2,234-message bulk republish in 24h producing a spam-ring fingerprint). Entries become queryable via `/search @username`; they do not appear in the Telegram chat history of the new group. The `--throttle-ms` flag on the replay command is now a no-op (kept for backward CLI compatibility) since there are no Telegram sends to throttle.
 
 ### Step 1 — dump the entries as JSONL via `psql`
 
@@ -105,19 +105,20 @@ jq --slurp '{
 
 Replace `YOUR_NEW_CHAT_ID` with the backup group's numeric chat ID.
 
-### Step 3 — replay
+### Step 3 — replay (DB only)
 
 ```bash
-npm run replay:legacy export.json -- --target-chat-id YOUR_NEW_CHAT_ID --throttle-ms 3100
+npm run replay:legacy export.json -- --target-chat-id YOUR_NEW_CHAT_ID
 ```
 
-The 3100 ms throttle stays under Telegram's 20-messages-per-minute group ceiling with margin.
+No Telegram posts are sent. Entries are inserted with `status='published'` and `published_message_id IS NULL`; the unified privacy predicate in `archiveStore.ts` recognises legacy archive rows via `source='legacy_import'` and surfaces them in `/search @username` and `/recent`.
 
 ### Caveats
 
 - **Idempotency.** `replay:legacy` keys on `legacy_source_message_id`. Entries that have already been replayed once are skipped. Re-running the recipe from scratch on a fresh DB is safe.
 - **Live entries are absent from any prior export.** They live only in `vouch_entries`. The recipe above includes them; the original Telegram export JSON does not.
 - **Reviewers without Telegram users.** If a reviewer has been deleted, `reviewer_telegram_id` is still populated but the `@username` may be stale. The replay reuses the stored username verbatim.
+- **No host-group footprint.** The new group's chat history starts empty regardless of how many legacy entries are replayed. This is intentional — bulk-publishing into a fresh group was V3's takedown vector.
 
 ---
 

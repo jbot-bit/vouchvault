@@ -182,7 +182,7 @@ Run as a non-admin member account if possible (or a separate Telegram account de
    - Repeat the flow, choose "Negative" outcome, optionally add an admin-only note.
    - Confirm.
    - **No group post appears.** The DM shows "Concern recorded as #N — admins will see it; the wider group will not."
-   - As a non-admin in the group, run `/profile @<target>`. Expected: `Status: Caution` plus Positive/Mixed counts (no Negative count visible).
+   - As a non-admin in the group, run `/search @<target>`. Expected: `Status: Caution` plus Positive/Mixed counts (no Negative count visible).
    - As an admin, run `/lookup @<target>`. Expected: full audit list including the NEG entry with the admin-only note rendered.
 
 - [ ] **Member commands:**
@@ -194,7 +194,7 @@ Run as a non-admin member account if possible (or a separate Telegram account de
    - Member posts `Pos vouch @x`. Bot deletes (vouch_heading regex). Member receives "vouches must go through the bot" DM.
 
 - [ ] **Admin ops:**
-   - Admin runs `/freeze @x community_concerns`. Confirm `/profile @x` shows `Status: Frozen`.
+   - Admin runs `/freeze @x community_concerns`. Confirm `/search @x` shows `Status: Frozen`.
    - Admin runs `/unfreeze @x`. Status returns to Active or Caution.
 
 - [ ] **Audit log:**

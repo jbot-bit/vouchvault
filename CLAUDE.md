@@ -109,6 +109,16 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 Recovery from a Telegram-side group takedown is **manual**: change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, then run the post-deploy commands in `DEPLOY.md` §9–10. Optional DB replay into the new group via the SQL → Telegram-export-JSON recipe in `docs/runbook/opsec.md`. The runtime detection (chat-gone admin paging, member-velocity alerts, `/readyz` getMe probe) is in code; OPSEC posture and migration steps are in `docs/runbook/opsec.md`.
 
+## Unified search archive (replay-as-DB-only)
+
+Spec: `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`. V3's takedown was caused by bulk-replaying ~2,234 templated bot messages in 24h, which produced a spam-ring fingerprint Telegram's ML auto-classified for ban. The current design eliminates that vector:
+
+- `scripts/replayLegacyTelegramExport.ts` writes legacy entries to the DB only; **no Telegram sends**. Rows land with `status='published'` and `published_message_id IS NULL`.
+- `/search @username` (formerly `/profile`) is the read path. It surfaces the unified archive: live POS/MIX (with a real `published_message_id`), legacy POS/MIX (`source='legacy_import'`), and a derived `Caution` status when any NEG exists (private NEGs included in the count, never in the per-entry list).
+- `/recent` shares the same privacy predicate as `/search`. Both exclude all NEG (private + legacy) at the query layer; the predicate lives in `getProfileSummary` and `getRecentArchiveEntries` in `src/core/archiveStore.ts`.
+- Member-visible recent list expanded from 5 → 20 entries.
+- `/profile` no longer exists. Anywhere bot-side or doc-side that mentions `/profile` is stale and should be fixed to `/search`.
+
 ## Environment caveats
 
 - Repo lives in OneDrive. `git diff` / `git add` can hit `mmap` errors on large diffs (Windows). If a `git add` fails with `mmap`, retry, or stage in smaller batches.

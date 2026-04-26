@@ -103,7 +103,9 @@ See spec §16.5.
 
 ## Step 13 — Vendetta-resistant posture: legacy NEG cleanup (one-time, post-deploy)
 
-Run this once after the v1.1 vendetta-resistant posture ships (spec `docs/superpowers/specs/2026-04-26-vendetta-resistant-posture-design.md`). New NEG entries are private from this point on; the historical public NEG posts already in the host group are pre-existing reportable artefacts and should be cleared.
+**Skip this step on fresh post-V3 deployments.** Replay-as-DB-only (spec `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`) means legacy entries are imported to the DB only — no group post is ever sent for any legacy entry, including legacy public NEGs from earlier groups. There are no legacy public NEG posts in the new host group, so nothing to clean up.
+
+This step only applies if you are deploying to a group that *already contains* historical public NEG posts (e.g. an in-place upgrade of V3 itself, which is no longer the supported path):
 
 1. List the legacy public NEG entry ids:
 
