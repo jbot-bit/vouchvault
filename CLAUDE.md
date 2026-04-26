@@ -20,8 +20,7 @@ Telegram reputation bot. Group launches a DM flow, reviewer submits a vouch (tar
 - `src/core/chatGoneHandler.ts`, `src/core/memberVelocity.ts` — takedown-resilience: chat-gone admin paging + brigade-detection alert (see "Takedown resilience" below).
 - `migrations/` — drizzle-kit SQL. Append a new file; do not edit historical migrations.
 - `scripts/` — one-off ops (`replayLegacyTelegramExport.ts`, `setTelegramWebhook.ts`, `configureTelegramOnboarding.ts`, `smokePost*.ts`).
-- `Export/result_v3.json` — V3 legacy export source for `replayLegacyTelegramExport.ts`. Already gitignored under `Export/`.
-- `DEPLOY.md` — Railway deploy + runbook. Includes post-deploy commands.
+- `DEPLOY.md` — Railway deploy + post-deploy commands (§9–10). Single source of truth for the deploy-time runbook.
 - `docs/runbook/opsec.md` — OPSEC posture (Request-to-Join, member permissions, backup group), takedown migration procedure, SQL→export-JSON DR recipe, member-velocity response playbook.
 - `.env.example` — canonical env-var list with comments. `.env.local` is per-machine (gitignored), filled by hand.
 - `docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md` — V3 spec (canonical).
@@ -94,21 +93,7 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 ## Takedown resilience
 
-- `TelegramChatGoneError` from any wrapped send → `handleChatGone` flips `chat_settings.status='gone'` and DMs every admin in `TELEGRAM_ADMIN_IDS` once. Bot stops trying to post to that chat. `archiveLauncher` calls `isChatDisabled` (covers `kicked` / `gone` / `migrated_away`) to short-circuit.
-- `chat_member` updates feed `memberVelocity` (in-memory rolling window). 5+ joins or 3+ leaves in 60 min in any chat → admin DM, suppressed for 60 min after firing. State resets on deploy (intentional — heuristic only).
-- `/readyz` runs the existing DB probe **plus** a `getMe` probe (3-second timeout, 429 treated as healthy). Returns 503 if either fails.
-- Recovery from a takedown is **manual** — change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, run `npm run telegram:onboarding -- --guide-chat-id <new-id> --pin-guide` and `npm run telegram:webhook`. Optional DR replay via the SQL→Telegram-export-JSON recipe in `docs/runbook/opsec.md`.
-
-## Post-deploy commands
-
-After every deploy that changes bot copy, slash menu, or webhook subscription, run these two from a shell with the deploy's `TELEGRAM_BOT_TOKEN` + `PUBLIC_BASE_URL` available:
-
-```
-npm run telegram:onboarding -- --guide-chat-id <chat-id> --pin-guide
-npm run telegram:webhook
-```
-
-`telegram:onboarding` pushes the BotFather slash menu (currently trimmed to `/start`, `/cancel`, `/help` per OPSEC), bot description, and pinned guide. `telegram:webhook` registers `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member","chat_member"]` (the `chat_member` is what powers member-velocity — skipping this leaves the brigade detector silently inert).
+Recovery from a Telegram-side group takedown is **manual**: change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, then run the post-deploy commands in `DEPLOY.md` §9–10. Optional DB replay into the new group via the SQL → Telegram-export-JSON recipe in `docs/runbook/opsec.md`. The runtime detection (chat-gone admin paging, member-velocity alerts, `/readyz` getMe probe) is in code; OPSEC posture and migration steps are in `docs/runbook/opsec.md`.
 
 ## Environment caveats
 
