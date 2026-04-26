@@ -27,6 +27,55 @@ function textResponse(body: string, statusCode = 200) {
   };
 }
 
+// Per takedown-resilience spec §3.2. Runs a `getMe` fetch with an explicit
+// 3-second timeout. A 429 response is treated as healthy (the bot account
+// is fine, just throttled). Any other Telegram error or socket timeout is
+// returned to the caller so /readyz can flip to 503 — which catches
+// bot-account-level problems (token revoked, account ban) that the DB
+// probe cannot.
+async function telegramGetMeProbe(
+  token: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3_000);
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+    if (response.status === 429) {
+      return { ok: true };
+    }
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      return {
+        ok: false,
+        error: `getMe HTTP ${response.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
+      };
+    }
+    const data = (await response.json().catch(() => null)) as
+      | { ok?: boolean; error_code?: number; description?: string }
+      | null;
+    if (data?.ok === true) {
+      return { ok: true };
+    }
+    if (Number(data?.error_code ?? 0) === 429) {
+      return { ok: true };
+    }
+    return {
+      ok: false,
+      error: `getMe failed: ${data?.description ?? "unexpected response"}`,
+    };
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      return { ok: false, error: "getMe timed out" };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
@@ -72,9 +121,6 @@ async function main() {
         try {
           const { pool } = await import("./core/storage/db.ts");
           await pool.query("SELECT 1");
-          const response = jsonResponse({ ok: true });
-          res.writeHead(response.statusCode, response.headers);
-          res.end(response.body);
         } catch (error) {
           const response = jsonResponse(
             { ok: false, error: error instanceof Error ? error.message : String(error) },
@@ -82,7 +128,23 @@ async function main() {
           );
           res.writeHead(response.statusCode, response.headers);
           res.end(response.body);
+          return;
         }
+
+        const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+        if (token) {
+          const probe = await telegramGetMeProbe(token);
+          if (!probe.ok) {
+            const response = jsonResponse({ ok: false, error: probe.error }, 503);
+            res.writeHead(response.statusCode, response.headers);
+            res.end(response.body);
+            return;
+          }
+        }
+
+        const response = jsonResponse({ ok: true });
+        res.writeHead(response.statusCode, response.headers);
+        res.end(response.body);
         return;
       }
 
