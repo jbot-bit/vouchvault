@@ -79,15 +79,19 @@ Expected: `{"ok": true, "migrations": "applied"}`.
 npm run telegram:webhook
 ```
 
-The script reads `TELEGRAM_BOT_TOKEN`, `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` and registers `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member"]`, `max_connections: 10`, `drop_pending_updates: true`.
+The script reads `TELEGRAM_BOT_TOKEN`, `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` and registers `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member","chat_member"]`, `max_connections: 10`, `drop_pending_updates: true`.
 
-Verify: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `last_error_message` should be empty.
+`chat_member` (added in the takedown-resilience chunk) feeds the member-velocity alert; the bot must be a group admin to receive these updates. If you skip this step after upgrading, the brigade detector silently never fires.
+
+Verify: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `last_error_message` should be empty and `allowed_updates` should list all four types.
 
 ## Step 10 — Bot identity, commands, pinned guide
 
 ```
 npm run telegram:onboarding -- --guide-chat-id <chat-id> --pin-guide
 ```
+
+This pushes the trimmed BotFather slash menu (`/start`, `/cancel`, `/help` only — admin commands stay typed-only and off the popup), the bot description, and the pinned guide. Re-run after any spec-locked copy change.
 
 ## Step 11 — BotFather privacy setting
 

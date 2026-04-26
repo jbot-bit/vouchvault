@@ -17,12 +17,16 @@ Telegram reputation bot. Group launches a DM flow, reviewer submits a vouch (tar
 - `src/telegramBot.ts` — Telegram update handlers, command routing, DM flow state machine.
 - `src/core/tools/telegramTools.ts` — every outbound Telegram call. Don't add new send logic elsewhere.
 - `src/core/logger.ts`, `src/core/typedTelegramErrors.ts`, `src/core/withTelegramRetry.ts` — observability + Telegram I/O scaffolding (see sections below).
+- `src/core/chatGoneHandler.ts`, `src/core/memberVelocity.ts` — takedown-resilience: chat-gone admin paging + brigade-detection alert (see "Takedown resilience" below).
 - `migrations/` — drizzle-kit SQL. Append a new file; do not edit historical migrations.
-- `scripts/` — one-off ops (`replayLegacyTelegramExport.ts`, `setTelegramWebhook.ts`, `smokePost*.ts`).
-- `DEPLOY.md` — Railway deploy + runbook.
-- `.env.example` — canonical env-var list with comments.
+- `scripts/` — one-off ops (`replayLegacyTelegramExport.ts`, `setTelegramWebhook.ts`, `configureTelegramOnboarding.ts`, `smokePost*.ts`).
+- `Export/result_v3.json` — V3 legacy export source for `replayLegacyTelegramExport.ts`. Already gitignored under `Export/`.
+- `DEPLOY.md` — Railway deploy + runbook. Includes post-deploy commands.
+- `docs/runbook/opsec.md` — OPSEC posture (Request-to-Join, member permissions, backup group), takedown migration procedure, SQL→export-JSON DR recipe, member-velocity response playbook.
+- `.env.example` — canonical env-var list with comments. `.env.local` is per-machine (gitignored), filled by hand.
 - `docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md` — V3 spec (canonical).
-- `docs/superpowers/plans/2026-04-25-vouchvault-redesign.md` — V3 plan; checkboxes are **stale**, do not trust them as a "done" signal — derive completion from git history + file existence.
+- `docs/superpowers/specs/2026-04-26-takedown-resilience-design.md` — takedown-resilience spec (chat-gone, member-velocity, /readyz getMe, OPSEC).
+- `docs/superpowers/plans/2026-04-25-vouchvault-redesign.md`, `docs/superpowers/plans/2026-04-26-takedown-resilience.md` — V3 + takedown-resilience plans; checkboxes are **stale**, do not trust them as a "done" signal — derive completion from git history + file existence.
 
 ## TypeScript posture (strict)
 
@@ -87,6 +91,24 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 ## Long messages
 
 - `buildLookupText` and `buildRecentEntriesText` route through `withCeiling` in `src/core/archive.ts` to stay under Telegram's 4096-char ceiling (3900 safety margin) with an `…and N more.` tail. New long-list builders should do the same.
+
+## Takedown resilience
+
+- `TelegramChatGoneError` from any wrapped send → `handleChatGone` flips `chat_settings.status='gone'` and DMs every admin in `TELEGRAM_ADMIN_IDS` once. Bot stops trying to post to that chat. `archiveLauncher` calls `isChatDisabled` (covers `kicked` / `gone` / `migrated_away`) to short-circuit.
+- `chat_member` updates feed `memberVelocity` (in-memory rolling window). 5+ joins or 3+ leaves in 60 min in any chat → admin DM, suppressed for 60 min after firing. State resets on deploy (intentional — heuristic only).
+- `/readyz` runs the existing DB probe **plus** a `getMe` probe (3-second timeout, 429 treated as healthy). Returns 503 if either fails.
+- Recovery from a takedown is **manual** — change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, run `npm run telegram:onboarding -- --guide-chat-id <new-id> --pin-guide` and `npm run telegram:webhook`. Optional DR replay via the SQL→Telegram-export-JSON recipe in `docs/runbook/opsec.md`.
+
+## Post-deploy commands
+
+After every deploy that changes bot copy, slash menu, or webhook subscription, run these two from a shell with the deploy's `TELEGRAM_BOT_TOKEN` + `PUBLIC_BASE_URL` available:
+
+```
+npm run telegram:onboarding -- --guide-chat-id <chat-id> --pin-guide
+npm run telegram:webhook
+```
+
+`telegram:onboarding` pushes the BotFather slash menu (currently trimmed to `/start`, `/cancel`, `/help` per OPSEC), bot description, and pinned guide. `telegram:webhook` registers `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member","chat_member"]` (the `chat_member` is what powers member-velocity — skipping this leaves the brigade detector silently inert).
 
 ## Environment caveats
 
