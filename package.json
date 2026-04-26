@@ -10,7 +10,7 @@
     "build": "npm test",
     "start": "node --experimental-strip-types src/server.ts",
     "dev": "node --watch --experimental-strip-types src/server.ts",
-    "test": "node --test --experimental-strip-types src/core/archiveUx.test.ts src/core/legacyImport.test.ts src/core/tokenBucket.test.ts src/core/bootValidation.test.ts src/core/gracefulShutdown.test.ts src/core/callbackData.test.ts src/core/withTelegramRetry.test.ts src/core/formattingCeiling.test.ts src/core/chatGoneHandler.test.ts src/core/adminAuditStore.test.ts src/core/archiveLauncher.test.ts src/core/telegramDispatch.test.ts src/core/memberVelocity.test.ts src/telegramBotInput.test.ts",
+    "test": "node --test --experimental-strip-types src/core/archiveUx.test.ts src/core/legacyImport.test.ts src/core/tokenBucket.test.ts src/core/bootValidation.test.ts src/core/gracefulShutdown.test.ts src/core/callbackData.test.ts src/core/withTelegramRetry.test.ts src/core/formattingCeiling.test.ts src/core/chatGoneHandler.test.ts src/core/adminAuditStore.test.ts src/core/archiveLauncher.test.ts src/core/telegramDispatch.test.ts src/core/memberVelocity.test.ts src/core/loggerRedact.test.ts src/telegramBotInput.test.ts",
     "format": "prettier --write .",
     "check:format": "prettier --check .",
     "db:generate": "drizzle-kit generate",

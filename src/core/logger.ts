@@ -10,6 +10,8 @@ export function createLogger(opts: { level?: string } = {}) {
         "*.password",
         "*.api_key",
         "*.authorization",
+        "*.privateNote",
+        "*.private_note",
         "headers.authorization",
         "params.token",
       ],
