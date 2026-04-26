@@ -1,11 +1,9 @@
 // Pure-helper module for chat moderation. No DB imports — safe to load
 // in test contexts without DATABASE_URL.
 //
-// The orchestration (DB queries, Telegram calls) lives in
+// The orchestration (audit-log insert + Telegram calls) lives in
 // `src/core/chatModeration.ts`, which imports from here.
 
-export const STRIKE_DECAY_DAYS = 30;
-export const MUTE_DURATION_HOURS = 24;
 export const MODERATION_COMMAND = "chat_moderation:delete";
 
 // Empirically derived from four chat exports (~24k messages). Each phrase
@@ -75,16 +73,3 @@ export function findHits(text: string): HitResult {
   return { matched: false };
 }
 
-export type StrikeAction =
-  | { kind: "warn" }
-  | { kind: "mute"; durationHours: number }
-  | { kind: "ban" };
-
-export function decideStrikeAction(strikeCount: number): StrikeAction {
-  if (strikeCount < 1) {
-    throw new Error(`decideStrikeAction: invalid strikeCount ${strikeCount}`);
-  }
-  if (strikeCount === 1) return { kind: "warn" };
-  if (strikeCount === 2) return { kind: "mute", durationHours: MUTE_DURATION_HOURS };
-  return { kind: "ban" };
-}

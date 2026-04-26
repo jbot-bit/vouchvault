@@ -146,15 +146,11 @@ After resolving, `/unpause` to resume vouches.
 
 ## 6b. Chat moderation — admin reference
 
-The bot moderates every member message in any allowed chat using the lexicon and ladder defined in `src/core/chatModerationLexicon.ts`. Strikes ladder, per-chat:
+The bot moderates every member message in any allowed chat using the lexicon defined in `src/core/chatModerationLexicon.ts`. Policy:
 
-| Strike | Action | Reversible by |
-|---|---|---|
-| 1 | Delete + warn DM (silent if user never `/start`-ed the bot) | 30-day decay |
-| 2 | Delete + 24h mute | Mute auto-expires; 30-day decay restores count |
-| 3 | Delete + permanent ban | Telegram-native unban (group settings) |
+> **Lexicon hit → delete the message + ban the poster.** No strikes, no warnings, no decay. The lexicon is empirically tuned to fire near-zero false positives in the target community.
 
-Strike count is derived from `admin_audit_log` at decision time — no separate strikes store. Each hit writes one row with `command='chat_moderation:delete'`. The 30-day decay is the SQL window in the count query; nothing to maintain.
+This is one step. A hostile actor gets one shot per account; a real member who somehow trips it DMs an admin and gets unbanned via Telegram-native UI in seconds.
 
 **Inspect recent moderation events:**
 
@@ -162,27 +158,17 @@ Strike count is derived from `admin_audit_log` at decision time — no separate 
 psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, target_username, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND created_at > now() - interval '7 days' ORDER BY created_at DESC"
 ```
 
-**Inspect a specific user's strike history (across all chats):**
+**Bot exemptions:** the bot's own messages are skipped (`is_bot` flag + id check). Inline-bot relays (`via_bot` set) are skipped. Admins are audit-logged but enforcement is skipped — admins don't get banned by their own bot.
 
-```
-psql "$DATABASE_URL" -c "SELECT created_at, target_chat_id, reason FROM admin_audit_log WHERE command='chat_moderation:delete' AND admin_telegram_id=<id> AND created_at > now() - interval '30 days' ORDER BY created_at DESC"
-```
-
-**Manually clear strikes for a user in a specific chat (rare):**
-
-```
-psql "$DATABASE_URL" -c "DELETE FROM admin_audit_log WHERE command='chat_moderation:delete' AND admin_telegram_id=<id> AND target_chat_id=<chat>"
-```
-
-**Bot exemptions:** the bot's own messages are skipped (`is_bot` flag + id check). Inline-bot relays (`via_bot` set) are skipped. Admins are audit-logged but enforcement is skipped — admin-exempt audit rows do not contribute to anyone's strike count.
+**Unban a member:** Telegram → group settings → Removed users → tap the user → Unban. No bot command needed.
 
 **Update the lexicon:** edit `PHRASES` (or `REGEX_PATTERNS`) in `src/core/chatModerationLexicon.ts`, commit, push. Railway redeploys.
 
-**Bot admin-rights check:** the bot logs its admin status in every allowed chat at boot. Check Railway logs for `chatModeration: bot status in <id>: <status>`. If status is anything other than `administrator` or `creator`, moderation will silently fail in that chat — fix the permissions in Telegram.
+**Bot admin-rights check:** the bot logs its admin status in every allowed chat at boot. Check Railway logs for `chatModeration: bot status in <id>: <status>`. If status is anything other than `administrator` or `creator`, moderation will silently fail in that chat — fix the permissions in Telegram. The bot needs `can_delete_messages` and `can_restrict_members`.
 
-**First-warning DM gap:** members who have never `/start`-ed the bot receive no warning DM on their first strike (Telegram blocks bot-initiated DMs). Their message is still deleted and the strike still counts. The welcome and pinned guide instruct members to `/start` once; members who ignore that may be confused on first strike. Acceptable.
+**First-DM gap:** members who have never `/start`-ed the bot receive no removal notice (Telegram blocks bot-initiated DMs). Their message is still deleted and they are still banned. The welcome and pinned guide instruct members to `/start` once; members who ignore that won't get the DM. They can still see they were removed via Telegram's native UI. Acceptable.
 
-**Webhook allowed_updates:** chat-moderation requires `edited_message` in the webhook's `allowed_updates`. After deploying the v4 chat-moderation code, run `npm run telegram:webhook` once to refresh the server-side webhook config. Confirm with `npm run telegram:webhook -- --info`.
+**Webhook allowed_updates:** chat-moderation requires `edited_message` in the webhook's `allowed_updates`. After deploying the v4+ chat-moderation code, run `npm run telegram:webhook` once to refresh the server-side webhook config. Confirm with `npm run telegram:webhook -- --info`.
 
 ---
 

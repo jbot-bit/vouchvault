@@ -4,9 +4,6 @@ import assert from "node:assert/strict";
 import {
   normalize,
   findHits,
-  decideStrikeAction,
-  MUTE_DURATION_HOURS,
-  STRIKE_DECAY_DAYS,
   PHRASES,
 } from "./chatModerationLexicon.ts";
 
@@ -96,28 +93,6 @@ test("findHits: empty input doesn't match", () => {
   assert.equal(findHits("").matched, false);
 });
 
-// ---- decideStrikeAction ----
-
-test("decideStrikeAction: 1 → warn", () => {
-  assert.deepEqual(decideStrikeAction(1), { kind: "warn" });
-});
-
-test("decideStrikeAction: 2 → 24h mute", () => {
-  assert.deepEqual(decideStrikeAction(2), {
-    kind: "mute",
-    durationHours: MUTE_DURATION_HOURS,
-  });
-});
-
-test("decideStrikeAction: 3+ → ban", () => {
-  assert.deepEqual(decideStrikeAction(3), { kind: "ban" });
-  assert.deepEqual(decideStrikeAction(99), { kind: "ban" });
-});
-
-test("decideStrikeAction: count < 1 throws", () => {
-  assert.throws(() => decideStrikeAction(0));
-});
-
 // ---- PHRASES shape ----
 
 test("PHRASES non-empty, lowercase, alphabetised", () => {
@@ -151,7 +126,3 @@ test("PHRASES contains no known false-positive vocabulary", () => {
   }
 });
 
-test("constants drift guard", () => {
-  assert.equal(STRIKE_DECAY_DAYS, 30);
-  assert.equal(MUTE_DURATION_HOURS, 24);
-});

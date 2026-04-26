@@ -1,67 +1,35 @@
-// Chat moderation orchestration — DB queries (audit-log strike count) +
-// Telegram side effects (delete, restrict, ban, DM). Pure helpers
-// (lexicon, normalise, findHits, decideStrikeAction) live in
+// Chat moderation orchestration — audit row + Telegram side effects
+// (delete, ban, DM). Pure helpers (lexicon, normalise, findHits) live in
 // `src/core/chatModerationLexicon.ts` so they can be unit-tested
 // without DATABASE_URL.
+//
+// Policy: lexicon hit → delete + ban. No strikes, no decay, no counting.
+// The lexicon is empirically tuned to fire zero false-positives in the
+// target community (Suncoast V3, 0 hits across 2,565 messages on the
+// commerce-shape discriminators). A hostile actor gets one shot per
+// account; a legitimate member who somehow trips the lexicon DMs an
+// admin and is unbanned via Telegram's native UI in seconds.
 
-import { and, eq, gte, isNull, like, not, or, sql } from "drizzle-orm";
-
-import { db } from "./storage/db.ts";
-import { adminAuditLog } from "./storage/schema.ts";
 import { recordAdminAction } from "./adminAuditStore.ts";
 import {
   banChatMember,
   deleteTelegramMessage,
   getChatMember,
-  restrictChatMember,
   sendTelegramMessage,
 } from "./tools/telegramTools.ts";
 import { escapeHtml } from "./archive.ts";
 import {
-  decideStrikeAction,
   findHits,
   MODERATION_COMMAND,
-  STRIKE_DECAY_DAYS,
 } from "./chatModerationLexicon.ts";
 
-// Re-export the things callers expect at the moderation surface.
 export {
   PHRASES,
-  STRIKE_DECAY_DAYS,
-  MUTE_DURATION_HOURS,
   MODERATION_COMMAND,
   normalize,
   findHits,
-  decideStrikeAction,
 } from "./chatModerationLexicon.ts";
-export type { HitResult, StrikeAction } from "./chatModerationLexicon.ts";
-
-// ---- Strike count from audit log (no new table) ----
-
-async function getRecentStrikeCount(
-  chatId: number,
-  telegramId: number,
-): Promise<number> {
-  const cutoff = new Date(Date.now() - STRIKE_DECAY_DAYS * 24 * 60 * 60 * 1000);
-  const rows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(adminAuditLog)
-    .where(
-      and(
-        eq(adminAuditLog.command, MODERATION_COMMAND),
-        eq(adminAuditLog.targetChatId, chatId),
-        eq(adminAuditLog.adminTelegramId, telegramId),
-        gte(adminAuditLog.createdAt, cutoff),
-        eq(adminAuditLog.denied, false),
-        // Exclude admin-exempt rows from contributing to anyone's count.
-        or(
-          isNull(adminAuditLog.reason),
-          not(like(adminAuditLog.reason, "%(admin_exempt)%")),
-        ),
-      ),
-    );
-  return rows[0]?.count ?? 0;
-}
+export type { HitResult } from "./chatModerationLexicon.ts";
 
 // ---- Logger interface ----
 
@@ -125,8 +93,10 @@ export async function runChatModeration(
     return { deleted: false };
   }
 
-  // Delete is the most important action; do it first and tolerate failure
-  // (e.g., bot lacks admin rights — surfaced in boot-time admin-rights log).
+  // Delete + ban. Both tolerate failure independently — one failing
+  // doesn't cancel the other (e.g., bot lacks delete rights but still
+  // has ban rights, or vice versa). The boot-time admin-rights log
+  // surfaces missing permissions.
   try {
     await deleteTelegramMessage(
       { chatId: message.chat.id, messageId: message.message_id },
@@ -139,59 +109,6 @@ export async function runChatModeration(
     );
   }
 
-  // Strike count + ladder. If the count query fails, fail-safe: skip
-  // enforcement (delete already happened, audit already recorded). The
-  // next hit catches up.
-  let count: number;
-  try {
-    count = await getRecentStrikeCount(message.chat.id, fromId);
-  } catch (error) {
-    logger?.warn?.(
-      { error, fromId, chatId: message.chat.id },
-      "chatModeration: getRecentStrikeCount failed; skipping enforcement",
-    );
-    return { deleted: true };
-  }
-  if (count < 1) {
-    // Defensive: the audit row insert above guarantees count ≥ 1, but if
-    // some race makes it 0, treat as warn rather than throwing.
-    count = 1;
-  }
-  const action = decideStrikeAction(count);
-
-  if (action.kind === "warn") {
-    await safeSendDm(
-      fromId,
-      `Your message in <b>${escapeHtml(groupName)}</b> was removed. Two more removals in 30 days will mute you for 24 hours.`,
-      logger,
-    );
-    return { deleted: true };
-  }
-
-  if (action.kind === "mute") {
-    const untilDate = Math.floor(Date.now() / 1000) + action.durationHours * 60 * 60;
-    try {
-      await restrictChatMember(
-        {
-          chatId: message.chat.id,
-          telegramId: fromId,
-          untilDate,
-          canSendMessages: false,
-        },
-        logger,
-      );
-    } catch (error) {
-      logger?.warn?.({ error }, "chatModeration: restrictChatMember failed");
-    }
-    await safeSendDm(
-      fromId,
-      `Second removal in 30 days. You are muted in <b>${escapeHtml(groupName)}</b> for ${action.durationHours} hours.`,
-      logger,
-    );
-    return { deleted: true };
-  }
-
-  // ban
   try {
     await banChatMember(
       { chatId: message.chat.id, telegramId: fromId },
@@ -200,11 +117,16 @@ export async function runChatModeration(
   } catch (error) {
     logger?.warn?.({ error }, "chatModeration: banChatMember failed");
   }
+
+  // Best-effort notification. Silent for users who never /start-ed
+  // the bot (Telegram blocks bot-initiated DMs); the welcome / pinned
+  // guide instructs members to /start once.
   await safeSendDm(
     fromId,
-    `Third removal in 30 days. You have been removed from <b>${escapeHtml(groupName)}</b>. Contact an admin if you believe this is an error.`,
+    `Your message in <b>${escapeHtml(groupName)}</b> was removed and your account was removed from the group. If you believe this is an error, contact an admin.`,
     logger,
   );
+
   return { deleted: true };
 }
 
@@ -216,10 +138,6 @@ async function safeSendDm(
   try {
     await sendTelegramMessage({ chatId: telegramId, text: htmlText }, logger);
   } catch (error) {
-    // User may have blocked the bot or never DM'd it (Telegram blocks
-    // bot-initiated DMs to non-initiated users). The moderation action
-    // stands regardless — DM is best-effort. The welcome / pinned guide
-    // tells members to /start the bot once.
     logger?.info?.(
       { error, telegramId },
       "chatModeration: DM delivery failed (non-fatal)",

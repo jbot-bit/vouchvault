@@ -1,9 +1,11 @@
-# Chat moderation v4 — set-and-forget, audited, sim-tested edition
+# Chat moderation v5 — one-strike-ban edition
 
 **Date:** 2026-04-26
 **Audience:** maintainers
 **Builds on:** `docs/superpowers/specs/2026-04-26-vendetta-resistant-posture-design.md` (v1.1) and `docs/runbook/opsec.md` §6a (lexicon reference)
-**Revision:** v4 supersedes v3. v4 closes **22 specific issues** found across two audit passes — a static review (16 issues, §11) and a 20-scenario simulation walk-through (6 additional issues, §12). The simulation uncovered: undeliverable first-DM warnings (the first warning a member ever gets is silently dropped because Telegram blocks bot-initiated DMs); username-layer evasion of the chat lexicon (`@pm_me_now` would pass v1.1's deny-list and the bot would publish it); and a handful of acceptable race-condition edge cases now documented as known.
+**Revision:** v5 supersedes v4. v5 deletes the strikes ladder entirely. v4's 3-strikes-with-30-day-decay was tracking infrastructure pretending to be fairness — in practice it gave hostile actors three free attempts and burdened the operator with audit-query state forever. v5 collapses to **one step: lexicon hit → delete + ban**. The empirical lexicon fires near-zero false positives in the target community; legitimate members who trip it DM an admin and get unbanned via Telegram-native UI. Hostile actors burn one account per attempt and are gone.
+
+v5 net diff vs v4: drops `decideStrikeAction`, `getRecentStrikeCount`, `STRIKE_DECAY_DAYS`, `MUTE_DURATION_HOURS`, the `restrictChatMember` Telegram tool wrapper, and ~80 lines of orchestration. v5 keeps everything that mattered: the empirically-derived lexicon, the leet-decoding normaliser, bot/admin/inline-bot exemptions, audit-row insertion, edit-message scanning, multi-group support, and the boot-time admin-rights log.
 
 ## 1. Context
 

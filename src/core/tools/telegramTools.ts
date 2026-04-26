@@ -147,38 +147,6 @@ export async function deleteTelegramMessage(
   );
 }
 
-export async function restrictChatMember(
-  input: {
-    chatId: number;
-    telegramId: number;
-    untilDate?: number;
-    canSendMessages?: boolean;
-  },
-  logger?: any,
-) {
-  // Telegram Bot API ≥ 6.5 deprecated `can_send_media_messages` in favour
-  // of granular fields (can_send_audios, can_send_documents, etc.). With
-  // `use_independent_chat_permissions` omitted (defaulting to false),
-  // setting `can_send_messages: false` cascades to all the granular
-  // send-permissions, achieving a full mute with one field. Cleanest
-  // forward-compatible shape.
-  return withTelegramRetry(() =>
-    callTelegramAPI(
-      "restrictChatMember",
-      {
-        chat_id: input.chatId,
-        user_id: input.telegramId,
-        permissions: {
-          can_send_messages: input.canSendMessages ?? false,
-        },
-        until_date: input.untilDate,
-      },
-      logger,
-      input.chatId,
-    ),
-  );
-}
-
 export async function banChatMember(
   input: { chatId: number; telegramId: number; untilDate?: number },
   logger?: any,
