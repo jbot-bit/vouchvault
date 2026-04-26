@@ -135,12 +135,31 @@ export async function replayChannelArchive(
       sourceMessageId,
       destinationMessageId: destIds[i]!,
     }));
-    await deps.recordForwarded(
-      input.runId,
-      input.sourceChatId,
-      input.destinationChatId,
-      pairs,
-    );
+    // recordForwarded is the dual-write half: forward first (Telegram side
+    // effect already happened by here) then log to replay_log. If this
+    // throws we're in a split-brain — the messages are forwarded but no
+    // log row exists, so a rerun would re-forward them. Wrap the failure
+    // so the operator sees what just happened and can decide whether to
+    // resume the run with a fresh runId vs. tolerate duplicates.
+    try {
+      await deps.recordForwarded(
+        input.runId,
+        input.sourceChatId,
+        input.destinationChatId,
+        pairs,
+      );
+    } catch (recordErr) {
+      const summary = sourceIds.slice(0, 5).join(",");
+      throw new Error(
+        `recordForwarded failed AFTER successful forward of ${sourceIds.length} ` +
+          `messages (run=${input.runId}, source=${input.sourceChatId}, ` +
+          `dest=${input.destinationChatId}, src_ids=${summary}...). ` +
+          `Forwards already landed in Telegram; rerunning this run_id will ` +
+          `re-forward them. Use a fresh --run-id only if duplicates are ` +
+          `acceptable. Original error: ${(recordErr as Error)?.message ?? recordErr}`,
+        { cause: recordErr },
+      );
+    }
     totalForwarded += sourceIds.length;
     input.onBatch?.({
       batchIndex,

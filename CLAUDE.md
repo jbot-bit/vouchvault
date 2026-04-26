@@ -73,8 +73,8 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 ## Storage / DB
 
-- Postgres + drizzle. Pool init lives in `src/core/storage/db.ts`. `max: 5` is deliberate — it matches `setWebhook`'s `max_connections: 10` and headroom for the migrator. Don't bump without a reason.
-- Idempotent webhook delivery via `processed_telegram_updates` table — never bypass `markUpdateProcessed`.
+- Postgres + drizzle. Pool init lives in `src/core/storage/db.ts`. `max: 10` — matches three bots × `setWebhook`'s `max_connections: 10` plus headroom; migrator pool is separate. Don't bump further without a reason. (Was 5 pre-v6; bumped in commit `0c18138`.)
+- Idempotent webhook delivery via `processed_telegram_updates` table — never bypass `reserveTelegramUpdate` / `completeTelegramUpdate`. Composite unique on `(bot_kind, update_id)` since v6 (migration 0009): per-bot `update_id` sequences don't collide. `bot_kind` defaults to `'ingest'` so single-bot callers work unchanged.
 - New schema work goes through a new `migrations/<n>_*.sql` file; regenerate snapshot via drizzle-kit.
 - Admin actions (and denied attempts) are logged to `admin_audit_log` via `recordAdminAction`. Every new admin command must call it.
 
@@ -113,7 +113,8 @@ Recovery from a Telegram-side group takedown is **manual**: change `TELEGRAM_ALL
 
 Spec: `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`. V3's takedown was caused by bulk-replaying ~2,234 templated bot messages in 24h, which produced a spam-ring fingerprint Telegram's ML auto-classified for ban. The current design eliminates that vector:
 
-- `scripts/replayLegacyTelegramExport.ts` writes legacy entries to the DB only; **no Telegram sends**. Rows land with `status='published'` and `published_message_id IS NULL`.
+- `scripts/replayLegacyTelegramExport.ts` writes legacy entries to the DB only; **no Telegram sends**. Rows land with `status='published'` and `published_message_id IS NULL`. **Never reintroduce a publish step here** — this is the V3 takedown vector.
+- The v6 recovery script `scripts/replayToTelegramAsForwards.ts` is a separate, operator-only recovery tool (spec: `2026-04-26-vouchvault-impenetrable-architecture-v6.md` §4.5). It uses Bot API `forwardMessages` (not `sendMessage`) to replay archived **channel** posts into a destination chat after a takedown. Forwards preserve `forward_origin` attribution — a different on-the-wire shape from V3's templated bulk publish. Throttled to ≤25 msgs/sec, idempotent via `replay_log`. Not wired into the bot's webhook flow; only invoked manually via `npm run replay:to-telegram`.
 - `/search @username` (formerly `/profile`) is the read path. It surfaces the unified archive: live POS/MIX (with a real `published_message_id`), legacy POS/MIX (`source='legacy_import'`), and a derived `Caution` status when any NEG exists (private NEGs included in the count, never in the per-entry list).
 - `/recent` shares the same privacy predicate as `/search`. Both exclude all NEG (private + legacy) at the query layer; the predicate lives in `getProfileSummary` and `getRecentArchiveEntries` in `src/core/archiveStore.ts`.
 - Member-visible recent list expanded from 5 → 20 entries.

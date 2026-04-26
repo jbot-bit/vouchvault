@@ -6,10 +6,17 @@ import {
   checkAccountAge,
 } from "./accountAge.ts";
 
-test("checkAccountAge: null first_seen → allowed, null marker (caller records + treats as new)", () => {
+test("checkAccountAge: null first_seen → BLOCKED with full 24h remaining (fail-closed)", () => {
+  // Brand-new user (no users_first_seen row) is treated as "just
+  // appeared" = age 0 = blocked with the full floor. Returning allowed
+  // here would let a throwaway account vouch on first contact — the
+  // exact threat KB:F5.6 captures.
   const r = checkAccountAge(null);
-  assert.equal(r.allowed, true);
-  if (r.allowed) assert.equal(r.firstSeen, null);
+  assert.equal(r.allowed, false);
+  if (!r.allowed) {
+    assert.equal(r.firstSeen, null);
+    assert.equal(r.hoursRemaining, 24);
+  }
 });
 
 test("checkAccountAge: account ≥24h old → allowed", () => {

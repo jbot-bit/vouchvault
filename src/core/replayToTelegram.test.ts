@@ -201,6 +201,28 @@ test("replayChannelArchive: forwarder length-mismatch errors loudly", async () =
   );
 });
 
+test("replayChannelArchive: recordForwarded failure surfaces split-brain warning", async () => {
+  const env = buildDeps();
+  // Override recordForwarded to fail after the forward succeeded.
+  env.deps.recordForwarded = async () => {
+    throw new Error("DB unreachable");
+  };
+  await assert.rejects(
+    replayChannelArchive(
+      {
+        runId: "run-split",
+        sourceChatId: 1,
+        destinationChatId: 2,
+        sourceMessageIds: [10, 20, 30],
+        batchSize: 3,
+        delayMs: 0,
+      },
+      env.deps,
+    ),
+    /recordForwarded failed AFTER successful forward.*re-forward.*DB unreachable/s,
+  );
+});
+
 test("replayChannelArchive: empty input returns zero-everything summary, no calls", async () => {
   const env = buildDeps();
   const summary = await replayChannelArchive(
