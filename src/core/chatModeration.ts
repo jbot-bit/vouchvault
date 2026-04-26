@@ -64,6 +64,21 @@ export async function runChatModeration(
   // Skip messages relayed via inline bots — let the inline bot's content
   // be the inline bot's problem.
   if (message.via_bot != null) return { deleted: false };
+  // V3.5.4 channel-relay: auto-forwarded posts from the discussion-
+  // linked channel arrive in the supergroup with `is_automatic_forward:
+  // true` (Bot API reference). For these, `message.from` is typically
+  // the channel itself or "Telegram" — neither is_bot is true, so the
+  // self-skip above doesn't fire. Skip moderation explicitly so the
+  // bot doesn't delete its own published vouches if the prose body
+  // happens to contain a lexicon match (e.g. a member legitimately
+  // wrote "pm me about the timing" in their vouch).
+  if (message.is_automatic_forward === true) return { deleted: false };
+  // Belt-and-braces: anything originating from a channel (sender_chat
+  // is the channel) is also exempt — covers manual reposts of
+  // archived channel content into the supergroup.
+  if (message.sender_chat != null && message.sender_chat?.type === "channel") {
+    return { deleted: false };
+  }
 
   const text = typeof message.text === "string" ? message.text : "";
   const caption = typeof message.caption === "string" ? message.caption : "";

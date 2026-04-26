@@ -1343,21 +1343,8 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
         );
         return;
       }
-      // V3.5.2: relay-enabled — admin note recorded; advance to prose
-      // collection before preview. Otherwise V3 path goes straight to
-      // preview as before.
-      if (isRelayEnabled()) {
-        await updateDraftByReviewerTelegramId(message.from.id, {
-          step: "awaiting_prose",
-          privateNote: validation.value,
-        });
-        await sendTelegramMessage(
-          { chatId, text: buildVouchProsePromptText() },
-          logger,
-        );
-        return;
-      }
-
+      // V3.5 simplification: NEG note submit goes direct to preview.
+      // (See the matching skip-note callback branch above for rationale.)
       await updateDraftByReviewerTelegramId(message.from.id, {
         step: "preview",
         privateNote: validation.value,
@@ -1977,24 +1964,11 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         );
         return;
       }
-      // V3.5.2: relay-enabled NEG path — collect prose before preview.
-      if (isRelayEnabled()) {
-        await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-          step: "awaiting_prose",
-          privateNote: null,
-        });
-        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-        await editTelegramMessage(
-          {
-            chatId,
-            messageId,
-            text: buildVouchProsePromptText(),
-          },
-          logger,
-        );
-        return;
-      }
-
+      // V3.5 simplification: NEG vouches skip the prose step entirely.
+      // privateNote carries admin-only context, NEG rows are DB-only
+      // (never published — see shouldPublishToGroup), so a separate
+      // body_text would just duplicate the note. Go direct to preview
+      // with the V3 templated shape regardless of VV_RELAY_ENABLED.
       await updateDraftByReviewerTelegramId(reviewerTelegramId, {
         step: "preview",
         privateNote: null,

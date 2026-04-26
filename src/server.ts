@@ -152,11 +152,17 @@ async function main() {
         if (relayEnabled && channelId) {
           try {
             const { pool } = await import("./core/storage/db.ts");
+            // Filter on updated_at (the moment the row transitioned to
+            // channel_published) NOT created_at (when the wizard
+            // started, possibly long before the channel publish).
+            // Without this fix, a row whose draft sat in 'pending' for
+            // 30 min before publishing would alert immediately even
+            // though the auto-forward is only seconds late.
             const r = await pool.query(
               "SELECT count(*)::int AS n FROM vouch_entries " +
                 "WHERE channel_message_id IS NOT NULL " +
                 "AND status = 'channel_published' " +
-                "AND created_at < now() - interval '5 minutes'",
+                "AND updated_at < now() - interval '5 minutes'",
             );
             staleRelayRows = r.rows[0]?.n ?? 0;
           } catch (error) {

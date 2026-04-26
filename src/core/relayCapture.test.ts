@@ -94,6 +94,28 @@ test("classifyAutoForward: destination not in allowlist → no match", () => {
   assert.equal(r.matched, false);
 });
 
+test("classifyAutoForward: forward_origin with non-channel type → no match", () => {
+  // Per Bot API MessageOrigin discriminated union, only type='channel'
+  // carries chat+message_id. Reject other variants explicitly so a
+  // future Bot API change that adds a new variant with a `chat` field
+  // doesn't accidentally match.
+  const r = classifyAutoForward({
+    message: {
+      message_id: 10,
+      is_automatic_forward: true,
+      forward_origin: {
+        type: "user",
+        sender_user: { id: 12345 },
+        message_id: 1,
+      },
+      chat: { id: SUPERGROUP },
+    },
+    expectedChannelId: CHANNEL,
+    allowedSupergroupIds: [SUPERGROUP],
+  });
+  assert.equal(r.matched, false);
+});
+
 test("classifyAutoForward: missing message returns matched:false with reason", () => {
   const r = classifyAutoForward({
     message: null,

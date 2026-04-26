@@ -33,17 +33,21 @@ export function classifyAutoForward(input: {
   if (m.is_automatic_forward !== true) {
     return { matched: false, reason: "not is_automatic_forward" };
   }
-  // forward_from_chat is the source channel; forward_from_message_id is
-  // the channel-side message id. forward_origin (Bot API 7.0+) carries
-  // the same data under a more general schema; tolerate either shape.
-  const sourceChatId =
-    m.forward_from_chat?.id ??
-    m.forward_origin?.chat?.id ??
-    null;
-  const sourceMessageId =
-    m.forward_from_message_id ??
-    m.forward_origin?.message_id ??
-    null;
+  // Bot API 7.0+ uses forward_origin (a discriminated union); pre-7.0
+  // used forward_from_chat + forward_from_message_id. Tolerate both
+  // shapes, but for the new shape only accept type="channel" — a
+  // user/hidden_user/chat origin is not the channel-discussion auto-
+  // forward we're looking for. Per
+  // https://core.telegram.org/bots/api#messageorigin only
+  // MessageOriginChannel has both a `chat` and `message_id` field.
+  const isChannelOrigin =
+    m.forward_origin?.type === "channel" || m.forward_origin == null;
+  const sourceChatId = isChannelOrigin
+    ? (m.forward_from_chat?.id ?? m.forward_origin?.chat?.id ?? null)
+    : null;
+  const sourceMessageId = isChannelOrigin
+    ? (m.forward_from_message_id ?? m.forward_origin?.message_id ?? null)
+    : null;
   if (typeof sourceChatId !== "number") {
     return { matched: false, reason: "no source chat id" };
   }
