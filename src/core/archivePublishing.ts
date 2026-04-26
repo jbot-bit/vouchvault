@@ -121,7 +121,7 @@ export async function publishArchiveEntryRecord(
   const normalized = normalizePublishableEntry(entry);
 
   // Private NEG path: the row is reserved; transition to 'published' with no
-  // Telegram message_id and skip the send. /profile @x picks it up via the
+  // Telegram message_id and skip the send. /search @x picks it up via the
   // Caution predicate without exposing a reportable feed artefact.
   if (!shouldPublishToGroup(normalized.result)) {
     const recorded = await setArchiveEntryStatus(entry.id, "published");

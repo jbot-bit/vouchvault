@@ -230,7 +230,7 @@ export function isEntryResult(value: string | null | undefined): value is EntryR
 
 // Returns true when this entry should be published to the host group as a
 // visible message; false when the entry is recorded in the DB but no group
-// post is sent. NEG entries are private — they contribute to /profile
+// post is sent. NEG entries are private — they contribute to /search
 // Caution status without producing a vendetta-fuel feed artefact.
 export function shouldPublishToGroup(result: EntryResult): boolean {
   return result !== "negative";
@@ -419,7 +419,7 @@ export function buildWelcomeText(): string {
     "4. I post the entry back to the group.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Type <code>/profile @username</code> in the group to see anyone's vouch history and current status.",
+    "Type <code>/search @username</code> in the group to see anyone's vouch history and current status.",
     "",
     "<b><u>Chat moderation</u></b>",
     "Posts that look like buy/sell arrangements, or that try to publish a vouch outside the bot, are auto-removed. Contact an admin if you think this happened in error.",
@@ -568,7 +568,7 @@ export function buildPinnedGuideText(): string {
     "3. I post the final entry back here.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Type <code>/profile @username</code> here to see anyone's vouch history and current status.",
+    "Type <code>/search @username</code> here to see anyone's vouch history and current status.",
     "",
     "<b><u>Chat moderation</u></b>",
     "Posts that look like buy/sell arrangements, or that try to publish a vouch outside the bot, are auto-removed. Contact an admin if you think this happened in error.",
@@ -617,7 +617,7 @@ export function buildAdminHelpText(): string {
     "/frozen_list — show frozen profiles",
     "/remove_entry &lt;id&gt; — delete an entry",
     "/recover_entry &lt;id&gt; — clear stuck publishing",
-    "/profile @x — entry totals",
+    "/search @x — entry totals + recent vouches",
     "/lookup @x — full audit list",
     "/pause — pause new vouches",
     "/unpause — resume vouches",
@@ -644,7 +644,7 @@ export function buildProfileText(input: {
   const visible = input.recent.filter((r) => r.result !== "negative");
   if (visible.length > 0) {
     lines.push("");
-    lines.push("<b>Last 5 entries</b>");
+    lines.push("<b>Recent entries</b>");
     for (const r of visible) {
       lines.push(`<b>#${r.id}</b> — ${fmtResult(r.result)} • ${fmtDate(r.createdAt)}`);
     }

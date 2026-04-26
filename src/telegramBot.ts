@@ -397,7 +397,7 @@ async function handleLookupCommand(input: {
   );
 }
 
-async function handleProfileCommand(input: {
+async function handleSearchCommand(input: {
   chatId: number;
   rawUsername: string | null | undefined;
   replyToMessageId?: number | null;
@@ -409,7 +409,7 @@ async function handleProfileCommand(input: {
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: "Use: /profile @username.",
+        text: "Use: /search @username.",
         ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
       },
       input.logger,
@@ -605,7 +605,7 @@ async function handleAdminCommand(input: {
 
     // Mark removed in DB FIRST so the source of truth flips before we touch
     // Telegram. If the Telegram delete fails (or is interrupted), the entry
-    // is still treated as removed by /lookup, /profile, and /recent. The
+    // is still treated as removed by /lookup, /search, and /recent. The
     // alternative ordering (delete from Telegram first, then DB) leaves a
     // ghost entry visible in DB-driven views when the DB write fails after
     // the message is already gone.
@@ -1114,8 +1114,8 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
 
-    if (command === "/profile") {
-      await handleProfileCommand({ chatId, rawUsername: args[0], logger });
+    if (command === "/search") {
+      await handleSearchCommand({ chatId, rawUsername: args[0], logger });
       return;
     }
 
@@ -1347,11 +1347,11 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
-  if (command === "/profile") {
-    // Open to all members in the host group — /profile is the read path for
-    // the Caution status (private NEGs aren't published, so this is how the
-    // community signal flows). Audit row recorded non-denied for soft
-    // visibility on who is checking whom.
+  if (command === "/search") {
+    // Open to all members in the host group — /search is the read path for
+    // the unified archive (Caution status from private NEGs, plus all
+    // queryable POS/MIX entries from legacy + live). Audit row recorded
+    // non-denied for soft visibility on who is checking whom.
     await recordAdminAction({
       adminTelegramId: message.from?.id ?? 0,
       adminUsername: message.from?.username ?? null,
@@ -1360,7 +1360,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       targetUsername: args[0] ?? null,
       denied: false,
     });
-    await handleProfileCommand({
+    await handleSearchCommand({
       chatId,
       rawUsername: args[0],
       replyToMessageId: message.message_id,

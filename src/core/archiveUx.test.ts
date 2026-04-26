@@ -186,7 +186,7 @@ test("buildPreviewText HTML-escapes the admin-only note", () => {
   assert.equal(text.includes("<script>"), false);
 });
 
-test("welcome text uses locked v3.2 wording (community-framing, /profile, chat-moderation)", () => {
+test("welcome text uses locked v3.2 wording (community-framing, /search, chat-moderation)", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
@@ -197,7 +197,7 @@ test("welcome text uses locked v3.2 wording (community-framing, /profile, chat-m
   assert.match(text, /Choose result and tags/);
   assert.match(text, /I post the entry back to the group/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
-  assert.match(text, /\/profile @username/);
+  assert.match(text, /\/search @username/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
@@ -207,7 +207,7 @@ test("welcome text uses locked v3.2 wording (community-framing, /profile, chat-m
   assert.equal(text.includes("service experiences"), false);
 });
 
-test("pinned guide text uses locked v3.2 wording (community-framing, /profile, chat-moderation)", () => {
+test("pinned guide text uses locked v3.2 wording (community-framing, /search, chat-moderation)", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
@@ -216,7 +216,7 @@ test("pinned guide text uses locked v3.2 wording (community-framing, /profile, c
   assert.match(text, /In DM, send only the target @username/);
   assert.match(text, /I post the final entry back here/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
-  assert.match(text, /\/profile @username/);
+  assert.match(text, /\/search @username/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
@@ -356,7 +356,7 @@ test("buildProfileText member view shows P/M counts (Negative hidden) and Cautio
   // Negative count is hidden from members.
   assert.equal(text.includes("Negative"), false);
   assert.match(text, /Status: Caution/);
-  assert.match(text, /<b>Last 5 entries<\/b>/);
+  assert.match(text, /<b>Recent entries<\/b>/);
   assert.match(text, /<b>#42<\/b> — <b>Positive<\/b> • 05\/04\/2026/);
   // NEG #41 must be filtered out of the member-visible recent list.
   assert.equal(text.includes("#41"), false);
@@ -387,7 +387,7 @@ test("buildProfileText shows Frozen status (enum label) when frozen, no recent b
   assert.match(text, /Status: Frozen — <i>policy violation<\/i>/);
   // Frozen wins over Caution.
   assert.equal(text.includes("Status: Caution"), false);
-  assert.doesNotMatch(text, /Last 5 entries/);
+  assert.doesNotMatch(text, /Recent entries/);
 });
 
 test("buildLookupText renders admin-only note when present, HTML-escaped", () => {
@@ -495,7 +495,7 @@ test("buildAdminHelpText lists every admin command", () => {
     "/frozen_list",
     "/remove_entry",
     "/recover_entry",
-    "/profile @x",
+    "/search @x",
     "/lookup @x",
     "/pause",
     "/unpause",

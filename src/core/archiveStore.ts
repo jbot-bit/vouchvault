@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { db, pool } from "./storage/db.ts";
 import {
@@ -92,13 +92,15 @@ export async function getProfileSummary(targetUsername: string): Promise<{
     )
     .groupBy(vouchEntries.result);
 
-  // Defence-in-depth: filter private NEGs out of the recent list at the
-  // query layer, not just at the renderer. /profile is member-callable;
-  // its recent-entries section must not contain entries with no public
-  // group post (publishedMessageId IS NULL = private NEG per v1.1).
-  // The Caution status comes from totals.negative (count above) — that
+  // Member-visible recent list. The unified privacy predicate:
+  //   - status='published' (filters out 'pending' / 'publishing' / 'removed')
+  //   - result IN ('positive', 'mixed') — exclude all NEG (private + legacy NEG)
+  //   - either has a real Telegram message_id OR is a legacy archive row
+  //     (legacy entries don't republish to the group post-v1.1, but still
+  //     exist in the unified searchable archive).
+  // Caution status uses totals.negative from the count query above; that
   // count INCLUDES private NEGs, which is correct because Caution should
-  // fire on any NEG. Only the per-entry list is filtered.
+  // fire on any NEG.
   const recent = await db
     .select({
       id: vouchEntries.id,
@@ -110,11 +112,15 @@ export async function getProfileSummary(targetUsername: string): Promise<{
       and(
         eq(vouchEntries.targetUsername, targetUsername),
         eq(vouchEntries.status, "published"),
-        isNotNull(vouchEntries.publishedMessageId),
+        ne(vouchEntries.result, "negative"),
+        or(
+          isNotNull(vouchEntries.publishedMessageId),
+          eq(vouchEntries.source, "legacy_import"),
+        ),
       ),
     )
     .orderBy(desc(vouchEntries.createdAt))
-    .limit(5);
+    .limit(20);
 
   const totals = { positive: 0, mixed: 0, negative: 0 };
   for (const row of counts) {
@@ -503,17 +509,20 @@ export async function markArchiveEntryRemoved(entryId: number) {
 }
 
 export async function getRecentArchiveEntries(limit: number) {
-  // /recent is member-callable in group + DM. It must NOT leak private NEGs
-  // (status='published' AND publishedMessageId IS NULL — the v1.1 vendetta-
-  // resistant shape). Filter on publishedMessageId IS NOT NULL: legacy public
-  // NEGs (which had a real message_id) still appear; new private NEGs don't.
+  // Member-callable in group + DM. Same unified privacy predicate as
+  // getProfileSummary.recent — exclude NEG (private + legacy), include
+  // legacy POS/MIX (which now live in the DB after replay-as-DB-only).
   return db
     .select()
     .from(vouchEntries)
     .where(
       and(
         eq(vouchEntries.status, "published"),
-        isNotNull(vouchEntries.publishedMessageId),
+        ne(vouchEntries.result, "negative"),
+        or(
+          isNotNull(vouchEntries.publishedMessageId),
+          eq(vouchEntries.source, "legacy_import"),
+        ),
       ),
     )
     .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
