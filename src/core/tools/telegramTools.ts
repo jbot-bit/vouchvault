@@ -15,6 +15,7 @@ export async function callTelegramAPI(
   params: any,
   logger?: any,
   chatId?: number,
+  signal?: AbortSignal,
 ) {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) {
@@ -27,6 +28,7 @@ export async function callTelegramAPI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(params),
+    signal,
   });
 
   const data = await response.json();
@@ -147,6 +149,7 @@ export async function answerTelegramCallbackQuery(
     callbackQueryId: string;
     text?: string;
     showAlert?: boolean;
+    chatId?: number;
   },
   logger?: any,
 ) {
@@ -159,6 +162,7 @@ export async function answerTelegramCallbackQuery(
         show_alert: input.showAlert,
       },
       logger,
+      input.chatId,
     ),
   );
 }

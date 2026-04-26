@@ -3,6 +3,8 @@ import { createServer } from "node:http";
 import { validateBootEnv } from "./core/bootValidation.ts";
 import { installGracefulShutdown } from "./core/gracefulShutdown.ts";
 import { createLogger } from "./core/logger.ts";
+import { callTelegramAPI } from "./core/tools/telegramTools.ts";
+import { TelegramRateLimitError } from "./core/typedTelegramErrors.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
 
 const logger = createLogger();
@@ -27,46 +29,24 @@ function textResponse(body: string, statusCode = 200) {
   };
 }
 
-// Per takedown-resilience spec §3.2. Runs a `getMe` fetch with an explicit
-// 3-second timeout. A 429 response is treated as healthy (the bot account
-// is fine, just throttled). Any other Telegram error or socket timeout is
-// returned to the caller so /readyz can flip to 503 — which catches
-// bot-account-level problems (token revoked, account ban) that the DB
-// probe cannot.
-async function telegramGetMeProbe(
-  token: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+// Per takedown-resilience spec §3.2. Calls `getMe` via the canonical
+// `callTelegramAPI` helper with an explicit 3-second timeout. A 429
+// response (TelegramRateLimitError) is treated as healthy — the bot
+// account is fine, just throttled. Any other Telegram error or socket
+// timeout flips /readyz to 503, catching bot-account-level problems
+// (token revoked, account ban) that the DB probe alone cannot see.
+async function telegramGetMeProbe(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 3_000);
   try {
-    const response = await fetch(`https://api.telegram.org/bot${token}/getMe`, {
-      method: "GET",
-      signal: controller.signal,
-    });
-    if (response.status === 429) {
-      return { ok: true };
-    }
-    if (!response.ok) {
-      const text = await response.text().catch(() => "");
-      return {
-        ok: false,
-        error: `getMe HTTP ${response.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
-      };
-    }
-    const data = (await response.json().catch(() => null)) as
-      | { ok?: boolean; error_code?: number; description?: string }
-      | null;
-    if (data?.ok === true) {
-      return { ok: true };
-    }
-    if (Number(data?.error_code ?? 0) === 429) {
-      return { ok: true };
-    }
-    return {
-      ok: false,
-      error: `getMe failed: ${data?.description ?? "unexpected response"}`,
-    };
+    await callTelegramAPI("getMe", {}, undefined, undefined, controller.signal);
+    return { ok: true };
   } catch (err) {
+    if (err instanceof TelegramRateLimitError) {
+      return { ok: true };
+    }
     if (err instanceof Error && err.name === "AbortError") {
       return { ok: false, error: "getMe timed out" };
     }
@@ -131,9 +111,8 @@ async function main() {
           return;
         }
 
-        const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-        if (token) {
-          const probe = await telegramGetMeProbe(token);
+        if (process.env.TELEGRAM_BOT_TOKEN?.trim()) {
+          const probe = await telegramGetMeProbe();
           if (!probe.ok) {
             const response = jsonResponse({ ok: false, error: probe.error }, 503);
             res.writeHead(response.statusCode, response.headers);
@@ -169,13 +148,16 @@ async function main() {
         const payload = await readJsonBody(req);
 
         const TIMEOUT_MS = 25_000;
-        const timeoutPromise = new Promise<{ timeout: true }>((resolve) =>
-          setTimeout(() => resolve({ timeout: true }), TIMEOUT_MS).unref?.(),
-        );
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        const timeoutPromise = new Promise<{ timeout: true }>((resolve) => {
+          timeoutId = setTimeout(() => resolve({ timeout: true }), TIMEOUT_MS);
+          timeoutId.unref?.();
+        });
         const work = processTelegramUpdate(payload, logger).then(() => ({
           timeout: false as const,
         }));
         const outcome = await Promise.race([work, timeoutPromise]);
+        if (timeoutId !== null) clearTimeout(timeoutId);
         if (outcome.timeout) {
           logger.error(
             { update_id: payload.update_id },
