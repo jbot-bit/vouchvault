@@ -625,10 +625,19 @@ export async function withReviewerDraftLock<T>(reviewerTelegramId: number, fn: (
   return withAdvisoryLock(REVIEWER_DRAFT_LOCK_OFFSET + reviewerTelegramId, fn);
 }
 
-export async function reserveTelegramUpdate(updateId: number) {
+// Bot-kind discriminator for multi-bot idempotency. Telegram update_ids
+// are per-bot, so under multi-bot we key processed_telegram_updates on
+// (bot_kind, update_id). Default 'ingest' preserves single-bot behaviour.
+export type BotKind = "ingest" | "lookup" | "admin";
+
+export async function reserveTelegramUpdate(
+  updateId: number,
+  botKind: BotKind = "ingest",
+) {
   try {
     await db.insert(processedTelegramUpdates).values({
       updateId,
+      botKind,
       status: "processing",
       updatedAt: new Date(),
     });
@@ -638,7 +647,12 @@ export async function reserveTelegramUpdate(updateId: number) {
     const existing = await db
       .select()
       .from(processedTelegramUpdates)
-      .where(eq(processedTelegramUpdates.updateId, updateId))
+      .where(
+        and(
+          eq(processedTelegramUpdates.updateId, updateId),
+          eq(processedTelegramUpdates.botKind, botKind),
+        ),
+      )
       .limit(1);
 
     const current = existing[0];
@@ -661,6 +675,7 @@ export async function reserveTelegramUpdate(updateId: number) {
         .where(
           and(
             eq(processedTelegramUpdates.updateId, updateId),
+            eq(processedTelegramUpdates.botKind, botKind),
             eq(processedTelegramUpdates.status, "processing"),
             lt(processedTelegramUpdates.updatedAt, staleCutoff),
           ),
@@ -676,21 +691,39 @@ export async function reserveTelegramUpdate(updateId: number) {
   }
 }
 
-export async function completeTelegramUpdate(updateId: number) {
+export async function completeTelegramUpdate(
+  updateId: number,
+  botKind: BotKind = "ingest",
+) {
   const rows = await db
     .update(processedTelegramUpdates)
     .set({
       status: "completed",
       updatedAt: new Date(),
     })
-    .where(eq(processedTelegramUpdates.updateId, updateId))
+    .where(
+      and(
+        eq(processedTelegramUpdates.updateId, updateId),
+        eq(processedTelegramUpdates.botKind, botKind),
+      ),
+    )
     .returning();
 
   return rows[0]!;
 }
 
-export async function releaseTelegramUpdate(updateId: number) {
-  await db.delete(processedTelegramUpdates).where(eq(processedTelegramUpdates.updateId, updateId));
+export async function releaseTelegramUpdate(
+  updateId: number,
+  botKind: BotKind = "ingest",
+) {
+  await db
+    .delete(processedTelegramUpdates)
+    .where(
+      and(
+        eq(processedTelegramUpdates.updateId, updateId),
+        eq(processedTelegramUpdates.botKind, botKind),
+      ),
+    );
 }
 
 export async function runArchiveMaintenance() {

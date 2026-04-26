@@ -72,6 +72,8 @@ export const vouchEntries = pgTable(
     legacySourceTimestamp: timestamp("legacy_source_timestamp"),
     status: text("status").notNull().default("pending"),
     publishedMessageId: integer("published_message_id"),
+    channelMessageId: integer("channel_message_id"),
+    bodyText: text("body_text"),
     privateNote: text("private_note"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -105,12 +107,29 @@ export const chatLaunchers = pgTable("chat_launchers", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const processedTelegramUpdates = pgTable("processed_telegram_updates", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  updateId: bigint("update_id", { mode: "number" }).notNull().unique(),
-  status: text("status").notNull().default("processing"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+export const processedTelegramUpdates = pgTable(
+  "processed_telegram_updates",
+  {
+    id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
+    updateId: bigint("update_id", { mode: "number" }).notNull(),
+    botKind: text("bot_kind").notNull().default("ingest"),
+    status: text("status").notNull().default("processing"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (table) => {
+    return {
+      botKindUpdateIdUnique: unique("processed_telegram_updates_bot_kind_update_id_unique").on(
+        table.botKind,
+        table.updateId,
+      ),
+    };
+  },
+);
+
+export const usersFirstSeen = pgTable("users_first_seen", {
+  telegramId: bigint("telegram_id", { mode: "number" }).primaryKey(),
+  firstSeen: timestamp("first_seen").notNull().defaultNow(),
 });
 
 export const chatSettings = pgTable("chat_settings", {
