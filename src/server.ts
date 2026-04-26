@@ -2,9 +2,14 @@ import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 
 import { validateBootEnv } from "./core/bootValidation.ts";
+import { logBotAdminStatusForChats } from "./core/chatModeration.ts";
 import { installGracefulShutdown } from "./core/gracefulShutdown.ts";
 import { createLogger } from "./core/logger.ts";
-import { callTelegramAPI } from "./core/tools/telegramTools.ts";
+import { getAllowedTelegramChatIds } from "./core/telegramChatConfig.ts";
+import {
+  callTelegramAPI,
+  getTelegramBotId,
+} from "./core/tools/telegramTools.ts";
 import { TelegramRateLimitError } from "./core/typedTelegramErrors.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
 
@@ -274,6 +279,26 @@ async function main() {
       "server listening",
     );
   });
+
+  // Fire-and-forget: log the bot's admin status in every allowed chat at
+  // boot. Operators see at-a-glance if the bot lacks admin rights anywhere
+  // (silent-failure mode for moderation otherwise). Errors per chat log
+  // warn; the whole call is non-blocking — Telegram unreachable at boot
+  // doesn't prevent the bot from serving webhooks.
+  void (async () => {
+    try {
+      const botId = await getTelegramBotId(logger);
+      if (typeof botId !== "number") {
+        logger.warn(
+          "chatModeration: could not determine bot id at boot; admin-rights check skipped",
+        );
+        return;
+      }
+      await logBotAdminStatusForChats(getAllowedTelegramChatIds(), botId, logger);
+    } catch (error) {
+      logger.warn({ err: error }, "chatModeration: boot admin-rights check failed");
+    }
+  })();
 
   installGracefulShutdown({
     server,

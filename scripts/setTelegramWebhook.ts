@@ -146,7 +146,13 @@ async function main() {
   const webhookUrl = `${baseUrl}/webhooks/telegram/action`;
   const payload: Record<string, unknown> = {
     url: webhookUrl,
-    allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"],
+    allowed_updates: [
+      "message",
+      "edited_message",
+      "callback_query",
+      "my_chat_member",
+      "chat_member",
+    ],
     max_connections: 10,
     drop_pending_updates: true,
   };

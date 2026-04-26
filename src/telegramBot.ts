@@ -37,6 +37,8 @@ import {
   type EntryTag,
 } from "./core/archive.ts";
 import { publishArchiveEntryRecord } from "./core/archivePublishing.ts";
+import { runChatModeration } from "./core/chatModeration.ts";
+import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   getPrimaryGroupChatId,
   isAllowedGroupChatId,
@@ -1256,6 +1258,20 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
+  // ── Chat moderation runs first. A delete short-circuits everything,
+  // including command parsing — a member cannot smuggle a phrase past
+  // moderation by prefixing it with a slash command.
+  const botId = await getTelegramBotId(logger);
+  if (typeof botId === "number") {
+    const mod = await runChatModeration({
+      message,
+      isAdmin,
+      botTelegramId: botId,
+      logger,
+    });
+    if (mod.deleted) return;
+  }
+
   const text = typeof message.text === "string" ? message.text.trim() : "";
   if (!text.startsWith("/")) {
     return;
@@ -2024,6 +2040,28 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
       await handlePrivateMessage(payload.message, logger);
     } else if (payload.message) {
       await handleGroupMessage(payload.message, logger);
+    } else if (payload.edited_message) {
+      // Edited messages in any allowed non-private chat go through the
+      // same chat-moderation path as fresh messages. A clean message
+      // edited into a dirty one should still be deleted.
+      const edited = payload.edited_message;
+      const editedChatType = edited.chat?.type;
+      const editedChatId = edited.chat?.id;
+      if (
+        editedChatType !== "private" &&
+        typeof editedChatId === "number" &&
+        allowedTelegramChatIds.has(editedChatId)
+      ) {
+        const botId = await getTelegramBotId(logger);
+        if (typeof botId === "number") {
+          await runChatModeration({
+            message: edited,
+            isAdmin,
+            botTelegramId: botId,
+            logger,
+          });
+        }
+      }
     } else {
       logger.info("Ignored unsupported Telegram update");
     }
