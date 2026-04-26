@@ -509,7 +509,7 @@ async function handleAdminCommand(input: {
 
   if (input.command === "/remove_entry") {
     const entryId = Number(input.args[0]);
-    if (!Number.isInteger(entryId)) {
+    if (!Number.isSafeInteger(entryId)) {
       await recordAdminAction({
         adminTelegramId: input.from.id,
         adminUsername: input.from.username ?? null,
@@ -549,6 +549,14 @@ async function handleAdminCommand(input: {
       return;
     }
 
+    // Mark removed in DB FIRST so the source of truth flips before we touch
+    // Telegram. If the Telegram delete fails (or is interrupted), the entry
+    // is still treated as removed by /lookup, /profile, and /recent. The
+    // alternative ordering (delete from Telegram first, then DB) leaves a
+    // ghost entry visible in DB-driven views when the DB write fails after
+    // the message is already gone.
+    await markArchiveEntryRemoved(entryId);
+
     if (entry.publishedMessageId) {
       try {
         await deleteTelegramMessage(
@@ -563,7 +571,6 @@ async function handleAdminCommand(input: {
       }
     }
 
-    await markArchiveEntryRemoved(entryId);
     await refreshGroupLauncher(entry.chatId, input.logger);
     await recordAdminAction({
       adminTelegramId: input.from.id,
@@ -607,7 +614,7 @@ async function handleAdminCommand(input: {
 
   if (input.command === "/recover_entry") {
     const entryId = Number(input.args[0]);
-    if (!Number.isInteger(entryId)) {
+    if (!Number.isSafeInteger(entryId)) {
       await recordAdminAction({
         adminTelegramId: input.from.id,
         adminUsername: input.from.username ?? null,
