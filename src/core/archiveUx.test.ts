@@ -186,7 +186,7 @@ test("buildPreviewText HTML-escapes the admin-only note", () => {
   assert.equal(text.includes("<script>"), false);
 });
 
-test("welcome text uses locked v3.1 wording (community-framing) and points at /profile", () => {
+test("welcome text uses locked v3.2 wording (community-framing, /profile, chat-moderation)", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
@@ -196,15 +196,18 @@ test("welcome text uses locked v3.1 wording (community-framing) and points at /p
   assert.match(text, /Send the target @username here/);
   assert.match(text, /Choose result and tags/);
   assert.match(text, /I post the entry back to the group/);
-  assert.match(text, /Check before you deal/);
+  assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /\/profile @username/);
+  assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
+  assert.match(text, /auto-removed. Three removals in 30 days = ban/);
+  assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
   // No commerce vocabulary in the locked copy.
   assert.equal(text.includes("local-business"), false);
   assert.equal(text.includes("service experiences"), false);
 });
 
-test("pinned guide text uses locked v3.1 wording (community-framing) and points at /profile", () => {
+test("pinned guide text uses locked v3.2 wording (community-framing, /profile, chat-moderation)", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
@@ -212,8 +215,11 @@ test("pinned guide text uses locked v3.1 wording (community-framing) and points 
   assert.match(text, /Tap <b>Submit Vouch<\/b> below/);
   assert.match(text, /In DM, send only the target @username/);
   assert.match(text, /I post the final entry back here/);
-  assert.match(text, /Check before you deal/);
+  assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /\/profile @username/);
+  assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
+  assert.match(text, /auto-removed. Three removals in 30 days = ban/);
+  assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
   assert.equal(text.includes("local-business"), false);
 });

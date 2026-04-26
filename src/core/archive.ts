@@ -421,6 +421,10 @@ export function buildWelcomeText(): string {
     "<b><u>Check before you deal</u></b>",
     "Type <code>/profile @username</code> in the group to see anyone's vouch history and current status.",
     "",
+    "<b><u>Chat moderation</u></b>",
+    "Posts that look like buy/sell arrangements are auto-removed. Three removals in 30 days = ban.",
+    "Send <code>/start</code> to me once so I can DM you when one of your messages is auto-removed.",
+    "",
     rulesLine(),
   ].join("\n");
 }
@@ -565,6 +569,10 @@ export function buildPinnedGuideText(): string {
     "",
     "<b><u>Check before you deal</u></b>",
     "Type <code>/profile @username</code> here to see anyone's vouch history and current status.",
+    "",
+    "<b><u>Chat moderation</u></b>",
+    "Posts that look like buy/sell arrangements are auto-removed. Three removals in 30 days = ban.",
+    "Send <code>/start</code> to me once so I can DM you when one of your messages is auto-removed.",
     "",
     rulesLine(),
   ].join("\n");
