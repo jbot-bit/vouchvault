@@ -52,9 +52,10 @@ Live + legacy entries share one shape. The verdict (positive/mixed/negative) is 
 <b>From:</b> <b>@reviewer</b>
 <b>Tags:</b> Good Comms, On Time
 <b>Date:</b> 02/11/2025           ← legacy only — original post date, not the repost date
+<code>#42</code>                  ← tap-to-copy entry id (always present, last line)
 ```
 
-Built by `fmtVouchHeading(result, targetUsername)` + literal `From:` / `Tags:` lines + optional `Date:` line in `buildArchiveEntryText`. `buildPreviewText` adds a `<b><u>Preview</u></b>` heading line above this block. `buildPublishedDraftText` (the in-DM "Posted to the group" confirmation) shows the same heading line beneath the checkmark.
+Built by `fmtVouchHeading(result, targetUsername)` + literal `From:` / `Tags:` lines + optional `Date:` line + always-present `<code>#id</code>` reference token in `buildArchiveEntryText`. `buildPreviewText` adds a `<b><u>Preview</u></b>` heading line above this block. `buildPublishedDraftText` (the in-DM "Posted to the group" confirmation) shows the same heading line beneath the checkmark.
 
 There is no `(repost)` footer — the `Date:` line alone signals an archive entry. Do not reintroduce it without spec approval.
 

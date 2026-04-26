@@ -42,6 +42,7 @@ test("buildArchiveEntryText renders live entries with a POS/MIX/NEG Vouch headin
       "<b>POS Vouch &gt; @bobbiz</b>",
       "<b>From:</b> <b>@alice</b>",
       "<b>Tags:</b> Good Comms, On Time",
+      "<code>#42</code>",
     ].join("\n"),
   );
 });
@@ -66,8 +67,39 @@ test("buildArchiveEntryText renders legacy entries with a NEG heading and origin
       "<b>From:</b> <b>@legacyop</b>",
       "<b>Tags:</b> Poor Comms",
       "<b>Date:</b> 02/11/2025",
+      "<code>#7</code>",
     ].join("\n"),
   );
+});
+
+test("buildArchiveEntryText puts the tap-to-copy id last, after the Date line on legacy", () => {
+  const live = buildArchiveEntryText({
+    entryId: 100,
+    reviewerUsername: "alice",
+    targetUsername: "bobbiz",
+    entryType: "service",
+    result: "positive",
+    tags: ["good_comms"],
+    createdAt: new Date("2026-04-26T00:00:00.000Z"),
+    source: "live",
+  });
+  assert.match(live, /<code>#100<\/code>$/);
+
+  const legacy = buildArchiveEntryText({
+    entryId: 9,
+    reviewerUsername: "legacyop",
+    targetUsername: "oldvendor",
+    entryType: "service",
+    result: "negative",
+    tags: ["poor_comms"],
+    createdAt: new Date("2025-11-02T00:00:00.000Z"),
+    source: "legacy_import",
+    legacySourceTimestamp: new Date(Date.UTC(2025, 10, 2, 12)),
+  });
+  // ID line is the absolute last line, after the Date line.
+  const lines = legacy.split("\n");
+  assert.equal(lines[lines.length - 1], "<code>#9</code>");
+  assert.equal(lines[lines.length - 2], "<b>Date:</b> 02/11/2025");
 });
 
 test("buildArchiveEntryText uses MIX prefix for mixed-result entries", () => {
