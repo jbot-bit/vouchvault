@@ -92,6 +92,13 @@ export async function getProfileSummary(targetUsername: string): Promise<{
     )
     .groupBy(vouchEntries.result);
 
+  // Defence-in-depth: filter private NEGs out of the recent list at the
+  // query layer, not just at the renderer. /profile is member-callable;
+  // its recent-entries section must not contain entries with no public
+  // group post (publishedMessageId IS NULL = private NEG per v1.1).
+  // The Caution status comes from totals.negative (count above) — that
+  // count INCLUDES private NEGs, which is correct because Caution should
+  // fire on any NEG. Only the per-entry list is filtered.
   const recent = await db
     .select({
       id: vouchEntries.id,
@@ -100,7 +107,11 @@ export async function getProfileSummary(targetUsername: string): Promise<{
     })
     .from(vouchEntries)
     .where(
-      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
+      and(
+        eq(vouchEntries.targetUsername, targetUsername),
+        eq(vouchEntries.status, "published"),
+        isNotNull(vouchEntries.publishedMessageId),
+      ),
     )
     .orderBy(desc(vouchEntries.createdAt))
     .limit(5);
