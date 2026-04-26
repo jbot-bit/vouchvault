@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { db } from "./storage/db.ts";
 import { chatSettings } from "./storage/schema.ts";
 
@@ -80,24 +80,24 @@ export async function setChatActive(chatId: number): Promise<void> {
  * Marks the chat as gone (Telegram returned `chat not found` from a send).
  * Returns true iff the status flipped from a non-`gone` value to `gone` on
  * this call. The caller uses that signal to page admins exactly once.
+ *
+ * Atomic: a single INSERT ... ON CONFLICT DO UPDATE ... WHERE status != 'gone'
+ * RETURNING. If the row is already 'gone' the WHERE clause skips the update
+ * and RETURNING is empty — concurrent webhook deliveries for the same gone
+ * chat cannot both observe `newlyGone: true`.
  */
 export async function setChatGone(chatId: number): Promise<{ newlyGone: boolean }> {
-  const existing = await db
-    .select({ status: chatSettings.status })
-    .from(chatSettings)
-    .where(eq(chatSettings.chatId, chatId));
-
-  const wasGone = existing[0]?.status === "gone";
-
-  await db
+  const result = await db
     .insert(chatSettings)
     .values({ chatId, status: "gone" })
     .onConflictDoUpdate({
       target: chatSettings.chatId,
       set: { status: "gone", updatedAt: new Date() },
-    });
+      setWhere: ne(chatSettings.status, "gone"),
+    })
+    .returning({ chatId: chatSettings.chatId });
 
-  return { newlyGone: !wasGone };
+  return { newlyGone: result.length > 0 };
 }
 
 const DISABLED_STATUSES = new Set(["kicked", "gone", "migrated_away"]);
