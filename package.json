@@ -19,7 +19,8 @@
     "telegram:onboarding": "node --experimental-strip-types scripts/configureTelegramOnboarding.ts",
     "telegram:webhook": "node --experimental-strip-types scripts/setTelegramWebhook.ts",
     "replay:legacy": "node --experimental-strip-types scripts/replayLegacyTelegramExport.ts",
-    "measure:lexicon-fp": "node --experimental-strip-types scripts/measureLexiconFP.ts"
+    "measure:lexicon-fp": "node --experimental-strip-types scripts/measureLexiconFP.ts",
+    "export:members": "node --experimental-strip-types scripts/exportMemberContacts.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
