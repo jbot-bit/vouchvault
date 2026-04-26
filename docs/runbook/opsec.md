@@ -144,6 +144,27 @@ After resolving, `/unpause` to resume vouches.
 
 ---
 
+## 6a. Lexicon reference — derived from peer-group export 2026-04-26
+
+Numbers below come from a one-time scan of a 9,706-message export from a peer drug-trade circuit, used as adversarial training data for this bot's hardening. Patterns appear here for admin reference; the runtime defence is the username-substring deny-list in `src/core/archive.ts:MARKETPLACE_USERNAME_SUBSTRINGS`.
+
+| Cluster | Volume in 9.7k corpus | Examples |
+| --- | --- | --- |
+| Drug-direct vocab | 291 hits | bud, gas, coke, shrooms, carts, tabs, meth, oxy, fire |
+| Buy-sell verbs | 320 hits | pm me, selling, buy, sell, hit me up |
+| Money-codes | 1,007 hits | 1k, 2k, rack, paid, transfer |
+| Delivery-trade | 282 hits | drop, meet, pickup, post, f2f |
+| Vendor-roles | 235 hits | guy, plug, dealer, vendor, supplier |
+| Stealth-shipping | 11 hits | vac seal, smell proof, seized, customs |
+| Burner-comms | 69 hits | signal, threema, wickr |
+| Doxing patterns | rare but catastrophic | "Name: …", "Current Address: …" |
+
+What admins watch for in `/lookup @x` `private_note` text: any of the above clusters, especially doxing-pattern + drug-direct co-occurrence; that combination is the highest-priority `/freeze` signal.
+
+This is documentation only — no runtime consumer beyond the substring deny-list referenced above. When member chat returns under a future spec (chat-group + linked discussion), the runtime regex gate that lives on that surface will consume the same lexicon.
+
+---
+
 ## 7. Appeals contacts
 
 If the live group is taken down, all of these are slow (1–7 days, often longer) and the success rate is low. File appeals anyway — they cost nothing and occasionally work.
