@@ -44,6 +44,7 @@ import { publishArchiveEntryRecord } from "./core/archivePublishing.ts";
 import { runChatModeration } from "./core/chatModeration.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
 import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
+import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   getPrimaryGroupChatId,
@@ -481,6 +482,9 @@ async function startDraftFlow(input: {
 async function handleLookupCommand(input: {
   chatId: number;
   rawUsername: string | null | undefined;
+  // "admin" → full audit (private NEGs + private_note included).
+  // "member" → public view (POS + MIX only, private_note hidden).
+  viewerScope: "admin" | "member";
   replyToMessageId?: number | null;
   messageThreadId?: number | null;
   disableNotification?: boolean;
@@ -503,6 +507,10 @@ async function handleLookupCommand(input: {
     getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES),
     getBusinessProfileByUsername(targetUsername),
   ]);
+  const visibleEntries =
+    input.viewerScope === "admin"
+      ? entries
+      : entries.filter((entry) => entry.result !== "negative");
   await sendTelegramMessage(
     {
       chatId: input.chatId,
@@ -510,14 +518,14 @@ async function handleLookupCommand(input: {
         targetUsername,
         isFrozen: profile?.isFrozen ?? false,
         freezeReason: profile?.freezeReason ?? null,
-        entries: entries.map((entry) => ({
+        entries: visibleEntries.map((entry) => ({
           id: entry.id,
           reviewerUsername: entry.reviewerUsername,
           result: entry.result as EntryResult,
           tags: parseSelectedTags(entry.selectedTags),
           createdAt: entry.createdAt,
           source: entry.source as EntrySource,
-          privateNote: entry.privateNote ?? null,
+          privateNote: input.viewerScope === "admin" ? entry.privateNote ?? null : null,
         })),
       }),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
@@ -1152,27 +1160,31 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     }
 
     if (command === "/lookup") {
-      // /lookup is admin-only — it returns the full audit list including
-      // private NEGs and the admin-only private_note. The group-context
-      // /lookup is gated below; the DM context must match.
-      if (!isAdmin(message.from?.id)) {
-        await recordAdminAction({
-          adminTelegramId: message.from?.id ?? 0,
-          adminUsername: message.from?.username ?? null,
-          command,
-          targetChatId: chatId,
-          targetUsername: args[0] ?? null,
-          denied: true,
-        });
-        await sendTelegramMessage(
-          { chatId, text: buildAdminOnlyText() },
-          logger,
-        );
-        return;
+      // v9 phase 2: DM /lookup opens to all members. Admins get the full
+      // audit (private NEGs + private_note); members get the public view
+      // (POS + MIX only, private_note hidden). Members are rate-limited
+      // to one lookup per LOOKUP_INTERVAL_MS; the group-context /lookup
+      // (still admin-only) is gated below.
+      const fromId = message.from?.id;
+      const isAdminCaller = isAdmin(fromId);
+      if (!isAdminCaller && typeof fromId === "number") {
+        const limited = memberLookupLimiter.tryConsume(fromId);
+        if (!limited.allowed) {
+          const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+          await sendTelegramMessage(
+            {
+              chatId,
+              text: `Hold on — try again in ${seconds}s.`,
+            },
+            logger,
+          );
+          return;
+        }
       }
       await handleLookupCommand({
         chatId,
         rawUsername: args[0],
+        viewerScope: isAdminCaller ? "admin" : "member",
         logger,
       });
       return;
@@ -1513,6 +1525,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     await handleLookupCommand({
       chatId,
       rawUsername: args[0],
+      viewerScope: "admin",
       replyToMessageId: message.message_id,
       messageThreadId,
       disableNotification: true,
