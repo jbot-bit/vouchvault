@@ -166,6 +166,44 @@ export async function getChatMember(
   );
 }
 
+// Bot API: https://core.telegram.org/bots/api#createchatinvitelink
+// `member_limit: 1` produces a one-shot link — after the first member uses it
+// the link is auto-revoked by Telegram. `expire_date` is a Unix timestamp.
+// Both params are optional but we always pass them — the v8 invite-link
+// design relies on the one-shot semantics.
+export async function createTelegramInviteLink(
+  input: {
+    chatId: number;
+    memberLimit?: number;
+    expireDate?: number;
+    name?: string;
+    createsJoinRequest?: boolean;
+  },
+  logger?: any,
+): Promise<{
+  invite_link: string;
+  creator: { id: number; username?: string } | null;
+  creates_join_request: boolean;
+  member_limit: number;
+  expire_date: number | null;
+  name: string | null;
+}> {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "createChatInviteLink",
+      {
+        chat_id: input.chatId,
+        member_limit: input.memberLimit,
+        expire_date: input.expireDate,
+        name: input.name,
+        creates_join_request: input.createsJoinRequest,
+      },
+      logger,
+      input.chatId,
+    ),
+  );
+}
+
 export async function answerTelegramCallbackQuery(
   input: {
     callbackQueryId: string;

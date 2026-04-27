@@ -185,3 +185,26 @@ export const adminAuditLog = pgTable("admin_audit_log", {
   denied: boolean("denied").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// v8.0 commit 3 (U2): per-distribution one-shot invite links. Bot mints
+// the link via Bot API createChatInviteLink (member_limit:1 + expire_date
+// set as a Unix-seconds integer); Telegram auto-revokes after first use.
+// The bot captures chat_join_request updates and stamps
+// used_by_telegram_id + used_at on the matching row. Migration 0013
+// adds the table.
+//
+// Bot API spec (snapshot 11344): expire_date is Unix-seconds integer.
+// We store as TIMESTAMPTZ in the DB for human readability — conversion
+// happens at the API boundary in inviteLinks.ts.
+export const inviteLinks = pgTable("invite_links", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  link: text("link").notNull().unique(),
+  memberLimit: integer("member_limit"),
+  expireDate: timestamp("expire_date", { withTimezone: true }),
+  name: text("name"),
+  createdByTelegramId: bigint("created_by_telegram_id", { mode: "number" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  usedByTelegramId: bigint("used_by_telegram_id", { mode: "number" }),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+});
+

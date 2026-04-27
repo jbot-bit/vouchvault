@@ -111,6 +111,7 @@ import { checkAccountAge } from "./core/accountAge.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
 import { classifyAutoForward } from "./core/relayCapture.ts";
 import { captureSupergroupForward } from "./core/archiveStore.ts";
+import { recordInviteLinkUsed } from "./core/inviteLinks.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
@@ -2170,6 +2171,31 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
       await handlePrivateMessage(payload.message, logger);
     } else if (payload.message) {
       await handleGroupMessage(payload.message, logger);
+    } else if (payload.chat_join_request) {
+      // v8.0 commit 3 (U2): capture which one-shot invite link was used.
+      // Bot API ChatJoinRequest.invite_link is a ChatInviteLink object
+      // (snapshot 5530); ChatInviteLink.invite_link is the string URL.
+      // Best-effort: links not minted by us no-op in recordInviteLinkUsed.
+      const joinReq = payload.chat_join_request;
+      const joinChatId = joinReq?.chat?.id;
+      if (typeof joinChatId === "number" && allowedTelegramChatIds.has(joinChatId)) {
+        const linkStr = joinReq?.invite_link?.invite_link;
+        const fromId = joinReq?.from?.id;
+        if (typeof linkStr === "string" && typeof fromId === "number") {
+          try {
+            await recordInviteLinkUsed(linkStr, fromId, logger);
+            logger.info(
+              { chatId: joinChatId, fromId, link: linkStr },
+              "chat_join_request: invite-link usage recorded",
+            );
+          } catch (error) {
+            logger.warn(
+              { error, chatId: joinChatId, fromId },
+              "chat_join_request: recordInviteLinkUsed failed",
+            );
+          }
+        }
+      }
     } else if (payload.edited_message) {
       // Edited messages in any allowed non-private chat go through the
       // same chat-moderation path as fresh messages. A clean message
