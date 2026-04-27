@@ -21,7 +21,7 @@ Telegram reputation bot. Group launches a DM flow, reviewer submits a vouch (tar
 - `migrations/` — drizzle-kit SQL. Append a new file; do not edit historical migrations.
 - `scripts/` — one-off ops (`replayLegacyTelegramExport.ts`, `setTelegramWebhook.ts`, `configureTelegramOnboarding.ts`, `smokePost*.ts`).
 - `DEPLOY.md` — Railway deploy + post-deploy commands (§9–10). Single source of truth for the deploy-time runbook.
-- `docs/runbook/opsec.md` — OPSEC posture (Request-to-Join, member permissions, backup group), takedown migration procedure, SQL→export-JSON DR recipe, member-velocity response playbook.
+- `docs/runbook/opsec.md` — OPSEC posture (Request-to-Join, member permissions, backup group), takedown migration procedure, SQL→export-JSON DR recipe, member-velocity response playbook. v8.1 sections: §18 group-type posture (stay private_group), §19 bot privacy-mode posture (TBC asymmetry), §20 identity-surface audit checklist (run pre-launch + quarterly).
 - `.env.example` — canonical env-var list with comments. `.env.local` is per-machine (gitignored), filled by hand.
 - `docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md` — V3 spec (canonical).
 - `docs/superpowers/specs/2026-04-26-takedown-resilience-design.md` — takedown-resilience spec (chat-gone, member-velocity, /readyz getMe, OPSEC).
@@ -32,16 +32,16 @@ Telegram reputation bot. Group launches a DM flow, reviewer submits a vouch (tar
 - `strict: true` and `noUncheckedIndexedAccess: true`. Index access returns `T | undefined` — assert with `!` (after a length check), or guard with `if (x === undefined) continue;`.
 - Tests live alongside the file under test (e.g. `src/core/archive.ts` ↔ `src/core/archiveUx.test.ts`).
 
-## V3-locked text (do not edit without spec change)
+## Spec-locked text (do not edit without spec change)
 
-These functions render copy locked by spec V3. Updating their bodies requires updating the spec first:
+These functions render copy anchored to a spec. Updating their bodies requires updating the spec first:
 
-- `buildWelcomeText` — `src/core/archive.ts`
-- `buildPinnedGuideText` — `src/core/archive.ts`
-- `buildBotDescriptionText` — `src/core/archive.ts`
-- `buildBotShortDescription` — `src/core/archive.ts`
+- `buildWelcomeText` — `src/core/archive.ts` (v8 community-framing)
+- `buildPinnedGuideText` — `src/core/archive.ts` (v8 community-framing)
+- `buildBotDescriptionText` — `src/core/archive.ts` (v3.1 community-framing)
+- `buildBotShortDescription` — `src/core/archive.ts` (v3.1 community-framing)
 
-Tests `welcome text uses locked v3 wording` / `pinned guide text uses locked v3 wording` / `bot profile text uses the locked v3 copy` in `src/core/archiveUx.test.ts` will fail loudly if you drift.
+Tests in `src/core/archiveUx.test.ts` (`welcome text uses locked v8 wording`, `pinned guide text uses locked v8 wording`, `bot profile text uses the locked v3.1 copy`) will fail loudly if you drift.
 
 ## Group post format
 
