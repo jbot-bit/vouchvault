@@ -564,7 +564,7 @@ Three load-bearing features need full message visibility:
 
 - **Lexicon moderation (v6).** `runChatModeration` in `src/core/chatModeration.ts` scans every group message against the empirically-derived lexicon and deletes hits. Without full message scope it would only see commands — i.e. nothing to moderate.
 - **Edited-message moderation.** The `edited_message` branch of `processTelegramUpdate` re-runs the lexicon over edits so a member can't post clean and edit dirty. Same scope requirement.
-- **DM wizard.** All DM updates already arrive regardless of privacy mode (privacy only affects groups), so this isn't the constraint — but worth noting that the bot can't be bot-privacy-ON in groups while being responsive in DMs without the asymmetric scoping the current setup already provides.
+- **v9 backup-channel mirror.** `maybeMirrorToBackupChannel` in `src/telegramBot.ts` decides whether each group message gets forwarded into `TELEGRAM_CHANNEL_ID` (when `VV_MIRROR_ENABLED=true`). Without full message scope the mirror would only see commands and never produce a usable backup. The mirror requirement is independent of moderation — even if lexicon were disabled, mirror would keep privacy-OFF in place.
 
 ### 19.2 Identity-surface cost
 
@@ -610,41 +610,67 @@ Check, in BotFather → `/mybots` → select bot → Bot Settings:
 
 Renaming is reversible in BotFather but takes effect within ~minutes; member-facing display name updates immediately. Username changes invalidate any prior `t.me/<oldhandle>` links — coordinate with §11 channel-pair links if they reference the bot handle.
 
-### 20.3 Channel-relay env audit (`VV_RELAY_ENABLED`)
+### 20.3 Backup-channel mirror env audit (`VV_MIRROR_ENABLED`)
 
-The architectural shape that distinguishes survivors (TBC, Queensland Vouches) from dead groups is **send-side-only ingestion to a channel + auto-forward to linked group**, vs. **bot directly publishing into the group**. VouchVault's channel-relay path implements the former when env is set; without it, the bot falls back to direct group publishes.
+The architectural shape that distinguishes survivors (TBC, Queensland Vouches) from dead groups is **forward-shape posts** vs. **bot-templated direct publishes**. v9 strips VouchVault's templated publish path entirely; the only bot writes to the channel are `forwardMessage` calls mirroring member posts. Forward-shape (KB:F2.5) is the survival signal.
 
 Check in production env:
 
-- `VV_RELAY_ENABLED=true` is set.
-- `TELEGRAM_CHANNEL_ID` is set to a negative integer with `-100` prefix (boot validation in v8 C9 logs an error if mis-shaped; check `/healthz` boot logs).
-- The configured channel is **linked** to the host group (Telegram client → channel → Manage → Discussion → set host group). Without the link, channel posts don't auto-forward and the relay path is broken in a way that doesn't error but does silently revert to direct publishes.
-- `/healthz` returns `relay.last_capture_at` within the last hour during normal use (added in v8 C9). If it stays null while vouches are being published, the auto-forward link is broken.
+- `VV_MIRROR_ENABLED=true` is set.
+- `TELEGRAM_CHANNEL_ID` is set to a negative integer with `-100` prefix (boot validation logs an error if mis-shaped; check `/healthz` boot logs).
+- The bot is **admin in the channel** with `can_post_messages=true`. Without post permission `forwardMessage` returns 403 and the mirror silently fails — `mirror_log` rows stop being written.
+- `mirror_log` table has recent rows (`SELECT MAX(forwarded_at) FROM mirror_log;` should be within the last hour during active group use).
+- `VV_RELAY_ENABLED` should be **unset or absent** — v9 deleted the templated-relay path; setting `VV_RELAY_ENABLED=true` will fail boot validation if reintroduced.
 
-The §11 channel-pair operator-setup procedure is the canonical step-by-step for getting this right initially; this section is the recurring audit that the configuration hasn't drifted.
+The mirror is the only bot write to the channel post-v9. There is no "channel-discussion auto-forward into the supergroup" loop — the channel is a one-way durable replica of group content for takedown recovery.
 
 ### 20.4 Edit-rate on published posts
 
 The dead Suncoast group had a 47% edit-after-send rate on published vouches. The survivor had 5.5%. High edit-rate on the dead group's bot output is a plausible classifier signal (templated message + frequent edit = automated-looking traffic; or: edits expose template-substitution bugs the classifier can fingerprint).
 
-**Code-side audit (verified 2026-04-27):** `publishedMessageId` in `vouch_entries` is **write-once**. Searched all `editTelegramMessage` call sites in `src/telegramBot.ts` and `src/core/`; none take a published-post `chat_id`/`message_id` pair as input. Every `editTelegramMessage` call edits the in-DM wizard message (the callback-query context's chatId = reviewer's DM, never the host group). Conclusion: VouchVault's bot **cannot** edit a published post; structural edit-rate is 0%.
+**Code-side audit (v9):** there are no bot-published vouches anymore. The DM wizard and templated publish path were deleted in v9 phase 3. The bot's only writes to the host group are admin-command replies, moderation DM warns (sent to DMs, not group), and `/lookup` results (sent to the requesting context). None are templated vouch content. Bot-side edit-rate on vouch content is structurally 0%.
 
-**Operator-side audit:** humans can still edit published posts via the Telegram client (admin → reply → edit). This is what shows up in classifier-visible edit-rate. Rule:
+**Operator-side audit:** humans post vouches in the group as normal messages. Member-edited messages count toward classifier-visible edit-rate. Rules:
 
-- **Do not edit published vouches in the client.** If a vouch is wrong, the corrective action is post a new vouch with the correction; leave the original alone or delete it cleanly. Edits on automated-looking templated content are the classifier signal.
-- The pinned guide (`buildPinnedGuideText`) is operator-edited at most once per major copy revision — that's fine and necessary; one pinned-message edit per quarter does not move the rate.
+- **Members:** post your vouch in one go; edit only for typos within the first minute. Repeated edits on a freshly-posted vouch attract attention.
+- **Operators:** do not edit member-posted vouches in the client. If a vouch is wrong, ask the member to delete and repost, or delete it via `/remove_entry` if it's been logged.
+- The pinned guide is operator-edited at most once per major copy revision — fine and necessary; one pinned-message edit per quarter does not move the rate.
 - Welcome messages on member join are bot-sent, not bot-edited; no action needed.
-
-If a future feature genuinely needs to mutate a published post (status badge, retraction marker, etc.), spec it explicitly and weigh the edit-rate cost against the feature value — do not add silent edit paths.
 
 ### 20.5 Audit log
 
 Each pass through this checklist should be logged in `admin_audit_log` via the operator's own account (not the bot) as a manual `audit:identity_surface` entry, or — simpler — kept as a dated note in this runbook. The point is a paper trail, not bureaucracy. One line per audit:
 
 ```
-2026-04-27 §20 audit: title=ok, bot=ok, relay=ok, edit-rate=ok. Notes: …
+2026-04-27 §20 audit: title=ok, bot=ok, mirror=ok, edit-rate=ok. Notes: …
 ```
 
 ### 20.6 Source
 
-Same dataset as §18: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`, cross-checked against TBC26 and Queensland Vouches. Edit-rate code audit performed 2026-04-27 against `src/telegramBot.ts` + `src/core/archivePublishing.ts` + `src/core/archiveStore.ts`.
+Same dataset as §18: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`, cross-checked against TBC26 and Queensland Vouches. Edit-rate code audit re-performed 2026-04-27 post-v9 phase 3: bot no longer publishes vouches; only `forwardMessage` (mirror) and admin-reply paths write to Telegram.
+
+## 21. Backup-channel mirror posture (v9)
+
+v9 phase 1 introduced a forward-only mirror of the host group into a backup channel. Every member-posted message in `TELEGRAM_ALLOWED_CHAT_IDS` is forwarded into `TELEGRAM_CHANNEL_ID` via `forwardMessage`, idempotent on `(group_chat_id, group_message_id)`. The channel becomes a durable replica: takedown of the group preserves the archive, and `replay:to-telegram` (v6 §4.5) can replay the channel into a recovery group.
+
+### 21.1 Operational rule
+
+- Bot is admin in `TELEGRAM_CHANNEL_ID` with `can_post_messages=true`.
+- `VV_MIRROR_ENABLED=true` in production env.
+- `mirror_log.forwarded_at` recent during active group use.
+
+### 21.2 Why forward (not copy)
+
+`forwardMessage` preserves `forward_origin` — the channel post displays "forwarded from <member>" with original timestamp. This is the survival shape per KB:F2.5 (forwarded content is classifier-friendlier than fresh sends). `copyMessage` (anonymising) is rejected: the data was already public in the group, and forward-shape is the documented survival pattern.
+
+### 21.3 Failure handling
+
+Mirror is best-effort. A `forwardMessage` failure (403 if bot kicked from channel, 400 if message-gone) is logged at `warn` and does not block other handlers. The mirror_log is the source of truth for "what got mirrored"; missing rows after a failure window are recoverable manually if needed (re-post in group; webhook retry will re-attempt the forward, idempotent).
+
+### 21.4 Recovery
+
+If the host group is taken down, the operator runs `npm run replay:to-telegram` against the backup channel as the source and a fresh recovery group as destination. This forwards the channel into the new group, preserving attribution. v6 §4.5 documents the script's parameters.
+
+### 21.5 Source
+
+v9 spec: `docs/superpowers/specs/2026-04-27-vouchvault-v9-simplification-design.md` §4. Implementation: `src/core/mirrorPublish.ts` + `src/core/mirrorStore.ts` + `src/telegramBot.ts:maybeMirrorToBackupChannel`.
