@@ -43,22 +43,6 @@ export const TAG_OPTIONS_BY_RESULT = {
 
 export type EntryTag = (typeof TAG_OPTIONS_BY_RESULT)[keyof typeof TAG_OPTIONS_BY_RESULT][number];
 
-export const DRAFT_STEPS = [
-  "awaiting_target",
-  "selecting_result",
-  "selecting_tags",
-  "awaiting_admin_note",
-  // V3.5.2 / v6 §4.3: free-form prose body collection. Inserted
-  // between tags (or admin_note for NEG) and preview when the
-  // multi-bot/channel-relay flow is active. When VV_RELAY_ENABLED is
-  // false the wizard skips this step and goes straight to preview.
-  "awaiting_prose",
-  "preview",
-  "idle",
-] as const;
-
-export type DraftStep = (typeof DRAFT_STEPS)[number];
-
 export const TYPE_LABELS: Record<EntryType, string> = {
   service: "Service",
   item: "Item",
@@ -114,119 +98,6 @@ export function validatePrivateNote(input: string): ValidatePrivateNoteResult {
   return { ok: true, value: trimmed };
 }
 
-// V3.5.2 / v6 §4.3 — free-form vouch prose body. After HTML-escape
-// worst case (~5×) 800 chars lands at ~4000 chars + footer ~10, well
-// under the 4096 ceiling and the 3900 safety margin in withCeiling.
-export const MAX_VOUCH_PROSE_CHARS = 800;
-
-export type ValidateVouchProseResult =
-  | { ok: true; value: string }
-  | {
-      ok: false;
-      reason:
-        | "empty"
-        | "too_long"
-        | "control_chars"
-        | "non_text"
-        | "has_entities";
-    };
-
-// Validates the free-form prose body for a V3.5 vouch.
-// - Reject empty / whitespace-only.
-// - Reject > MAX_VOUCH_PROSE_CHARS.
-// - Reject ASCII control chars except newline (\n) and tab (\t).
-//
-// Caller is responsible for the non-text + has-entities checks
-// against the Telegram Message envelope (`message.entities` present,
-// `message.photo`/`message.sticker`/`message.voice` etc.) since those
-// require the full message object, not just text.
-export function validateVouchProse(input: string): ValidateVouchProseResult {
-  const trimmed = input.trim();
-  if (trimmed.length === 0) return { ok: false, reason: "empty" };
-  if (trimmed.length > MAX_VOUCH_PROSE_CHARS) return { ok: false, reason: "too_long" };
-  // eslint-disable-next-line no-control-regex
-  if (/[\x00-\x08\x0B-\x1F\x7F]/.test(trimmed)) {
-    return { ok: false, reason: "control_chars" };
-  }
-  return { ok: true, value: trimmed };
-}
-
-// Pure helper — inspects a Telegram Message and decides whether it's
-// a valid plain-text input for the prose step. Caller still passes
-// the text through validateVouchProse for length/content checks.
-export function classifyVouchProseMessage(message: {
-  text?: unknown;
-  entities?: ReadonlyArray<unknown> | null;
-  caption?: unknown;
-  photo?: unknown;
-  document?: unknown;
-  voice?: unknown;
-  video?: unknown;
-  video_note?: unknown;
-  sticker?: unknown;
-  animation?: unknown;
-  audio?: unknown;
-  contact?: unknown;
-  location?: unknown;
-  poll?: unknown;
-}):
-  | { kind: "text"; text: string }
-  | { kind: "non_text" }
-  | { kind: "has_entities" } {
-  // Any non-text body type means the user sent media / sticker / etc.
-  if (
-    message.photo != null ||
-    message.document != null ||
-    message.voice != null ||
-    message.video != null ||
-    message.video_note != null ||
-    message.sticker != null ||
-    message.animation != null ||
-    message.audio != null ||
-    message.contact != null ||
-    message.location != null ||
-    message.poll != null ||
-    typeof message.caption === "string"
-  ) {
-    return { kind: "non_text" };
-  }
-  if (typeof message.text !== "string") {
-    return { kind: "non_text" };
-  }
-  // Reject any formatting entity (bold, italic, link, etc.). The
-  // published surface stays unstyled prose, matching TBC26's actual
-  // vouch shape (KB:F2.10–F2.11).
-  if (Array.isArray(message.entities) && message.entities.length > 0) {
-    return { kind: "has_entities" };
-  }
-  return { kind: "text", text: message.text };
-}
-
-// Locked V3.5 wizard rejection messages for the prose step.
-export function buildVouchProseRejectionText(
-  reason:
-    | "empty"
-    | "too_long"
-    | "control_chars"
-    | "non_text"
-    | "has_entities",
-): string {
-  switch (reason) {
-    case "empty":
-      return "Send a short message describing the vouch — please don't leave it blank.";
-    case "too_long":
-      return `Keep it under <b>${MAX_VOUCH_PROSE_CHARS} characters</b> please — say less.`;
-    case "control_chars":
-      return "Plain text only — control characters not allowed.";
-    case "non_text":
-      return "Plain text only please. No photos, stickers, voice, or media.";
-    case "has_entities":
-      return "Plain text — no formatting, links, or mentions please.";
-  }
-}
-
-export const DEFAULT_DUPLICATE_COOLDOWN_HOURS = 72;
-export const DEFAULT_DRAFT_TIMEOUT_HOURS = 24;
 export const MAX_LOOKUP_ENTRIES = 5;
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
@@ -390,16 +261,6 @@ function fmtResult(result: EntryResult): string {
   return `<b>${escapeHtml(RESULT_LABELS[result])}</b>`;
 }
 
-const RESULT_PREFIX: Record<EntryResult, string> = {
-  positive: "POS",
-  mixed: "MIX",
-  negative: "NEG",
-};
-
-function fmtVouchHeading(result: EntryResult, targetUsername: string): string {
-  return `<b>${RESULT_PREFIX[result]} Vouch &gt; ${escapeHtml(formatUsername(targetUsername))}</b>`;
-}
-
 function fmtTags(tags: EntryTag[]): string {
   return escapeHtml(formatTagList(tags));
 }
@@ -459,67 +320,9 @@ function rulesLineShort(): string {
   return "Follow Telegram's Terms of Service. Vouch only members you know personally. You are responsible for your vouches.";
 }
 
-function aboutLine(): string {
-  return "A community vouch hub for members who personally know each other.";
-}
-
-export function buildArchiveEntryText(input: {
-  entryId: number;
-  reviewerUsername: string;
-  targetUsername: string;
-  entryType: EntryType;
-  result: EntryResult;
-  tags: EntryTag[];
-  createdAt: Date;
-  source?: EntrySource;
-  legacySourceTimestamp?: Date | null;
-}): string {
-  const isLegacy = input.source === "legacy_import";
-
-  const lines: string[] = [
-    fmtVouchHeading(input.result, input.targetUsername),
-    `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
-    `<b>Tags:</b> ${fmtTags(input.tags)}`,
-  ];
-
-  if (isLegacy && input.legacySourceTimestamp) {
-    lines.push(`<b>Date:</b> ${fmtDate(input.legacySourceTimestamp)}`);
-  }
-
-  // Tap-to-copy reference token. Lets a community member long-press the
-  // ID on iOS / tap on desktop to grab it for an admin DM, without having
-  // to forward the post (group has restrict-saving / protect_content on).
-  lines.push(`<code>#${input.entryId}</code>`);
-
-  return lines.join("\n");
-}
-
-export function buildPreviewText(input: {
-  reviewerUsername: string;
-  targetUsername: string;
-  result: EntryResult;
-  tags: EntryTag[];
-  privateNote?: string | null;
-}): string {
-  const lines = [
-    "<b><u>Preview</u></b>",
-    "",
-    fmtVouchHeading(input.result, input.targetUsername),
-    `<b>From:</b> ${fmtUser(input.reviewerUsername)}`,
-    `<b>Tags:</b> ${fmtTags(input.tags)}`,
-  ];
-  if (input.privateNote && input.privateNote.length > 0) {
-    lines.push("");
-    lines.push(
-      `<i>Admin-only note (not published):</i> ${escapeHtml(input.privateNote)}`,
-    );
-  }
-  lines.push("");
-  lines.push(
-    "<i>By confirming, you declare you personally know this member and stand behind this vouch. You are responsible for what you submit.</i>",
-  );
-  return lines.join("\n");
-}
+// v9 locked-text. Members post vouches as normal group messages; the bot
+// is a search + moderation tool, not a publisher. DM /lookup @user
+// searches the legacy archive. Native in-group search covers new posts.
 
 export function buildWelcomeText(): string {
   return [
@@ -528,61 +331,51 @@ export function buildWelcomeText(): string {
     "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
     "",
     "<b><u>How to vouch</u></b>",
-    "1. Tap <b>Submit Vouch</b> in the group.",
-    "2. Send the target @username here.",
-    "3. Choose result and tags.",
-    "4. I post the entry back to the group.",
+    "Post your vouch as a normal message in the group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Use the search bar at the top of the group to look up anyone's @username. Every published vouch is searchable in the group.",
+    "Use the search bar at the top of the group to look up anyone's @username. To search the legacy archive, DM me <code>/lookup @username</code>.",
     "",
     "<b><u>Chat moderation</u></b>",
-    "Posts that look like buy/sell arrangements, or that try to publish a vouch outside the bot, are auto-removed. Contact an admin if you think this happened in error.",
+    "Posts that look like buy/sell arrangements are auto-removed. Contact an admin if you think this happened in error.",
     "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
     "",
     rulesLine(),
   ].join("\n");
 }
 
-export function buildTargetPromptText(): string {
+export function buildPinnedGuideText(): string {
   return [
-    "<b>Step 1 of 3 — Choose target</b>",
+    "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Send the target @username here.",
-    "You can also tap <b>Choose Target</b> below.",
+    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
+    "",
+    "<b><u>How to vouch</u></b>",
+    "Post your vouch as a normal message in this group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
+    "",
+    "<b><u>Check before you deal</u></b>",
+    "Use the search bar at the top of this group to look up anyone's @username. DM me <code>/lookup @username</code> to search the legacy archive.",
+    "",
+    "<b><u>Chat moderation</u></b>",
+    "Posts that look like buy/sell arrangements are auto-removed. Contact an admin if you think this happened in error.",
+    "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
+    "",
+    rulesLine(),
   ].join("\n");
 }
 
-export function buildTypePromptText(targetUsername: string): string {
-  return [`<b>Target saved:</b> ${fmtUser(targetUsername)}`, "", "What are you vouching for?"].join(
-    "\n",
-  );
-}
-
-export function buildResultPromptText(targetUsername: string): string {
+export function buildBotDescriptionText(): string {
   return [
-    "<b>Step 2 of 3 — Result</b>",
+    "A community vouch hub for members who personally know each other. Search the archive and read community vouches.",
     "",
-    `<b>For:</b> ${fmtUser(targetUsername)}`,
+    "How it works: members post vouches as normal messages in the group. DM me /lookup @username to search the legacy archive. I never post vouches on your behalf.",
     "",
-    "Choose the result.",
+    rulesLineShort(),
   ].join("\n");
 }
 
-export function buildTagPromptText(
-  targetUsername: string,
-  result: EntryResult,
-  tags: EntryTag[],
-): string {
-  return [
-    "<b>Step 3 of 3 — Tags</b>",
-    "",
-    `<b>For:</b> ${fmtUser(targetUsername)}`,
-    `<b>Vouch:</b> ${fmtResult(result)}`,
-    `<b>Tags:</b> ${fmtTags(tags)}`,
-    "",
-    "Choose one or more tags, then tap <b>Done</b>.",
-  ].join("\n");
+export function buildBotShortDescription(): string {
+  return "Vouch Hub — search community vouches. DM /lookup @username to look up the legacy archive.";
 }
 
 const SAFE_LIMIT = 3900;
@@ -639,114 +432,11 @@ export function buildLookupText(input: {
   return withCeiling(lines, 0);
 }
 
-export function buildLauncherText(): string {
-  return ["<b>Submit a vouch</b>", "Tap below to open the short DM form."].join("\n");
-}
-
-export function buildPinnedGuideText(): string {
-  return [
-    "<b>Welcome to the Vouch Hub</b>",
-    "",
-    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
-    "",
-    "<b><u>How to vouch</u></b>",
-    "1. Tap <b>Submit Vouch</b> below.",
-    "2. In DM, send only the target @username, then use the buttons.",
-    "3. I post the final entry back here.",
-    "",
-    "<b><u>Check before you deal</u></b>",
-    "Use the search bar at the top of this group to look up anyone's @username. Every published vouch is searchable here.",
-    "",
-    "<b><u>Chat moderation</u></b>",
-    "Posts that look like buy/sell arrangements, or that try to publish a vouch outside the bot, are auto-removed. Contact an admin if you think this happened in error.",
-    "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
-    "",
-    rulesLine(),
-  ].join("\n");
-}
-
-export function buildGroupLauncherReplyText(): string {
-  return "Tap below to submit your vouch in DM.";
-}
-
-export function buildPublishedDraftText(targetUsername: string, result: EntryResult): string {
-  return [
-    "<b>✓ Posted to the group</b>",
-    "",
-    fmtVouchHeading(result, targetUsername),
-  ].join("\n");
-}
-
-export function buildBotDescriptionText(): string {
-  return [
-    "A community vouch hub for members who personally know each other. Log honest vouches; help others find trustworthy people to deal with.",
-    "",
-    "How it works: Tap Submit Vouch in the group, DM the bot one @username, choose result + tags, I post a clean entry back to the group.",
-    "",
-    rulesLineShort(),
-  ].join("\n");
-}
-
-export function buildBotShortDescription(): string {
-  return "Vouch Hub — community vouches between members who know each other. Open from the group launcher.";
-}
-
 export function buildAdminOnlyText(): string {
   return "<b>Admin only.</b>";
 }
 
-// ---- V3.5 (impenetrable architecture v6) locked-text additions ----
-//
-// These are tested via archiveUx.test.ts for byte-stable output. Any
-// drift requires a V3.5 spec amendment first. See
-// docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md
-// V3.5 amendment.
-
-// Wizard prompt for the free-form prose body (V3.5.2). Inserted after
-// tags, before preview, when the multi-bot/relay flow is active.
-export function buildVouchProsePromptText(): string {
-  return [
-    "<b>Last step — write the vouch</b>",
-    "",
-    "Send a short message describing the vouch in your own words. Plain text only — no formatting, no links, no media.",
-    "",
-    "<b>Keep it under 800 characters.</b>",
-  ].join("\n");
-}
-
-// V3.5 preview shape (V3.5.2 / v6 §4.4). The published surface drops
-// the V3 templated heading; structured fields render only via /search.
-// Heading is <i>Preview</i> per spec (distinct from V3's <b><u>Preview</u></b>
-// so the wizard's prose-mode preview is visually distinguishable from
-// the V3 structured-mode preview during the rollout window).
-export function buildPreviewTextV35(input: {
-  bodyTextEscaped: string;
-  entryId: number;
-}): string {
-  return [
-    "<i>Preview</i>",
-    "",
-    input.bodyTextEscaped,
-    "",
-    `<code>#${input.entryId}</code>`,
-  ].join("\n");
-}
-
-// V3.5 published-draft confirmation including channel post URL.
-export function buildPublishedDraftTextWithUrl(input: {
-  entryId: number;
-  channelPostUrl: string;
-}): string {
-  return [
-    "<b>✓ Posted to the group</b>",
-    "",
-    `<code>#${input.entryId}</code>`,
-    "",
-    `<a href="${input.channelPostUrl}">View in channel</a>`,
-  ].join("\n");
-}
-
-// V3.5 lookup bot @BotFather profile copy.
+// Lookup-bot @BotFather profile copy. Read-only; never posts.
 export function buildLookupBotShortDescription(): string {
   return "Search vouches by @username. Read-only lookup bot for the Vouch Hub community.";
 }
@@ -755,13 +445,13 @@ export function buildLookupBotDescription(): string {
   return [
     "Read-only lookup for the Vouch Hub community.",
     "",
-    "Use the search bar at the top of the group to look up anyone's @username — every published vouch is searchable there.",
+    "Use the search bar at the top of the group to look up anyone's @username — every vouch posted in the group is searchable there.",
     "",
     "I never post vouches and never DM members on my own.",
   ].join("\n");
 }
 
-// V3.5 admin bot @BotFather profile copy.
+// Admin-bot @BotFather profile copy.
 export function buildAdminBotShortDescription(): string {
   return "Admin tooling for the Vouch Hub. Restricted access — operator commands only.";
 }
@@ -774,19 +464,20 @@ export function buildAdminBotDescription(): string {
   ].join("\n");
 }
 
-// V3.5 account-age guard rejection (V3.5.3).
+// Account-age guard rejection — kept for the moderation/welcome path even
+// after wizard removal, in case future surfaces re-enable an age check.
 export function buildAccountTooNewText(hoursRemaining: number): string {
   const noun = hoursRemaining === 1 ? "hour" : "hours";
   return [
     "<b>Please come back later</b>",
     "",
-    `We wait for new accounts to establish before allowing vouches. Try again in <b>${hoursRemaining} ${noun}</b>.`,
+    `We wait for new accounts to establish before allowing posts. Try again in <b>${hoursRemaining} ${noun}</b>.`,
   ].join("\n");
 }
 
-// V3.5 chat-moderation DM warning (V3.5 §8.4). Refactor of inline
-// strings previously hardcoded in chatModeration.ts. Locked-text
-// discipline lets us assert these via archiveUx.test.ts.
+// Chat-moderation DM warning. v9: there is no "Submit Vouch" launcher
+// anymore; vouches are normal group messages. The vouch-shape branch
+// still refers a member back into the group rather than into a wizard.
 export function buildModerationWarnText(input: {
   groupName: string;
   hitSource: string; // e.g. "phrase", "regex_buy_shape", "regex_vouch_for_username", "compound_buy_solicit"
@@ -794,7 +485,7 @@ export function buildModerationWarnText(input: {
 }): string {
   const escapedGroup = escapeHtml(input.groupName);
   if (input.hitSource.startsWith("regex_vouch_")) {
-    return `Your message in <b>${escapedGroup}</b> was removed. Vouches must go through the bot — tap <b>Submit Vouch</b> in the group to start the DM flow. Posting vouch-shaped text in chat is auto-removed.`;
+    return `Your message in <b>${escapedGroup}</b> was removed. Post your vouch as a normal message in the group — keep it factual and mention the @username plainly.`;
   }
   const adminPointer =
     input.adminBotUsername && input.adminBotUsername.length > 0
@@ -812,7 +503,6 @@ export function buildAdminHelpText(): string {
     "/frozen_list — show frozen profiles",
     "/remove_entry &lt;id&gt; — delete an entry",
     "/recover_entry &lt;id&gt; — clear stuck publishing",
-    "/search @x — entry totals + recent vouches",
     "/lookup @x — full audit list",
     "/pause — pause new vouches",
     "/unpause — resume vouches",

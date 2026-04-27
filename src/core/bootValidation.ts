@@ -45,24 +45,13 @@ export function validateBootEnv(env: Env = process.env): void {
     throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
   }
 
-  // Channel id validation (v6 §4 / v8 C9 / v9 phase 1). Two opt-in
-  // toggles share the same TELEGRAM_CHANNEL_ID env var:
-  //   - VV_RELAY_ENABLED (legacy templated publish; deprecated by v9)
-  //   - VV_MIRROR_ENABLED (v9 backup-channel mirror via forwardMessage)
-  // Either toggle requires TELEGRAM_CHANNEL_ID to be a Telegram channel
-  // id — negative integer with the -100 prefix. Fail-closed at boot.
-  const relayOn = env.VV_RELAY_ENABLED === "true";
+  // v9 phase 1: VV_MIRROR_ENABLED requires TELEGRAM_CHANNEL_ID to be a
+  // Telegram channel id — negative integer with the -100 prefix.
   const mirrorOn = env.VV_MIRROR_ENABLED === "true";
-  if (relayOn || mirrorOn) {
+  if (mirrorOn) {
     const raw = env.TELEGRAM_CHANNEL_ID?.trim();
-    const reasons = [
-      relayOn ? "VV_RELAY_ENABLED=true" : null,
-      mirrorOn ? "VV_MIRROR_ENABLED=true" : null,
-    ]
-      .filter(Boolean)
-      .join(" and ");
     if (!raw) {
-      throw new Error(`${reasons} requires TELEGRAM_CHANNEL_ID.`);
+      throw new Error("VV_MIRROR_ENABLED=true requires TELEGRAM_CHANNEL_ID.");
     }
     if (!/^-100\d+$/.test(raw)) {
       throw new Error(
@@ -84,11 +73,6 @@ export function validateBootEnv(env: Env = process.env): void {
 // see the active feature surface at a glance.
 export function describeOptInFeatures(env: Env = process.env): string[] {
   const lines: string[] = [];
-  if (env.VV_RELAY_ENABLED === "true") {
-    lines.push(`channel-relay: ENABLED (TELEGRAM_CHANNEL_ID=${env.TELEGRAM_CHANNEL_ID?.trim()})`);
-  } else {
-    lines.push("channel-relay: disabled (VV_RELAY_ENABLED unset)");
-  }
   if (env.VV_MIRROR_ENABLED === "true") {
     lines.push(
       `backup-channel-mirror: ENABLED (TELEGRAM_CHANNEL_ID=${env.TELEGRAM_CHANNEL_ID?.trim()})`,
