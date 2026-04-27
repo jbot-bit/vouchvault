@@ -579,3 +579,72 @@ A bot that ingests every message looks more "engaged" on the wire than TBC's nar
 ### 19.4 Source
 
 Direct observation 2026-04-27: TBC group-help bot and TBC channel bot both fail to respond to non-command messages and do not appear in any export's `actor` field for non-command events — consistent with privacy-ON (`/setprivacy` ENABLE) configuration. This is the BotFather default for new bots; TBC's operators kept the default. VouchVault's posture (privacy OFF) is a deliberate v6 decision, not an oversight.
+
+## 20. Identity-surface audit checklist (pre-launch + quarterly)
+
+Run this checklist before initial launch, after any group migration (§4), and quarterly thereafter. Each item maps to an empirically-supported classifier-targeting signal from the 2026-04-27 same-operator survivor/dead comparison. The four items together cover the v8.1 priorities derived from that experiment that are not enforceable in code.
+
+### 20.1 Group title + description audit
+
+The dead Suncoast group's title contained "**Vouches**". The survivor's title was "**Sunny coast**" (geographic, no marketplace term). Title is plain text in every classifier feature set — single highest-leverage signal an operator controls.
+
+Check, in the Telegram client → group profile:
+
+- **Title** must not contain: `vouch`, `vouches`, `vouching`, `vendor`, `seller`, `plug`, `connect`, `market`, `marketplace`, `trade`, `swap`. Any case, any spacing, any leetspeak (`v0uch`, `v-ouch`, `v_ouch` all count — classifiers normalise).
+- **Title** should be: geographic, social, or community-flavoured neutral. "Sunny coast", "Eastside chat", "QLD locals" are survivor-shaped.
+- **Description** same wordlist applies. Plus: no "rules" mentioning ratings, transactions, scams, refunds, escrow, deposits, midpoints. Description is one of the few fields visible to non-members in invite previews.
+- **Pinned message** (if any): same wordlist. Pinned content travels with the group and is read by the same classifier features.
+
+Failure to pass this audit is a one-fix issue (rename in client). It is the single most cost-effective hardening step; nothing else in this runbook beats it for ROI.
+
+### 20.2 Bot username audit
+
+The dead Suncoast group's publish bot was named `Suncoast Vouch Bot` — literally announcing its function on every message via the sender field. The survivor had no custom-named bot. Bot identity is read by classifier features that scan `from.username` and `from.first_name` on every event.
+
+Check, in BotFather → `/mybots` → select bot → Bot Settings:
+
+- **Bot username** (`@…bot`) must not contain: `vouch`, `vouches`, `vendor`, `plug`, `market`, `trade`, `seller`, `escrow`. Same wordlist as §20.1, applied to the bot handle.
+- **Bot display name** (the human-readable name shown next to messages) — same wordlist. This is what members and classifiers actually see; the username is the technical handle.
+- **Bot description** (`/setdescription`) and **about** (`/setabouttext`): same wordlist. These show on the bot's profile page, scraped into classifier features.
+- Survivor-shape names: generic ("Helper Bot", "Group Bot", or the group's own name without function suffix). Match the group's vibe, not the bot's job.
+
+Renaming is reversible in BotFather but takes effect within ~minutes; member-facing display name updates immediately. Username changes invalidate any prior `t.me/<oldhandle>` links — coordinate with §11 channel-pair links if they reference the bot handle.
+
+### 20.3 Channel-relay env audit (`VV_RELAY_ENABLED`)
+
+The architectural shape that distinguishes survivors (TBC, Queensland Vouches) from dead groups is **send-side-only ingestion to a channel + auto-forward to linked group**, vs. **bot directly publishing into the group**. VouchVault's channel-relay path implements the former when env is set; without it, the bot falls back to direct group publishes.
+
+Check in production env:
+
+- `VV_RELAY_ENABLED=true` is set.
+- `TELEGRAM_CHANNEL_ID` is set to a negative integer with `-100` prefix (boot validation in v8 C9 logs an error if mis-shaped; check `/healthz` boot logs).
+- The configured channel is **linked** to the host group (Telegram client → channel → Manage → Discussion → set host group). Without the link, channel posts don't auto-forward and the relay path is broken in a way that doesn't error but does silently revert to direct publishes.
+- `/healthz` returns `relay.last_capture_at` within the last hour during normal use (added in v8 C9). If it stays null while vouches are being published, the auto-forward link is broken.
+
+The §11 channel-pair operator-setup procedure is the canonical step-by-step for getting this right initially; this section is the recurring audit that the configuration hasn't drifted.
+
+### 20.4 Edit-rate on published posts
+
+The dead Suncoast group had a 47% edit-after-send rate on published vouches. The survivor had 5.5%. High edit-rate on the dead group's bot output is a plausible classifier signal (templated message + frequent edit = automated-looking traffic; or: edits expose template-substitution bugs the classifier can fingerprint).
+
+**Code-side audit (verified 2026-04-27):** `publishedMessageId` in `vouch_entries` is **write-once**. Searched all `editTelegramMessage` call sites in `src/telegramBot.ts` and `src/core/`; none take a published-post `chat_id`/`message_id` pair as input. Every `editTelegramMessage` call edits the in-DM wizard message (the callback-query context's chatId = reviewer's DM, never the host group). Conclusion: VouchVault's bot **cannot** edit a published post; structural edit-rate is 0%.
+
+**Operator-side audit:** humans can still edit published posts via the Telegram client (admin → reply → edit). This is what shows up in classifier-visible edit-rate. Rule:
+
+- **Do not edit published vouches in the client.** If a vouch is wrong, the corrective action is post a new vouch with the correction; leave the original alone or delete it cleanly. Edits on automated-looking templated content are the classifier signal.
+- The pinned guide (`buildPinnedGuideText`) is operator-edited at most once per major copy revision — that's fine and necessary; one pinned-message edit per quarter does not move the rate.
+- Welcome messages on member join are bot-sent, not bot-edited; no action needed.
+
+If a future feature genuinely needs to mutate a published post (status badge, retraction marker, etc.), spec it explicitly and weigh the edit-rate cost against the feature value — do not add silent edit paths.
+
+### 20.5 Audit log
+
+Each pass through this checklist should be logged in `admin_audit_log` via the operator's own account (not the bot) as a manual `audit:identity_surface` entry, or — simpler — kept as a dated note in this runbook. The point is a paper trail, not bureaucracy. One line per audit:
+
+```
+2026-04-27 §20 audit: title=ok, bot=ok, relay=ok, edit-rate=ok. Notes: …
+```
+
+### 20.6 Source
+
+Same dataset as §18: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`, cross-checked against TBC26 and Queensland Vouches. Edit-rate code audit performed 2026-04-27 against `src/telegramBot.ts` + `src/core/archivePublishing.ts` + `src/core/archiveStore.ts`.
