@@ -471,3 +471,44 @@ Two reasons:
 
 - ❌ **Auto-approve of join requests via webhook handler.** The optional `chatJoinRequestFallback.ts` was considered and dropped: it requires a polling loop the bot doesn't have, and adding cron infrastructure violates the set-and-forget design. Defer to v8.1+ if and when SangMata integration lands and we already have a scheduler.
 - ❌ **Multiple alt accounts with rotating duty.** Single alt is enough for a single-operator project. TBC needs two because TBC has two operators; we have one.
+
+## 16. Webhook secret rotation procedure
+
+`TELEGRAM_WEBHOOK_SECRET_TOKEN` is the per-request shared secret Telegram includes in the `X-Telegram-Bot-Api-Secret-Token` header on every webhook delivery. Compromise of the token lets an attacker forge updates to the webhook URL. Rotate on any suspected leak (accidental commit, third-party access, post-incident hardening) and on a routine cadence (every 90 days is plenty for a single-operator project).
+
+### 16.1 Rotation steps
+
+1. **Generate the new secret.** `openssl rand -hex 32` produces a 64-char `[A-Za-z0-9]` value matching `bootValidation.ts`'s `SECRET_TOKEN_RE`. Store it in the same secure store as the bot token.
+2. **Update `TELEGRAM_WEBHOOK_SECRET_TOKEN` in Railway** to the new value. **Do not redeploy yet.**
+3. **Re-register the webhook with the new secret:** `npm run telegram:webhook` (which calls `setWebhook` with the env-var value Telegram now expects). Telegram returns `ok:true` on success.
+4. **Trigger a Railway redeploy** so the running server compares incoming request headers against the new secret.
+5. **Verify drain.** Telegram has a small queue of in-flight updates that were accepted under the *old* secret and may still be retried. Run `getWebhookInfo` (`curl https://api.telegram.org/bot$TOKEN/getWebhookInfo`) and confirm both:
+    - `pending_update_count` returns to 0 (or stays small and stable, indicating normal traffic).
+    - `last_error_date` is unset, OR is older than the cutover timestamp.
+   When both conditions hold, the new secret has fully taken over. Telegram does not publish exact catch-up timing — empirically the queue drains in under a minute, but verify with `getWebhookInfo` rather than waiting on a wall-clock.
+6. **Drop the old token** from the secure store.
+
+### 16.2 What goes wrong if you skip step 5
+
+If you rotate the env value but don't verify drain, in-flight requests retried after the env change will arrive with the *old* header and the bot will reject them with 401. Telegram retries with backoff and eventually drops; from the user's perspective some commands appear to fail intermittently for the rotation window. The fix is the same as the prevention: wait until `getWebhookInfo` confirms the queue has drained.
+
+## 17. Optional IP-allowlist tier (deferred)
+
+Telegram's webhook-delivery infrastructure publishes its source IP ranges (currently 149.154.160.0/20 and 91.108.4.0/22 per the `getWebhookInfo` documentation). An additional defensive tier is to drop inbound requests at the edge that don't come from those ranges. Two options, both **not currently implemented** — filed here so a future tightening pass has the wiring documented.
+
+### 17.1 Setting `setWebhook` `ip_address` (limited)
+
+The Bot API `setWebhook` method accepts an optional `ip_address` parameter. **Important caveat:** the parameter takes a single IP string, not a CIDR range. If you set `ip_address: "149.154.167.220"`, Telegram will only deliver from that exact IP; requests routed via any other IP in their pool fail. Useful only when:
+
+- Telegram's pool is small enough that one IP is reliable (currently false — they round-robin).
+- OR you're running an internal-only test endpoint and want a hard pin.
+
+If we ever pursue this, the strategy is to leave the param unset and rely on edge-level filtering instead.
+
+### 17.2 Edge-level CIDR filter (Cloudflare or equivalent)
+
+If the bot fronts behind a CDN or reverse proxy that supports IP-range allowlisting, reject any inbound request to `/webhooks/telegram/action` whose origin IP is outside Telegram's published ranges. Pair with `TELEGRAM_WEBHOOK_SECRET_TOKEN` (already in place) for defense in depth. Keep the published-range list updated — Telegram has expanded it over time.
+
+### 17.3 Why this is deferred
+
+The webhook secret token in §16 already prevents forged updates from anyone who doesn't have the secret. IP allowlisting is a layer on top, not a replacement, and adds operational fragility (if Telegram adds an IP and we don't notice, real updates start failing). Single-operator project with a 32-byte secret is fine without this for now. Revisit if the operator gains the staffing to monitor Telegram IP changes.
