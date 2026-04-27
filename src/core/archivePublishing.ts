@@ -188,6 +188,13 @@ export async function publishArchiveEntryRecord(
           chatId: relay.channelId,
           text: body,
           protectContent: true,
+          // Tighter on-the-wire shape — channel publish text is bot-
+          // generated and never has a link the operator wants
+          // previewed. Suppressing link previews removes a per-post
+          // network fetch and avoids preview cards becoming a
+          // classifier signal of "this account auto-publishes".
+          // Auto-forward into the supergroup inherits this.
+          linkPreviewOptions: { isDisabled: true },
         },
         logger,
       );

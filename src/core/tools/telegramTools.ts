@@ -70,6 +70,10 @@ export function buildTelegramSendMessageParams(input: {
   // stays in the same topic. Bot API:
   // https://core.telegram.org/bots/api#sendmessage
   messageThreadId?: number;
+  // Bot API LinkPreviewOptions (https://core.telegram.org/bots/api#linkpreviewoptions).
+  // Only used by channel publishes today — DMs and member-facing
+  // replies leave it unset so user prose with links previews normally.
+  linkPreviewOptions?: { isDisabled?: boolean };
 }) {
   return {
     chat_id: input.chatId,
@@ -78,6 +82,10 @@ export function buildTelegramSendMessageParams(input: {
     disable_notification: input.disableNotification,
     protect_content: input.protectContent,
     message_thread_id: input.messageThreadId,
+    link_preview_options:
+      input.linkPreviewOptions == null
+        ? undefined
+        : { is_disabled: input.linkPreviewOptions.isDisabled },
     reply_parameters:
       input.replyToMessageId == null
         ? undefined
@@ -100,6 +108,7 @@ export async function sendTelegramMessage(
     replyMarkup?: Record<string, unknown>;
     protectContent?: boolean;
     messageThreadId?: number;
+    linkPreviewOptions?: { isDisabled?: boolean };
   },
   logger?: any,
 ) {
