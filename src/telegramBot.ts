@@ -1705,11 +1705,18 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         { callbackQueryId: callbackQuery.id, chatId },
         logger,
       );
+      // Clear the preview's inline keyboard explicitly. Telegram's
+      // editMessageText preserves the existing reply_markup when the
+      // field is omitted from the request — passing
+      // {inline_keyboard: []} replaces it with an empty keyboard so the
+      // stale Publish / Cancel / Edit prose buttons don't keep
+      // appearing on the prose-prompt screen.
       await editTelegramMessage(
         {
           chatId,
           messageId,
           text: buildVouchProsePromptText(),
+          replyMarkup: { inline_keyboard: [] },
         },
         logger,
       );

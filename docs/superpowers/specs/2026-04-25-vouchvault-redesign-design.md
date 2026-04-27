@@ -1158,3 +1158,40 @@ Backwards compat: when `TELEGRAM_LOOKUP_TOKEN` and/or `TELEGRAM_ADMIN_TOKEN` are
 - With `VV_RELAY_ENABLED=false` + lookup/admin tokens unset, deployment behaves byte-identically to V3 (full backwards compat).
 
 ---
+
+## v8.0 amendment — locked-text update (2026-04-27)
+
+This amendment supersedes the V3.2 wording inside the V3-locked builders
+`buildWelcomeText`, `buildPinnedGuideText`, and `buildLookupBotDescription`.
+It is the spec authority for the v8.0 commit-2 copy change in
+`src/core/archive.ts`. CLAUDE.md's V3-locked-text rule requires a
+spec amendment before the bodies move; this section is that amendment.
+
+**Trigger:** v8.0 commit 2 removed the `/search` and `/recent` commands
+from the bot. The locked builders previously instructed members to
+type `/search @username` in the group. With the commands gone, that
+copy was actively wrong.
+
+**v8 wording (canonical — locked-text tests in `archiveUx.test.ts`
+assert against this):**
+
+- `buildWelcomeText` — "Check before you deal" block now says: *"Use
+  the search bar at the top of the group to look up anyone's @username.
+  Every published vouch is searchable in the group."*
+- `buildPinnedGuideText` — "Check before you deal" block now says:
+  *"Use the search bar at the top of this group to look up anyone's
+  @username. Every published vouch is searchable here."*
+- `buildLookupBotDescription` — middle paragraph now says: *"Use the
+  search bar at the top of the group to look up anyone's @username —
+  every published vouch is searchable there."*
+
+**Why this works without `/search`:** v6 / V3.5.4 channel-relay puts
+every published vouch into the supergroup via auto-forward; v6
+`replayToTelegramAsForwards.ts` recovery tool backfills legacy POS/MIX
+into the supergroup as forwards. Both make every vouch surface
+discoverable through Telegram's native in-group search bar. No bot
+command is needed for member lookups; admin `/lookup` remains for the
+private-NEG + freeze-status surface.
+
+**No other locked builder is changed by this amendment** — only the
+three above. Future drift requires another amendment.

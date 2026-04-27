@@ -79,11 +79,13 @@ Expected: `{"ok": true, "migrations": "applied"}`.
 npm run telegram:webhook
 ```
 
-The script reads `TELEGRAM_BOT_TOKEN`, `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` and registers `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member","chat_member"]`, `max_connections: 10`, `drop_pending_updates: true`.
+The script reads `TELEGRAM_BOT_TOKEN`, `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` and registers `setWebhook` with `allowed_updates: ["message","edited_message","callback_query","my_chat_member","chat_member","chat_join_request"]`, `max_connections: 10`, `drop_pending_updates: true`.
 
 `chat_member` (added in the takedown-resilience chunk) feeds the member-velocity alert; the bot must be a group admin to receive these updates. If you skip this step after upgrading, the brigade detector silently never fires.
 
-Verify: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `last_error_message` should be empty and `allowed_updates` should list all four types.
+`chat_join_request` (added in v8.0 commit 3) is required for the one-shot invite-link capture flow (`npm run invite:new`). Per Bot API spec, the bot must have the `can_invite_users` administrator right in the chat to receive these updates. If you skip the webhook re-registration after upgrading, `npm run invite:new` will still mint links but the bot will never see who used them — the `invite_links.used_by_telegram_id` column stays NULL.
+
+Verify: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `last_error_message` should be empty and `allowed_updates` should list all six types: `message`, `edited_message`, `callback_query`, `my_chat_member`, `chat_member`, `chat_join_request`.
 
 ## Step 10 — Bot identity, commands, pinned guide
 
