@@ -108,6 +108,7 @@ import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatc
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 import { getUserFirstSeen, recordUserFirstSeen } from "./core/userTracking.ts";
 import { checkAccountAge } from "./core/accountAge.ts";
+import { classifyUserIdBand } from "./core/userIdBand.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
 import { classifyAutoForward } from "./core/relayCapture.ts";
 import { captureSupergroupForward } from "./core/archiveStore.ts";
@@ -408,6 +409,18 @@ async function startDraftFlow(input: {
   if (typeof reviewerTelegramId === "number") {
     const firstSeen = await getUserFirstSeen(reviewerTelegramId);
     const ageCheck = checkAccountAge(firstSeen);
+    // Audit-only secondary signal (KB:F2.33). Logged regardless of
+    // ageCheck outcome so an operator reviewing logs can correlate
+    // a suspected throwaway with its numeric-id band. Returns
+    // "unknown" for everything until thresholds are calibrated.
+    input.logger?.info?.(
+      {
+        reviewerTelegramId,
+        userIdBand: classifyUserIdBand(reviewerTelegramId),
+        audit_only_signal: true,
+      },
+      "[Wizard] account-age guard: user-id band signal",
+    );
     if (!ageCheck.allowed) {
       await sendTelegramMessage(
         {
