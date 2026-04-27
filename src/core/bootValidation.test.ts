@@ -130,10 +130,11 @@ test("VV_RELAY_ENABLED=true accepts TELEGRAM_CHANNEL_ID with -100 prefix", () =>
   );
 });
 
-test("describeOptInFeatures reports channel-relay disabled when env unset", () => {
+test("describeOptInFeatures reports both toggles disabled when env unset", () => {
   const lines = describeOptInFeatures({});
-  assert.equal(lines.length, 1);
+  assert.equal(lines.length, 2);
   assert.match(lines[0]!, /channel-relay: disabled/);
+  assert.match(lines[1]!, /backup-channel-mirror: disabled/);
 });
 
 test("describeOptInFeatures reports channel-relay enabled when configured", () => {
@@ -141,7 +142,47 @@ test("describeOptInFeatures reports channel-relay enabled when configured", () =
     VV_RELAY_ENABLED: "true",
     TELEGRAM_CHANNEL_ID: "-1001234567890",
   });
-  assert.equal(lines.length, 1);
+  assert.equal(lines.length, 2);
   assert.match(lines[0]!, /channel-relay: ENABLED/);
   assert.match(lines[0]!, /-1001234567890/);
+  assert.match(lines[1]!, /backup-channel-mirror: disabled/);
+});
+
+test("describeOptInFeatures reports backup-channel-mirror enabled when configured", () => {
+  const lines = describeOptInFeatures({
+    VV_MIRROR_ENABLED: "true",
+    TELEGRAM_CHANNEL_ID: "-1001234567890",
+  });
+  assert.equal(lines.length, 2);
+  assert.match(lines[1]!, /backup-channel-mirror: ENABLED/);
+  assert.match(lines[1]!, /-1001234567890/);
+});
+
+test("VV_MIRROR_ENABLED=true requires TELEGRAM_CHANNEL_ID", () => {
+  assert.throws(
+    () =>
+      validateBootEnv({
+        DATABASE_URL: "postgres://x",
+        TELEGRAM_BOT_TOKEN: "12345:abcdef",
+        TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+        TELEGRAM_ADMIN_IDS: "1",
+        NODE_ENV: "development",
+        VV_MIRROR_ENABLED: "true",
+      }),
+    /TELEGRAM_CHANNEL_ID/,
+  );
+});
+
+test("VV_MIRROR_ENABLED=true accepts TELEGRAM_CHANNEL_ID with -100 prefix", () => {
+  assert.doesNotThrow(() =>
+    validateBootEnv({
+      DATABASE_URL: "postgres://x",
+      TELEGRAM_BOT_TOKEN: "12345:abcdef",
+      TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+      TELEGRAM_ADMIN_IDS: "1",
+      NODE_ENV: "development",
+      VV_MIRROR_ENABLED: "true",
+      TELEGRAM_CHANNEL_ID: "-1001234567890",
+    }),
+  );
 });

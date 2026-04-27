@@ -42,6 +42,8 @@ import {
 } from "./core/archive.ts";
 import { publishArchiveEntryRecord } from "./core/archivePublishing.ts";
 import { runChatModeration } from "./core/chatModeration.ts";
+import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
+import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   getPrimaryGroupChatId,
@@ -84,6 +86,7 @@ import {
   buildInlineKeyboard,
   deleteTelegramMessage,
   editTelegramMessage,
+  forwardTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
 import {
@@ -1366,6 +1369,49 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
   });
 }
 
+async function maybeMirrorToBackupChannel(
+  message: any,
+  moderationDeleted: boolean,
+  logger?: LoggerLike,
+): Promise<void> {
+  const config = resolveMirrorConfig();
+  if (config == null) return;
+
+  const allowed = Array.from(allowedTelegramChatIds);
+  if (!shouldMirror({ message, allowedGroupChatIds: allowed, moderationDeleted })) {
+    return;
+  }
+
+  const groupChatId = message.chat.id as number;
+  const groupMessageId = message.message_id as number;
+
+  try {
+    if (await wasAlreadyMirrored({ groupChatId, groupMessageId })) {
+      return;
+    }
+    const result = await forwardTelegramMessage(
+      {
+        fromChatId: groupChatId,
+        toChatId: config.channelChatId,
+        messageId: groupMessageId,
+        disableNotification: true,
+      },
+      logger,
+    );
+    await recordMirror({
+      groupChatId,
+      groupMessageId,
+      channelChatId: config.channelChatId,
+      channelMessageId: result.message_id,
+    });
+  } catch (error) {
+    logger?.warn?.(
+      { err: error, groupChatId, groupMessageId, channelChatId: config.channelChatId },
+      "mirror: forward to backup channel failed (non-fatal)",
+    );
+  }
+}
+
 async function handleGroupMessage(message: any, logger?: LoggerLike) {
   const migration = parseChatMigration(message);
   if (migration) {
@@ -1399,6 +1445,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   // including command parsing — a member cannot smuggle a phrase past
   // moderation by prefixing it with a slash command.
   const botId = await getTelegramBotId(logger);
+  let moderationDeleted = false;
   if (typeof botId === "number") {
     const mod = await runChatModeration({
       message,
@@ -1406,8 +1453,18 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       botTelegramId: botId,
       logger,
     });
-    if (mod.deleted) return;
+    if (mod.deleted) {
+      moderationDeleted = true;
+    }
   }
+
+  // v9 phase 1: backup-channel mirror via forwardMessage. Best-effort,
+  // non-blocking — a forward failure logs but does not stop downstream
+  // command processing. Idempotent via mirror_log unique on
+  // (group_chat_id, group_message_id).
+  await maybeMirrorToBackupChannel(message, moderationDeleted, logger);
+
+  if (moderationDeleted) return;
 
   const text = typeof message.text === "string" ? message.text.trim() : "";
   if (!text.startsWith("/")) {

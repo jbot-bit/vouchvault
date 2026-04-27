@@ -162,6 +162,31 @@ export const replayLog = pgTable(
   },
 );
 
+// v9 phase 1: backup-channel mirror idempotency log (migrations/0014).
+// One row per successful forwardMessage call from a vouch group into
+// TELEGRAM_CHANNEL_ID. Composite unique on (group_chat_id, group_message_id)
+// prevents duplicate forwards on webhook retries.
+export const mirrorLog = pgTable(
+  "mirror_log",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    groupChatId: bigint("group_chat_id", { mode: "number" }).notNull(),
+    groupMessageId: bigint("group_message_id", { mode: "number" }).notNull(),
+    channelChatId: bigint("channel_chat_id", { mode: "number" }).notNull(),
+    channelMessageId: bigint("channel_message_id", { mode: "number" }).notNull(),
+    forwardedAt: timestamp("forwarded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => {
+    return {
+      sourceUnique: uniqueIndex("mirror_log_source_unique").on(
+        table.groupChatId,
+        table.groupMessageId,
+      ),
+      forwardedAtIdx: index("mirror_log_forwarded_at_idx").on(table.forwardedAt),
+    };
+  },
+);
+
 export const chatSettings = pgTable("chat_settings", {
   chatId: bigint("chat_id", { mode: "number" }).primaryKey(),
   paused: boolean("paused").notNull().default(false),

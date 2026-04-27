@@ -163,6 +163,37 @@ export async function deleteTelegramMessage(
   );
 }
 
+// Bot API: https://core.telegram.org/bots/api#forwardmessage
+// Used by v9 mirror path: every member-posted group message is forwarded
+// into the backup channel, preserving forward_origin so the channel post
+// shows "forwarded from <member>" attribution. Different on-the-wire
+// shape than sendMessage — classifier-friendlier (KB:F2.5).
+export async function forwardTelegramMessage(
+  input: {
+    fromChatId: number;
+    toChatId: number;
+    messageId: number;
+    disableNotification?: boolean;
+    messageThreadId?: number;
+  },
+  logger?: any,
+): Promise<{ message_id: number }> {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "forwardMessage",
+      {
+        from_chat_id: input.fromChatId,
+        chat_id: input.toChatId,
+        message_id: input.messageId,
+        disable_notification: input.disableNotification,
+        message_thread_id: input.messageThreadId,
+      },
+      logger,
+      input.toChatId,
+    ),
+  );
+}
+
 export async function getChatMember(
   input: { chatId: number; telegramId: number },
   logger?: any,
