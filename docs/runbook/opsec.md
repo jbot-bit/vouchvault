@@ -1,9 +1,11 @@
 # VouchVault — OPSEC Runbook
 
 **Audience:** group admins. Plain-English procedures, no code changes.
-**Builds on:** `docs/superpowers/specs/2026-04-26-takedown-resilience-design.md` (v1)
+**Builds on:** `docs/superpowers/specs/2026-04-26-takedown-resilience-design.md` (v1) + `docs/superpowers/specs/2026-04-27-vouchvault-v9-simplification-design.md` (v9, current).
 
 This runbook captures the manual hardening posture and disaster-recovery procedure for the VouchVault host group. The code in this repo provides early warning (member-velocity alert, chat-gone admin DM, `/readyz` Telegram probe). This document covers everything else.
+
+> **v9 note:** Sections §1–§17 below were written against the v6/v8 architecture (DM wizard + templated channel-relay publish). v9 phase 3 deleted the wizard and templated publish path; the channel is now a forward-only mirror, not a publish target. Where §1–§17 reference `VV_RELAY_ENABLED`, "DM wizard publishes," "channel-discussion auto-forward," or templated `POS Vouch > @target` posts, the v9 reality is: members post in group; bot mirrors via `forwardMessage` (`VV_MIRROR_ENABLED=true`). **Sections §18–§21 are the current authoritative posture** — read those first; treat the older sections as historical context for setup steps and recovery procedures that still apply structurally.
 
 ---
 
