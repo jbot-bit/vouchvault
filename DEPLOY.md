@@ -79,11 +79,13 @@ Expected: `{"ok": true, "migrations": "applied"}`.
 npm run telegram:webhook
 ```
 
-The script reads `TELEGRAM_BOT_TOKEN`, `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` and registers `setWebhook` with `allowed_updates: ["message","callback_query","my_chat_member","chat_member"]`, `max_connections: 10`, `drop_pending_updates: true`.
+The script reads `TELEGRAM_BOT_TOKEN`, `PUBLIC_BASE_URL`, `TELEGRAM_WEBHOOK_SECRET_TOKEN` and registers `setWebhook` with `allowed_updates: ["message","edited_message","callback_query","my_chat_member","chat_member","chat_join_request"]`, `max_connections: 10`, `drop_pending_updates: true`.
 
 `chat_member` (added in the takedown-resilience chunk) feeds the member-velocity alert; the bot must be a group admin to receive these updates. If you skip this step after upgrading, the brigade detector silently never fires.
 
-Verify: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `last_error_message` should be empty and `allowed_updates` should list all four types.
+`chat_join_request` (added in v8.0 commit 3) is required for the one-shot invite-link capture flow (`npm run invite:new`). Per Bot API spec, the bot must have the `can_invite_users` administrator right in the chat to receive these updates. If you skip the webhook re-registration after upgrading, `npm run invite:new` will still mint links but the bot will never see who used them — the `invite_links.used_by_telegram_id` column stays NULL.
+
+Verify: `curl "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"` — `last_error_message` should be empty and `allowed_updates` should list all six types: `message`, `edited_message`, `callback_query`, `my_chat_member`, `chat_member`, `chat_join_request`.
 
 ## Step 10 — Bot identity, commands, pinned guide
 
@@ -101,6 +103,40 @@ In `@BotFather`: `/setprivacy` → choose your bot → **Disable**.
 
 See spec §16.5.
 
+## Step 13 — Vendetta-resistant posture: legacy NEG cleanup (one-time, post-deploy)
+
+**Skip this step on fresh post-V3 deployments.** Replay-as-DB-only (spec `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`) means legacy entries are imported to the DB only — no group post is ever sent for any legacy entry, including legacy public NEGs from earlier groups. There are no legacy public NEG posts in the new host group, so nothing to clean up.
+
+This step only applies if you are deploying to a group that *already contains* historical public NEG posts (e.g. an in-place upgrade of V3 itself, which is no longer the supported path):
+
+1. List the legacy public NEG entry ids:
+
+   ```
+   psql "$DATABASE_URL" -tAc "SELECT id FROM vouch_entries WHERE result='negative' AND status='published' AND published_message_id IS NOT NULL ORDER BY id"
+   ```
+
+2. For each id, run `/remove_entry <id>` from an admin account in the host group. The bot deletes the group post and transitions the row to `removed`.
+
+3. Verify the SQL query above returns empty.
+
+Re-running `/remove_entry` on an already-removed entry is idempotent. Removing a NEG also clears Caution status on its target if it was the only NEG.
+
+## Step 14 — Chat moderation enablement (after deploy)
+
+After the chat-moderation v4 deploy (no migration required), do this once:
+
+1. **Refresh the webhook** so Telegram delivers `edited_message` updates:
+   ```
+   npm run telegram:webhook
+   npm run telegram:webhook -- --info
+   ```
+   Confirm `allowed_updates` in the info output includes `edited_message`.
+2. **Verify bot is admin** in every chat in `TELEGRAM_ALLOWED_CHAT_IDS`. Railway logs at boot show `chatModeration: bot status in <id>: administrator` per chat. If any chat shows anything other than `administrator` or `creator`, promote the bot in Telegram → group settings → Administrators. The bot only needs `can_delete_messages` for v6 moderation (no ban/restrict permission required — the bot doesn't auto-ban).
+3. **Verify privacy mode is OFF.** In BotFather: `/mybots` → select bot → Bot Settings → Group Privacy → Turn off. Without this, the bot only sees commands, not all member messages — chat moderation can't fire.
+4. **Enable member chat in any group you want moderated.** In Telegram → group settings → Permissions → enable "Send messages" for members. Recommended: also enable Slow Mode (30 seconds) and disable "Send media", "Send links", and "Send polls". Telegram-native restrictions reduce attack surface; the bot lexicon catches the rest.
+5. The bot starts moderating automatically on the next member message in any chat in `TELEGRAM_ALLOWED_CHAT_IDS`. No bot-side config.
+6. Watch `admin_audit_log` for `command='chat_moderation:delete'` rows for the first week. If a phrase is over-firing, edit `src/core/chatModerationLexicon.ts` `PHRASES` and push.
+
 ## Migrating data from an existing Replit deployment
 
 ```
@@ -115,22 +151,6 @@ Then run Step 7 above to seed `__drizzle_migrations` with the baseline marker.
 
 - **Bot token**: BotFather `/revoke` → set new `TELEGRAM_BOT_TOKEN` in Variables → service auto-redeploys → `npm run telegram:webhook`.
 - **Webhook secret**: rotate `TELEGRAM_WEBHOOK_SECRET_TOKEN` → redeploy → `npm run telegram:webhook`.
-
-## Step 13 — Vendetta-resistant posture: legacy NEG cleanup (one-time, post-deploy)
-
-Run this once after the v1.1 vendetta-resistant posture ships (spec `docs/superpowers/specs/2026-04-26-vendetta-resistant-posture-design.md`). New NEG entries are private from this point on; the historical public NEG posts already in the host group are pre-existing reportable artefacts and should be cleared.
-
-1. List the legacy public NEG entry ids:
-
-   ```
-   psql "$DATABASE_URL" -tAc "SELECT id FROM vouch_entries WHERE result='negative' AND status='published' AND published_message_id IS NOT NULL ORDER BY id"
-   ```
-
-2. For each id, run `/remove_entry <id>` from an admin account in the host group. The bot deletes the group post and transitions the row to `removed`.
-
-3. Verify the SQL query above returns empty.
-
-Re-running `/remove_entry` on an already-removed entry is idempotent. Removing a NEG also clears Caution status on its target if it was the only NEG.
 
 ## Runbook
 

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { db, pool } from "./storage/db.ts";
 import {
@@ -65,59 +65,6 @@ export async function getOrCreateBusinessProfile(username: string) {
 
     throw new Error(`Failed to create business profile for ${username}`);
   }
-}
-
-export async function getProfileSummary(targetUsername: string): Promise<{
-  totals: { positive: number; mixed: number; negative: number };
-  isFrozen: boolean;
-  freezeReason: string | null;
-  recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
-}> {
-  const profile = await db
-    .select({
-      isFrozen: businessProfiles.isFrozen,
-      freezeReason: businessProfiles.freezeReason,
-    })
-    .from(businessProfiles)
-    .where(eq(businessProfiles.username, targetUsername));
-
-  const counts = await db
-    .select({
-      result: vouchEntries.result,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(vouchEntries)
-    .where(
-      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
-    )
-    .groupBy(vouchEntries.result);
-
-  const recent = await db
-    .select({
-      id: vouchEntries.id,
-      result: vouchEntries.result,
-      createdAt: vouchEntries.createdAt,
-    })
-    .from(vouchEntries)
-    .where(
-      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
-    )
-    .orderBy(desc(vouchEntries.createdAt))
-    .limit(5);
-
-  const totals = { positive: 0, mixed: 0, negative: 0 };
-  for (const row of counts) {
-    if (row.result === "positive") totals.positive = row.count;
-    else if (row.result === "mixed") totals.mixed = row.count;
-    else if (row.result === "negative") totals.negative = row.count;
-  }
-
-  return {
-    totals,
-    isFrozen: profile[0]?.isFrozen ?? false,
-    freezeReason: profile[0]?.freezeReason ?? null,
-    recent: recent.map((r) => ({ id: r.id, result: r.result as EntryResult, createdAt: r.createdAt })),
-  };
 }
 
 export async function listFrozenProfiles() {
@@ -271,6 +218,7 @@ export async function updateDraftByReviewerTelegramId(
     selectedTags: EntryTag[];
     step: DraftStep;
     privateNote: string | null;
+    bodyText: string | null;
   }>,
 ) {
   const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
@@ -299,6 +247,8 @@ export async function updateDraftByReviewerTelegramId(
       step: updates.step ?? (draft.step as DraftStep),
       privateNote:
         updates.privateNote === undefined ? draft.privateNote : updates.privateNote,
+      bodyText:
+        updates.bodyText === undefined ? draft.bodyText : updates.bodyText,
       updatedAt: new Date(),
     })
     .where(eq(vouchDrafts.id, draft.id))
@@ -356,6 +306,7 @@ export async function createArchiveEntry(input: {
   legacySourceTimestamp?: Date | null;
   createdAt?: Date;
   privateNote?: string | null;
+  bodyText?: string | null;
 }) {
   // Defence-in-depth: a private_note is only valid on a NEG entry. The DM
   // flow already gates the awaiting_admin_note step on result==='negative',
@@ -387,6 +338,7 @@ export async function createArchiveEntry(input: {
       legacySourceTimestamp: input.legacySourceTimestamp ?? null,
       status: "pending",
       privateNote: input.privateNote ?? null,
+      bodyText: input.bodyText ?? null,
       createdAt: input.createdAt ?? new Date(),
       updatedAt: new Date(),
     })
@@ -441,6 +393,50 @@ export async function markArchiveEntryPublishing(entryId: number) {
   return updated[0] ?? null;
 }
 
+// V3.5.4 channel-relay path: after a successful channel send the
+// entry holds the channel-side message_id but the supergroup auto-
+// forward hasn't been observed yet. Status 'channel_published' is the
+// in-between state. Same race-guard as setArchiveEntryPublishedMessageId.
+export async function setArchiveEntryChannelPublished(
+  entryId: number,
+  channelMessageId: number,
+) {
+  const rows = await db
+    .update(vouchEntries)
+    .set({
+      channelMessageId,
+      status: "channel_published",
+      updatedAt: new Date(),
+    })
+    .where(and(eq(vouchEntries.id, entryId), eq(vouchEntries.status, "publishing")))
+    .returning();
+  return rows[0] ?? null;
+}
+
+// Auto-forward observed: link the supergroup-side message id and
+// flip to 'published'. Lookup keys on (channel_message_id, source
+// channel) — the relay capture handler matches before calling here.
+export async function captureSupergroupForward(input: {
+  channelMessageId: number;
+  supergroupMessageId: number;
+}) {
+  const rows = await db
+    .update(vouchEntries)
+    .set({
+      publishedMessageId: input.supergroupMessageId,
+      status: "published",
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(vouchEntries.channelMessageId, input.channelMessageId),
+        eq(vouchEntries.status, "channel_published"),
+      ),
+    )
+    .returning();
+  return rows[0] ?? null;
+}
+
 export async function setArchiveEntryStatus(entryId: number, status: EntryStatus) {
   const rows = await db
     .update(vouchEntries)
@@ -489,15 +485,6 @@ export async function markArchiveEntryRemoved(entryId: number) {
     .returning();
 
   return rows[0]!;
-}
-
-export async function getRecentArchiveEntries(limit: number) {
-  return db
-    .select()
-    .from(vouchEntries)
-    .where(eq(vouchEntries.status, "published"))
-    .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
-    .limit(limit);
 }
 
 export async function getArchiveEntriesForTarget(targetUsername: string, limit: number) {
@@ -596,10 +583,19 @@ export async function withReviewerDraftLock<T>(reviewerTelegramId: number, fn: (
   return withAdvisoryLock(REVIEWER_DRAFT_LOCK_OFFSET + reviewerTelegramId, fn);
 }
 
-export async function reserveTelegramUpdate(updateId: number) {
+// Bot-kind discriminator for multi-bot idempotency. Telegram update_ids
+// are per-bot, so under multi-bot we key processed_telegram_updates on
+// (bot_kind, update_id). Default 'ingest' preserves single-bot behaviour.
+export type BotKind = "ingest" | "lookup" | "admin";
+
+export async function reserveTelegramUpdate(
+  updateId: number,
+  botKind: BotKind = "ingest",
+) {
   try {
     await db.insert(processedTelegramUpdates).values({
       updateId,
+      botKind,
       status: "processing",
       updatedAt: new Date(),
     });
@@ -609,7 +605,12 @@ export async function reserveTelegramUpdate(updateId: number) {
     const existing = await db
       .select()
       .from(processedTelegramUpdates)
-      .where(eq(processedTelegramUpdates.updateId, updateId))
+      .where(
+        and(
+          eq(processedTelegramUpdates.updateId, updateId),
+          eq(processedTelegramUpdates.botKind, botKind),
+        ),
+      )
       .limit(1);
 
     const current = existing[0];
@@ -632,6 +633,7 @@ export async function reserveTelegramUpdate(updateId: number) {
         .where(
           and(
             eq(processedTelegramUpdates.updateId, updateId),
+            eq(processedTelegramUpdates.botKind, botKind),
             eq(processedTelegramUpdates.status, "processing"),
             lt(processedTelegramUpdates.updatedAt, staleCutoff),
           ),
@@ -647,21 +649,39 @@ export async function reserveTelegramUpdate(updateId: number) {
   }
 }
 
-export async function completeTelegramUpdate(updateId: number) {
+export async function completeTelegramUpdate(
+  updateId: number,
+  botKind: BotKind = "ingest",
+) {
   const rows = await db
     .update(processedTelegramUpdates)
     .set({
       status: "completed",
       updatedAt: new Date(),
     })
-    .where(eq(processedTelegramUpdates.updateId, updateId))
+    .where(
+      and(
+        eq(processedTelegramUpdates.updateId, updateId),
+        eq(processedTelegramUpdates.botKind, botKind),
+      ),
+    )
     .returning();
 
   return rows[0]!;
 }
 
-export async function releaseTelegramUpdate(updateId: number) {
-  await db.delete(processedTelegramUpdates).where(eq(processedTelegramUpdates.updateId, updateId));
+export async function releaseTelegramUpdate(
+  updateId: number,
+  botKind: BotKind = "ingest",
+) {
+  await db
+    .delete(processedTelegramUpdates)
+    .where(
+      and(
+        eq(processedTelegramUpdates.updateId, updateId),
+        eq(processedTelegramUpdates.botKind, botKind),
+      ),
+    );
 }
 
 export async function runArchiveMaintenance() {

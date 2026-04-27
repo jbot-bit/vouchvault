@@ -1,5 +1,6 @@
 import {
   buildArchiveEntryText,
+  escapeHtml,
   isEntryResult,
   isEntrySource,
   isEntryType,
@@ -12,9 +13,11 @@ import {
 import {
   getArchiveEntryById,
   markArchiveEntryPublishing,
+  setArchiveEntryChannelPublished,
   setArchiveEntryPublishedMessageId,
   setArchiveEntryStatus,
 } from "./archiveStore.ts";
+import { buildChannelPostBody } from "./relayPublish.ts";
 import { sendTelegramMessage } from "./tools/telegramTools.ts";
 import { TelegramApiError } from "./typedTelegramErrors.ts";
 
@@ -31,7 +34,22 @@ type PublishableArchiveEntry = {
   legacySourceTimestamp?: Date | null;
   status?: string | null;
   publishedMessageId?: number | null;
+  channelMessageId?: number | null;
+  bodyText?: string | null;
 };
+
+// v6 §4 channel-relay configuration. When both env vars are set the
+// publish path goes channel → auto-forward instead of direct supergroup
+// send. Misconfiguration (relay enabled without a valid channel id)
+// falls back to direct publish so the bot stays functional.
+function resolveChannelRelay(): { enabled: boolean; channelId: number | null } {
+  if (process.env.VV_RELAY_ENABLED !== "true") return { enabled: false, channelId: null };
+  const raw = process.env.TELEGRAM_CHANNEL_ID?.trim();
+  if (!raw) return { enabled: false, channelId: null };
+  const id = Number(raw);
+  if (!Number.isSafeInteger(id)) return { enabled: false, channelId: null };
+  return { enabled: true, channelId: id };
+}
 
 function normalizePublishableEntry(entry: PublishableArchiveEntry): {
   entryType: EntryType;
@@ -121,7 +139,7 @@ export async function publishArchiveEntryRecord(
   const normalized = normalizePublishableEntry(entry);
 
   // Private NEG path: the row is reserved; transition to 'published' with no
-  // Telegram message_id and skip the send. /profile @x picks it up via the
+  // Telegram message_id and skip the send. /search @x picks it up via the
   // Caution predicate without exposing a reportable feed artefact.
   if (!shouldPublishToGroup(normalized.result)) {
     const recorded = await setArchiveEntryStatus(entry.id, "published");
@@ -131,6 +149,85 @@ export async function publishArchiveEntryRecord(
       return { message_id: null, reused: false, private: true };
     }
     return { message_id: null, reused: false, private: true };
+  }
+
+  // V3.5.4 channel-relay path — when enabled, publish to the channel
+  // and let Telegram-native channel-discussion auto-forward into the
+  // supergroup's General topic. The auto-forward observer in the
+  // webhook (relayCapture) flips status='channel_published' →
+  // 'published' and populates publishedMessageId with the supergroup
+  // side id.
+  const relay = resolveChannelRelay();
+  if (relay.enabled && relay.channelId != null) {
+    // V3.5.2 prose path is the cross-checked-against-TBC26 shape
+    // (KB:F2.28 — TBC26 vouches are unstructured prose). The fallback
+    // to V3's templated heading is dead code on the steady-state
+    // wizard path (the wizard always sets bodyText when relay is on),
+    // and on the legacy-recovery path we use forwardMessages instead
+    // of a fresh sendMessage. Log loudly if this ever fires so an
+    // operator notices a mis-routed publish and can decide whether
+    // the V3 heading shape is acceptable for the specific case.
+    const useProse = typeof entry.bodyText === "string" && entry.bodyText.length > 0;
+    if (!useProse) {
+      logger?.warn?.(
+        { entryId: entry.id, channelId: relay.channelId },
+        "channel-publish: entry has no bodyText; falling back to V3 templated heading shape (KB:F2.28 contrast)",
+      );
+    }
+    const body = useProse
+      ? buildChannelPostBody({
+          proseEscaped: escapeHtml(entry.bodyText!),
+          entryId: entry.id,
+        })
+      : buildArchiveEntryPostText(entry);
+
+    let channelPublished;
+    try {
+      channelPublished = await sendTelegramMessage(
+        {
+          chatId: relay.channelId,
+          text: body,
+          protectContent: true,
+          // Tighter on-the-wire shape — channel publish text is bot-
+          // generated and never has a link the operator wants
+          // previewed. Suppressing link previews removes a per-post
+          // network fetch and avoids preview cards becoming a
+          // classifier signal of "this account auto-publishes".
+          // Auto-forward into the supergroup inherits this.
+          linkPreviewOptions: { isDisabled: true },
+        },
+        logger,
+      );
+    } catch (error) {
+      if (isDeterministicTelegramApiFailure(error)) {
+        await setArchiveEntryStatus(entry.id, "pending");
+      }
+      throw error;
+    }
+
+    const channelMessageId = channelPublished.message_id;
+    let recordedChannel;
+    try {
+      recordedChannel = await setArchiveEntryChannelPublished(entry.id, channelMessageId);
+    } catch (error) {
+      throw new Error(
+        `Channel message ${channelMessageId} was sent for archive entry #${entry.id}, but the database did not record it. Entry left in publishing state for manual recovery: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (recordedChannel == null) {
+      logger?.error?.(
+        {
+          entryId: entry.id,
+          channelId: relay.channelId,
+          orphanMessageId: channelMessageId,
+        },
+        "Channel publish raced with removal; channel message is orphaned. Delete manually.",
+      );
+    }
+    // We return the channel-side message_id here. The supergroup-side
+    // id is filled in asynchronously when relayCapture observes the
+    // auto-forward.
+    return { message_id: channelMessageId, reused: false };
   }
 
   let published;

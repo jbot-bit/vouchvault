@@ -15,7 +15,9 @@ export function getDatabaseUrl(): string {
 
 export const pool = new Pool({
   connectionString: getDatabaseUrl(),
-  max: 5,
+  // v6: 3 bots × max-connections of 10 each via setWebhook = need
+  // headroom. Bumped 5 → 10. Migrator pool is separate.
+  max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
   // Cap individual statements at 20s so a wedged query (e.g. a stuck

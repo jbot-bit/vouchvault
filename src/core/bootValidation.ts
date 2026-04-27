@@ -44,4 +44,42 @@ export function validateBootEnv(env: Env = process.env): void {
   } else if (secret && !SECRET_TOKEN_RE.test(secret)) {
     throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
   }
+
+  // Channel-relay shape (v6 §4 / v8 C9). When the operator opts in by
+  // setting VV_RELAY_ENABLED=true, the paired TELEGRAM_CHANNEL_ID
+  // must be a Telegram channel id — a negative integer with the -100
+  // prefix Telegram uses for supergroups/channels. A typo here boots
+  // the bot in a state where relay tries to send to the wrong place
+  // and fails on every publish — fail-closed at boot is cheaper.
+  if (env.VV_RELAY_ENABLED === "true") {
+    const raw = env.TELEGRAM_CHANNEL_ID?.trim();
+    if (!raw) {
+      throw new Error("VV_RELAY_ENABLED=true requires TELEGRAM_CHANNEL_ID.");
+    }
+    if (!/^-100\d+$/.test(raw)) {
+      throw new Error(
+        `TELEGRAM_CHANNEL_ID must be a negative integer with the -100 prefix; got ${JSON.stringify(raw)}.`,
+      );
+    }
+    const id = Number(raw);
+    if (!Number.isSafeInteger(id) || id >= 0) {
+      throw new Error(
+        `TELEGRAM_CHANNEL_ID must parse to a negative safe integer; got ${JSON.stringify(raw)}.`,
+      );
+    }
+  }
+}
+
+// Returns one human-readable line per opt-in feature gate, capturing
+// whether the feature is active and why if disabled. Caller pipes
+// these to the boot logger so an operator reading the boot log can
+// see the active feature surface at a glance.
+export function describeOptInFeatures(env: Env = process.env): string[] {
+  const lines: string[] = [];
+  if (env.VV_RELAY_ENABLED === "true") {
+    lines.push(`channel-relay: ENABLED (TELEGRAM_CHANNEL_ID=${env.TELEGRAM_CHANNEL_ID?.trim()})`);
+  } else {
+    lines.push("channel-relay: disabled (VV_RELAY_ENABLED unset)");
+  }
+  return lines;
 }

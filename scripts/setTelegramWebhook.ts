@@ -146,7 +146,18 @@ async function main() {
   const webhookUrl = `${baseUrl}/webhooks/telegram/action`;
   const payload: Record<string, unknown> = {
     url: webhookUrl,
-    allowed_updates: ["message", "callback_query", "my_chat_member", "chat_member"],
+    allowed_updates: [
+      "message",
+      "edited_message",
+      "callback_query",
+      "my_chat_member",
+      "chat_member",
+      // v8.0 commit 3 (U2): one-shot invite links capture chat_join_request
+      // updates to stamp used_by_telegram_id on the invite_links row.
+      // Operator must run `npm run telegram:webhook` after deploy to refresh
+      // server-side allowed_updates state (telegram-references.md gotcha).
+      "chat_join_request",
+    ],
     max_connections: 10,
     drop_pending_updates: true,
   };

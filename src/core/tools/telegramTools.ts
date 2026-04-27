@@ -65,6 +65,15 @@ export function buildTelegramSendMessageParams(input: {
   disableNotification?: boolean;
   replyMarkup?: Record<string, unknown>;
   protectContent?: boolean;
+  // Forum-mode supergroups: when the inbound message originates in a
+  // topic, callers should pass message_thread_id so the bot's reply
+  // stays in the same topic. Bot API:
+  // https://core.telegram.org/bots/api#sendmessage
+  messageThreadId?: number;
+  // Bot API LinkPreviewOptions (https://core.telegram.org/bots/api#linkpreviewoptions).
+  // Only used by channel publishes today — DMs and member-facing
+  // replies leave it unset so user prose with links previews normally.
+  linkPreviewOptions?: { isDisabled?: boolean };
 }) {
   return {
     chat_id: input.chatId,
@@ -72,6 +81,11 @@ export function buildTelegramSendMessageParams(input: {
     parse_mode: input.parseMode ?? "HTML",
     disable_notification: input.disableNotification,
     protect_content: input.protectContent,
+    message_thread_id: input.messageThreadId,
+    link_preview_options:
+      input.linkPreviewOptions == null
+        ? undefined
+        : { is_disabled: input.linkPreviewOptions.isDisabled },
     reply_parameters:
       input.replyToMessageId == null
         ? undefined
@@ -93,6 +107,8 @@ export async function sendTelegramMessage(
     disableNotification?: boolean;
     replyMarkup?: Record<string, unknown>;
     protectContent?: boolean;
+    messageThreadId?: number;
+    linkPreviewOptions?: { isDisabled?: boolean };
   },
   logger?: any,
 ) {
@@ -147,6 +163,56 @@ export async function deleteTelegramMessage(
   );
 }
 
+export async function getChatMember(
+  input: { chatId: number; telegramId: number },
+  logger?: any,
+) {
+  return callTelegramAPI(
+    "getChatMember",
+    { chat_id: input.chatId, user_id: input.telegramId },
+    logger,
+    input.chatId,
+  );
+}
+
+// Bot API: https://core.telegram.org/bots/api#createchatinvitelink
+// `member_limit: 1` produces a one-shot link — after the first member uses it
+// the link is auto-revoked by Telegram. `expire_date` is a Unix timestamp.
+// Both params are optional but we always pass them — the v8 invite-link
+// design relies on the one-shot semantics.
+export async function createTelegramInviteLink(
+  input: {
+    chatId: number;
+    memberLimit?: number;
+    expireDate?: number;
+    name?: string;
+    createsJoinRequest?: boolean;
+  },
+  logger?: any,
+): Promise<{
+  invite_link: string;
+  creator: { id: number; username?: string } | null;
+  creates_join_request: boolean;
+  member_limit: number;
+  expire_date: number | null;
+  name: string | null;
+}> {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "createChatInviteLink",
+      {
+        chat_id: input.chatId,
+        member_limit: input.memberLimit,
+        expire_date: input.expireDate,
+        name: input.name,
+        creates_join_request: input.createsJoinRequest,
+      },
+      logger,
+      input.chatId,
+    ),
+  );
+}
+
 export async function answerTelegramCallbackQuery(
   input: {
     callbackQueryId: string;
@@ -184,6 +250,18 @@ export async function getTelegramBotUsername(logger?: any): Promise<string | nul
     typeof result?.username === "string" ? result.username.replace(/^@+/, "") : null;
 
   return cachedBotUsername;
+}
+
+let cachedBotId: number | null = null;
+
+export async function getTelegramBotId(logger?: any): Promise<number | null> {
+  if (cachedBotId != null) return cachedBotId;
+  const result = await callTelegramAPI("getMe", {}, logger);
+  const id = (result as { id?: number } | null)?.id;
+  if (typeof id === "number") {
+    cachedBotId = id;
+  }
+  return cachedBotId;
 }
 
 export function buildUrlInlineKeyboard(text: string, url: string) {

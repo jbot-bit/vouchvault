@@ -24,6 +24,8 @@ const KNOWN_CALLBACKS = [
   "archive:cancel",
   "archive:confirm",
   "archive:skip_admin_note",
+  // v8.0 commit 4 (U5): edit-prose back-edge from V3.5 preview.
+  "archive:edit_prose",
 ];
 
 test("every callback data string is <= 64 bytes", () => {

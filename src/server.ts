@@ -1,10 +1,15 @@
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 
-import { validateBootEnv } from "./core/bootValidation.ts";
+import { describeOptInFeatures, validateBootEnv } from "./core/bootValidation.ts";
+import { logBotAdminStatusForChats } from "./core/chatModeration.ts";
 import { installGracefulShutdown } from "./core/gracefulShutdown.ts";
 import { createLogger } from "./core/logger.ts";
-import { callTelegramAPI } from "./core/tools/telegramTools.ts";
+import { getAllowedTelegramChatIds } from "./core/telegramChatConfig.ts";
+import {
+  callTelegramAPI,
+  getTelegramBotId,
+} from "./core/tools/telegramTools.ts";
 import { TelegramRateLimitError } from "./core/typedTelegramErrors.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
 
@@ -106,6 +111,9 @@ async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
 
 async function main() {
   validateBootEnv();
+  for (const line of describeOptInFeatures()) {
+    logger.info({ feature: line }, `[Boot] ${line}`);
+  }
 
   const { drizzle } = await import("drizzle-orm/node-postgres");
   const { migrate } = await import("drizzle-orm/node-postgres/migrator");
@@ -135,7 +143,89 @@ async function main() {
   const server = createServer(async (req, res) => {
     try {
       if (req.method === "GET" && req.url === "/healthz") {
-        const response = jsonResponse({ ok: true });
+        // v6 §10.4 + v8 C9. Each probe is independently fail-soft:
+        // any single failure logs a warn and the corresponding field
+        // is omitted from the response body, but /healthz still
+        // returns ok:true for liveness. Failing the whole endpoint
+        // because one optional probe died would mask the bot itself
+        // being healthy.
+        const channelId = process.env.TELEGRAM_CHANNEL_ID?.trim();
+        const relayEnabled = process.env.VV_RELAY_ENABLED === "true";
+        let staleRelayRows: number | null = null;
+        let lastCaptureAt: string | null = null;
+        if (relayEnabled && channelId) {
+          try {
+            const { pool } = await import("./core/storage/db.ts");
+            // Filter on updated_at (the moment the row transitioned to
+            // channel_published) NOT created_at (when the wizard
+            // started, possibly long before the channel publish).
+            const r = await pool.query(
+              "SELECT count(*)::int AS n FROM vouch_entries " +
+                "WHERE channel_message_id IS NOT NULL " +
+                "AND status = 'channel_published' " +
+                "AND updated_at < now() - interval '5 minutes'",
+            );
+            staleRelayRows = r.rows[0]?.n ?? 0;
+            // last_capture_at: max updated_at for status='published'
+            // rows transitioned within the last hour. Tracks the
+            // freshness of the relayCapture path; null when no
+            // captures in the last hour (legitimate quiet period).
+            const r2 = await pool.query(
+              "SELECT max(updated_at) AS t FROM vouch_entries " +
+                "WHERE status = 'published' " +
+                "AND updated_at > now() - interval '1 hour'",
+            );
+            const t = r2.rows[0]?.t;
+            lastCaptureAt = t instanceof Date ? t.toISOString() : null;
+          } catch (error) {
+            logger.warn({ err: error }, "[/healthz] relay probe failed");
+          }
+        }
+        let poolStats: { total: number; idle: number; waiting: number } | null = null;
+        try {
+          const { pool } = await import("./core/storage/db.ts");
+          // pg.Pool exposes .totalCount/.idleCount/.waitingCount
+          // directly. Cheap, synchronous read of in-memory counters.
+          const p = pool as unknown as {
+            totalCount: number;
+            idleCount: number;
+            waitingCount: number;
+          };
+          poolStats = { total: p.totalCount, idle: p.idleCount, waiting: p.waitingCount };
+        } catch (error) {
+          logger.warn({ err: error }, "[/healthz] pool stats probe failed");
+        }
+        let lexiconDeletes24h: number | null = null;
+        try {
+          const { pool } = await import("./core/storage/db.ts");
+          const r = await pool.query(
+            "SELECT count(*)::int AS n FROM admin_audit_log " +
+              "WHERE command = 'chat_moderation:delete' " +
+              "AND created_at > now() - interval '24 hours'",
+          );
+          lexiconDeletes24h = r.rows[0]?.n ?? 0;
+        } catch (error) {
+          logger.warn({ err: error }, "[/healthz] lexicon-deletes probe failed");
+        }
+        const body: Record<string, unknown> = { ok: true };
+        if (relayEnabled) {
+          const relay: Record<string, unknown> = {
+            configured: Boolean(channelId),
+            stale_relay_rows: staleRelayRows ?? 0,
+          };
+          if (lastCaptureAt != null) relay.last_capture_at = lastCaptureAt;
+          body.relay = relay;
+          // Keep the prior `channel` key for backwards compatibility
+          // with any external monitor that scrapes it. Mirrors the
+          // subset of `relay` it always carried.
+          body.channel = {
+            configured: Boolean(channelId),
+            stale_relay_rows: staleRelayRows ?? 0,
+          };
+        }
+        if (poolStats != null) body.db_pool = poolStats;
+        if (lexiconDeletes24h != null) body.lexicon_deletes_24h = lexiconDeletes24h;
+        const response = jsonResponse(body);
         res.writeHead(response.statusCode, response.headers);
         res.end(response.body);
         return;
@@ -274,6 +364,26 @@ async function main() {
       "server listening",
     );
   });
+
+  // Fire-and-forget: log the bot's admin status in every allowed chat at
+  // boot. Operators see at-a-glance if the bot lacks admin rights anywhere
+  // (silent-failure mode for moderation otherwise). Errors per chat log
+  // warn; the whole call is non-blocking — Telegram unreachable at boot
+  // doesn't prevent the bot from serving webhooks.
+  void (async () => {
+    try {
+      const botId = await getTelegramBotId(logger);
+      if (typeof botId !== "number") {
+        logger.warn(
+          "chatModeration: could not determine bot id at boot; admin-rights check skipped",
+        );
+        return;
+      }
+      await logBotAdminStatusForChats(getAllowedTelegramChatIds(), botId, logger);
+    } catch (error) {
+      logger.warn({ err: error }, "chatModeration: boot admin-rights check failed");
+    }
+  })();
 
   installGracefulShutdown({
     server,

@@ -73,8 +73,8 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 ## Storage / DB
 
-- Postgres + drizzle. Pool init lives in `src/core/storage/db.ts`. `max: 5` is deliberate — it matches `setWebhook`'s `max_connections: 10` and headroom for the migrator. Don't bump without a reason.
-- Idempotent webhook delivery via `processed_telegram_updates` table — never bypass `markUpdateProcessed`.
+- Postgres + drizzle. Pool init lives in `src/core/storage/db.ts`. `max: 10` — matches three bots × `setWebhook`'s `max_connections: 10` plus headroom; migrator pool is separate. Don't bump further without a reason. (Was 5 pre-v6; bumped in commit `0c18138`.)
+- Idempotent webhook delivery via `processed_telegram_updates` table — never bypass `reserveTelegramUpdate` / `completeTelegramUpdate`. Composite unique on `(bot_kind, update_id)` since v6 (migration 0009): per-bot `update_id` sequences don't collide. `bot_kind` defaults to `'ingest'` so single-bot callers work unchanged.
 - New schema work goes through a new `migrations/<n>_*.sql` file; regenerate snapshot via drizzle-kit.
 - Admin actions (and denied attempts) are logged to `admin_audit_log` via `recordAdminAction`. Every new admin command must call it.
 
@@ -82,6 +82,7 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 - All outbound calls go through `src/core/tools/telegramTools.ts`. The four public sends (`sendTelegramMessage`, `editTelegramMessage`, `deleteTelegramMessage`, `answerTelegramCallbackQuery`) auto-wrap `callTelegramAPI` with `withTelegramRetry` (one retry on 429, honouring `retry_after`). Don't `fetch` Telegram directly from elsewhere; route new methods through `callTelegramAPI`.
 - Failures throw typed errors from `src/core/typedTelegramErrors.ts`: `TelegramRateLimitError` (429), `TelegramForbiddenError` (403 blocked / not-a-member), `TelegramChatGoneError` (400 chat not found), `TelegramApiError` (everything else). Branch with `instanceof`, never on `error.message`.
+- **Before changing any Telegram method call**, verify against `docs/runbook/telegram-references.md` and the linked Bot API docs. Field names get deprecated; `allowed_updates` is server-side state that needs `npm run telegram:webhook` to refresh; bots can't initiate DMs. The references doc is the canonical first stop — don't reason from memory.
 
 ## Logging
 
@@ -92,9 +93,31 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 - `buildLookupText` and `buildRecentEntriesText` route through `withCeiling` in `src/core/archive.ts` to stay under Telegram's 4096-char ceiling (3900 safety margin) with an `…and N more.` tail. New long-list builders should do the same.
 
+## Chat moderation (v6)
+
+- `src/core/chatModerationLexicon.ts` carries the empirically-derived lexicon (PHRASES + REGEX_PATTERNS) and the pure helpers (`normalize`, `findHits`). No DB imports — safe to load in any context.
+- `src/core/chatModeration.ts` carries the orchestration: `runChatModeration` (audit + delete + best-effort DM warn) and `logBotAdminStatusForChats` (boot helper). Imports DB + Telegram.
+- Policy: lexicon hit → delete the message + DM warn. **No bans, no mutes, no strikes.** Hostile actors who keep posting hits keep having their posts vanish; operators handle persistent abusers manually via Telegram-native UI.
+- Bot exemptions: `is_bot` flag + id-equals-bot + `via_bot` set → skip moderation entirely (so the bot doesn't moderate its own vouch posts or inline-bot relays).
+- Admin sender → audit row tagged `(admin_exempt)`, no enforcement.
+- Lexicon updates = edit `PHRASES` (or `REGEX_PATTERNS`) in the lexicon module + push. Railway redeploys; new container has the new lexicon. No admin command, no hot-reload.
+- `runChatModeration` is wired into `handleGroupMessage` (first thing after migration handling) and `processTelegramUpdate`'s `edited_message` branch. Bot self-skip prevents moderating its own published vouches even if they coincidentally match.
+- Admin-rights visibility: `logBotAdminStatusForChats` runs fire-and-forget at boot in `server.ts` and logs the bot's admin status per allowed chat. Without admin rights with `can_delete_messages`, moderation silently fails — boot log is the only signal.
+- Test approach: pure helpers unit-tested; orchestration verified manually via the e2e checklist in `DEPLOY.md` §14. The `chat_moderation:delete` audit rows in `admin_audit_log` are the runtime evidence.
+
 ## Takedown resilience
 
 Recovery from a Telegram-side group takedown is **manual**: change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, then run the post-deploy commands in `DEPLOY.md` §9–10. Optional DB replay into the new group via the SQL → Telegram-export-JSON recipe in `docs/runbook/opsec.md`. The runtime detection (chat-gone admin paging, member-velocity alerts, `/readyz` getMe probe) is in code; OPSEC posture and migration steps are in `docs/runbook/opsec.md`.
+
+## Unified search archive (replay-as-DB-only + native Telegram search)
+
+Spec: `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md` (historical) + v8.0 commit-2 simplification. V3's takedown was caused by bulk-replaying ~2,234 templated bot messages in 24h, which produced a spam-ring fingerprint Telegram's ML auto-classified for ban. The current design eliminates that vector:
+
+- `scripts/replayLegacyTelegramExport.ts` writes legacy entries to the DB only; **no Telegram sends**. Rows land with `status='published'` and `published_message_id IS NULL`. **Never reintroduce a publish step here** — this is the V3 takedown vector.
+- The v6 recovery script `scripts/replayToTelegramAsForwards.ts` is a separate, operator-only recovery tool (spec: `2026-04-26-vouchvault-impenetrable-architecture-v6.md` §4.5). It uses Bot API `forwardMessages` (not `sendMessage`) to replay archived **channel** posts into a destination chat after a takedown. Forwards preserve `forward_origin` attribution — a different on-the-wire shape from V3's templated bulk publish. Throttled to ≤25 msgs/sec, idempotent via `replay_log`. Not wired into the bot's webhook flow; only invoked manually via `npm run replay:to-telegram`.
+- **Read path = native Telegram search.** Channel-relay posts every published vouch into the supergroup; mass-forward replay (the v6 recovery tool) lands legacy POS/MIX into the supergroup too. Members tap the search bar at the top of the group and type an @handle — Telegram's in-group native search returns every matching vouch. No bot involvement on the read side.
+- `/search` and `/recent` no longer exist (removed in v8.0 commit 2). Any bot-side or doc-side reference to them is stale.
+- `/lookup @username` remains as the **admin-only** caution + freeze + full-audit surface (includes private NEGs and the admin-only `private_note` column). Group `/lookup` is admin-only; DM `/lookup` matches.
 
 ## Environment caveats
 

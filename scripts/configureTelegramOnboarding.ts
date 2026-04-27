@@ -20,7 +20,7 @@ type CliOptions = {
 
 // Minimal user-facing menu, per takedown-resilience spec §3.5.
 // Admin commands (/freeze, /unfreeze, /frozen_list, /remove_entry,
-// /recover_entry, /profile, /lookup, /pause, /unpause, /admin_help) keep
+// /recover_entry, /search, /lookup, /pause, /unpause, /admin_help) keep
 // working when typed; they are intentionally kept off the BotFather slash
 // popup so the bot's visible command surface stays small. Admins can run
 // /admin_help in DM for the full reference.

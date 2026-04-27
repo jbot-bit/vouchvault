@@ -4,7 +4,6 @@ import path from "node:path";
 import { parseSelectedTags } from "./archive.ts";
 import { createTokenBucket } from "./tokenBucket.ts";
 import { getLegacyBotSenders } from "./legacyBotSenders.ts";
-import { publishArchiveEntryRecord } from "./archivePublishing.ts";
 import {
   getPrimaryGroupChatId,
   isAllowedGroupChatId,
@@ -14,6 +13,7 @@ import {
   createArchiveEntry,
   getArchiveEntryByLegacySource,
   getOrCreateBusinessProfile,
+  setArchiveEntryStatus,
 } from "./archiveStore.ts";
 import {
   getLegacyExportMessages,
@@ -365,17 +365,19 @@ export async function replayLegacyExport(
         break;
       }
 
-      if (existingEntry.status === "publishing" && existingEntry.publishedMessageId == null) {
-        failure = {
-          stage: "publish",
-          message: `Legacy entry #${existingEntry.id} is already in publishing state without a stored Telegram message id. Check the target group before resuming replay.`,
-          sourceMessageId: candidate.sourceMessageId,
-          entryId: existingEntry.id,
-        };
-        break;
-      }
+      // Replay-as-DB-only (post-V3-takedown analysis): legacy entries are
+      // imported to the DB and never republished to the group. Day-1 bulk-
+      // republish was V3's takedown vector — 2,234 templated bot messages in
+      // 24h produced a textbook spam-ring fingerprint that Telegram's ML
+      // auto-classified for ban. Members access the legacy archive via
+      // /search @username (which reads the same DB).
+      //
+      // Existing-entry case: if the row already has status='published'
+      // (any publishedMessageId), it's already imported — skip. Otherwise
+      // flip the status to 'published' with publishedMessageId left as
+      // whatever it was (typically NULL for legacy archive shape).
 
-      if (existingEntry.publishedMessageId != null) {
+      if (existingEntry.status === "published") {
         summary.skippedDuplicates += 1;
         lastPublishedReplayChatId = existingEntry.chatId;
         await persistCheckpoint("running");
@@ -390,10 +392,7 @@ export async function replayLegacyExport(
       }
 
       try {
-        if (sendBucket) {
-          await sendBucket.take();
-        }
-        await publishArchiveEntryRecord(existingEntry, logger);
+        await setArchiveEntryStatus(existingEntry.id, "published");
         summary.imported += 1;
         summary.resumedPending += 1;
         lastPublishedReplayChatId = existingEntry.chatId;
@@ -403,7 +402,7 @@ export async function replayLegacyExport(
       } catch (error) {
         failure = {
           stage: "publish",
-          message: `Failed to publish existing legacy entry #${existingEntry.id}: ${error instanceof Error ? error.message : String(error)}`,
+          message: `Failed to mark existing legacy entry #${existingEntry.id} as published: ${error instanceof Error ? error.message : String(error)}`,
           sourceMessageId: candidate.sourceMessageId,
           entryId: existingEntry.id,
         };
@@ -443,11 +442,12 @@ export async function replayLegacyExport(
       createdAt: candidate.originalTimestamp,
     });
 
+    // DB-only replay: flip status from 'pending' (default) to 'published'
+    // without sending to Telegram. publishedMessageId stays NULL — that's
+    // the discriminator for "legacy archive row" vs "live published row"
+    // (see archiveStore.ts for the unified privacy predicate).
     try {
-      if (sendBucket) {
-        await sendBucket.take();
-      }
-      await publishArchiveEntryRecord(createdEntry, logger);
+      await setArchiveEntryStatus(createdEntry.id, "published");
       summary.imported += 1;
       lastPublishedReplayChatId = createdEntry.chatId;
       lastImportedEntryId = createdEntry.id;
@@ -456,7 +456,7 @@ export async function replayLegacyExport(
     } catch (error) {
       failure = {
         stage: "publish",
-        message: `Failed to publish new legacy entry #${createdEntry.id}: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Failed to mark new legacy entry #${createdEntry.id} as published: ${error instanceof Error ? error.message : String(error)}`,
         sourceMessageId: candidate.sourceMessageId,
         entryId: createdEntry.id,
       };
