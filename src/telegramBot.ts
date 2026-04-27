@@ -297,11 +297,20 @@ function buildTagKeyboard(result: EntryResult, selectedTags: EntryTag[]) {
   ]);
 }
 
-function buildPreviewKeyboard() {
-  return buildInlineKeyboard([
-    [{ text: "Publish", callback_data: "archive:confirm" }],
-    [{ text: "Cancel", callback_data: "archive:cancel" }],
-  ]);
+// v8.0 commit 4 (U5): in the V3.5 prose-mode preview, show an Edit
+// Prose button so the reviewer can fix a typo without restarting the
+// whole wizard. The button only renders when bodyText is set on the
+// draft (i.e. the relay-enabled path); the V3 templated preview keeps
+// the original two-button layout. Callback "archive:edit_prose" routes
+// back to step="awaiting_prose" with bodyText cleared.
+function buildPreviewKeyboard(opts: { withEditProse?: boolean } = {}) {
+  const rows: { text: string; callback_data: string }[][] = [];
+  if (opts.withEditProse) {
+    rows.push([{ text: "Edit prose", callback_data: "archive:edit_prose" }]);
+  }
+  rows.push([{ text: "Publish", callback_data: "archive:confirm" }]);
+  rows.push([{ text: "Cancel", callback_data: "archive:cancel" }]);
+  return buildInlineKeyboard(rows);
 }
 
 function buildAdminNoteKeyboard() {
@@ -1326,7 +1335,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
             bodyTextEscaped: escapedProse,
             entryId: 0,
           }),
-          replyMarkup: buildPreviewKeyboard(),
+          replyMarkup: buildPreviewKeyboard({ withEditProse: true }),
         },
         logger,
       );
@@ -1670,6 +1679,37 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           messageId,
           text: "Cancelled.",
           replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
+        },
+        logger,
+      );
+      return;
+    }
+
+    // v8.0 commit 4 (U5): edit-prose back-edge from preview. Only
+    // valid when the draft is in step="preview" with bodyText set
+    // (V3.5 relay path). Reuses the existing awaiting_prose text
+    // handler — clear bodyText, transition step, re-prompt.
+    if (action === "edit_prose") {
+      if (draft.step !== "preview" || !draft.bodyText) {
+        await answerTelegramCallbackQuery(
+          { callbackQueryId: callbackQuery.id, chatId, text: "Not at the prose preview step." },
+          logger,
+        );
+        return;
+      }
+      await updateDraftByReviewerTelegramId(reviewerTelegramId, {
+        step: "awaiting_prose",
+        bodyText: null,
+      });
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+      await editTelegramMessage(
+        {
+          chatId,
+          messageId,
+          text: buildVouchProsePromptText(),
         },
         logger,
       );
