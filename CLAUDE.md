@@ -21,7 +21,7 @@ Telegram reputation bot. Group launches a DM flow, reviewer submits a vouch (tar
 - `migrations/` — drizzle-kit SQL. Append a new file; do not edit historical migrations.
 - `scripts/` — one-off ops (`replayLegacyTelegramExport.ts`, `setTelegramWebhook.ts`, `configureTelegramOnboarding.ts`, `smokePost*.ts`).
 - `DEPLOY.md` — Railway deploy + post-deploy commands (§9–10). Single source of truth for the deploy-time runbook.
-- `docs/runbook/opsec.md` — OPSEC posture (Request-to-Join, member permissions, backup group), takedown migration procedure, SQL→export-JSON DR recipe, member-velocity response playbook.
+- `docs/runbook/opsec.md` — OPSEC posture (Request-to-Join, member permissions, backup group), takedown migration procedure, SQL→export-JSON DR recipe, member-velocity response playbook. v8.1 sections: §18 group-type posture (stay private_group), §19 bot privacy-mode posture (TBC asymmetry), §20 identity-surface audit checklist (run pre-launch + quarterly).
 - `.env.example` — canonical env-var list with comments. `.env.local` is per-machine (gitignored), filled by hand.
 - `docs/superpowers/specs/2026-04-25-vouchvault-redesign-design.md` — V3 spec (canonical).
 - `docs/superpowers/specs/2026-04-26-takedown-resilience-design.md` — takedown-resilience spec (chat-gone, member-velocity, /readyz getMe, OPSEC).
