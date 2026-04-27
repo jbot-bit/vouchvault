@@ -45,16 +45,24 @@ export function validateBootEnv(env: Env = process.env): void {
     throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
   }
 
-  // Channel-relay shape (v6 §4 / v8 C9). When the operator opts in by
-  // setting VV_RELAY_ENABLED=true, the paired TELEGRAM_CHANNEL_ID
-  // must be a Telegram channel id — a negative integer with the -100
-  // prefix Telegram uses for supergroups/channels. A typo here boots
-  // the bot in a state where relay tries to send to the wrong place
-  // and fails on every publish — fail-closed at boot is cheaper.
-  if (env.VV_RELAY_ENABLED === "true") {
+  // Channel id validation (v6 §4 / v8 C9 / v9 phase 1). Two opt-in
+  // toggles share the same TELEGRAM_CHANNEL_ID env var:
+  //   - VV_RELAY_ENABLED (legacy templated publish; deprecated by v9)
+  //   - VV_MIRROR_ENABLED (v9 backup-channel mirror via forwardMessage)
+  // Either toggle requires TELEGRAM_CHANNEL_ID to be a Telegram channel
+  // id — negative integer with the -100 prefix. Fail-closed at boot.
+  const relayOn = env.VV_RELAY_ENABLED === "true";
+  const mirrorOn = env.VV_MIRROR_ENABLED === "true";
+  if (relayOn || mirrorOn) {
     const raw = env.TELEGRAM_CHANNEL_ID?.trim();
+    const reasons = [
+      relayOn ? "VV_RELAY_ENABLED=true" : null,
+      mirrorOn ? "VV_MIRROR_ENABLED=true" : null,
+    ]
+      .filter(Boolean)
+      .join(" and ");
     if (!raw) {
-      throw new Error("VV_RELAY_ENABLED=true requires TELEGRAM_CHANNEL_ID.");
+      throw new Error(`${reasons} requires TELEGRAM_CHANNEL_ID.`);
     }
     if (!/^-100\d+$/.test(raw)) {
       throw new Error(
@@ -80,6 +88,13 @@ export function describeOptInFeatures(env: Env = process.env): string[] {
     lines.push(`channel-relay: ENABLED (TELEGRAM_CHANNEL_ID=${env.TELEGRAM_CHANNEL_ID?.trim()})`);
   } else {
     lines.push("channel-relay: disabled (VV_RELAY_ENABLED unset)");
+  }
+  if (env.VV_MIRROR_ENABLED === "true") {
+    lines.push(
+      `backup-channel-mirror: ENABLED (TELEGRAM_CHANNEL_ID=${env.TELEGRAM_CHANNEL_ID?.trim()})`,
+    );
+  } else {
+    lines.push("backup-channel-mirror: disabled (VV_MIRROR_ENABLED unset)");
   }
   return lines;
 }
