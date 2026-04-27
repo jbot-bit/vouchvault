@@ -437,3 +437,37 @@ npm run export:members > members-2026-04.csv
 - **Supergroup gone, channel survives:** the operator can't bulk-invite via the supergroup admin UI — the supergroup doesn't exist anymore. Saved contacts let the operator DM each member directly with the new invite link.
 - **DB-loss event:** the CSV is a snapshot of canonical member identities outside Postgres. Re-bootstrap a fresh DB by joining members, harvesting `users_first_seen` rows on first interaction.
 - **Operator can directly DM members during a takedown event** even if all groups are unreachable.
+
+## 15. Alt-admin manual recovery protocol
+
+Single-admin operations have a single point of failure: if the operator's primary Telegram account is suspended (mass-report attack against the human, not the bot), the bot keeps running but no one can issue admin commands. KB:F4.4 documents BALFROCAK and `@TonySoprano5085` running TBC together for this exact reason — there's always a second admin who can act. We adopt a lighter version: one designated alt-admin account on standby, promoted only during an incident.
+
+### 15.1 Pre-staging (do once, leave dormant)
+
+- **Create an alt admin Telegram account** under a separate phone number. Do not log it in concurrently with the primary; let it sit cold.
+- **Add the alt's Telegram numeric id to the live group as an admin** with the same rights as the primary (delete messages, ban members, invite users). Do not include them in `TELEGRAM_ADMIN_IDS` env yet — the env gates bot-admin commands and dormant-status is the goal.
+- **Document the alt's recovery email + 2FA seed** in the same secure store as the bot token. The alt is recovery infrastructure; lose the secret store, lose the alt.
+- **Test once, then leave dormant.** Sign in to the alt, post a single throwaway message in the test group, sign out. Confirms account is reachable.
+
+### 15.2 Activation procedure (during a takedown event)
+
+1. **Identify the failure mode.** Three distinct paths:
+   - **Bot down, primary admin alive:** bot rotation, not alt-admin. Skip this section, go to §13 bot rotation.
+   - **Primary admin suspended, bot alive:** alt-admin promotion path. Continue.
+   - **Both dead:** rebuild from member-list export (§14). Alt-admin doesn't help if the group itself is gone.
+2. **Sign in to the alt account** on a clean session.
+3. **Update `TELEGRAM_ADMIN_IDS`** in Railway to include the alt's numeric id. Redeploy. Boot will validate the env (§9 / `bootValidation.ts`); if the alt's id is malformed the bot won't start, so test the change in staging first when there's time.
+4. **Verify the alt can issue admin commands** via DM to the bot (`/admin_help` is the lowest-blast-radius probe).
+5. **Operate from the alt** until the primary is restored or replaced.
+
+### 15.3 Why the alt is not pre-listed in `TELEGRAM_ADMIN_IDS`
+
+Two reasons:
+
+- **Smaller surface during normal operation.** A dormant alt with admin rights but no env-listing is a passive recovery asset. If the alt is compromised, no bot-admin authority leaks.
+- **Forces a deliberate redeploy at activation time.** The redeploy is a hard checkpoint — you remember to verify the alt is the real alt (and not the attacker), to rotate the primary's token if needed, and to log the incident.
+
+### 15.4 What this section deliberately does not include
+
+- ❌ **Auto-approve of join requests via webhook handler.** The optional `chatJoinRequestFallback.ts` was considered and dropped: it requires a polling loop the bot doesn't have, and adding cron infrastructure violates the set-and-forget design. Defer to v8.1+ if and when SangMata integration lands and we already have a scheduler.
+- ❌ **Multiple alt accounts with rotating duty.** Single alt is enough for a single-operator project. TBC needs two because TBC has two operators; we have one.
