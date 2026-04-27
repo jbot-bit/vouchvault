@@ -1471,6 +1471,24 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       from: message.from,
       logger,
     });
+    // Admin-only delete: a non-admin attempt hits the "admin only"
+    // rejection reply, and we want their original message to stay so
+    // that reply makes sense. Best-effort — a missing
+    // can_delete_messages right or any 400 must not break the admin
+    // action that already ran.
+    if (isAdmin(message.from?.id)) {
+      try {
+        await deleteTelegramMessage(
+          { chatId, messageId: message.message_id },
+          logger,
+        );
+      } catch (error) {
+        logger?.warn?.(
+          { err: error, command, messageId: message.message_id },
+          "[Group] failed to auto-delete admin command (non-fatal)",
+        );
+      }
+    }
   }
 }
 
