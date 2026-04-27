@@ -99,6 +99,14 @@ This pushes the trimmed BotFather slash menu (`/start`, `/cancel`, `/help` only 
 
 In `@BotFather`: `/setprivacy` → choose your bot → **Disable**.
 
+This is required for v6 lexicon moderation — the bot must receive every group message + edit to scan against the lexicon. The asymmetry vs TBC's privacy-ON bots is documented in `docs/runbook/opsec.md` §19; do not flip this back to Enable without first removing the lexicon-moderation code path, or moderation will silently stop working (only signal: `lexicon.deletes_24h` in `/healthz` going flat).
+
+## Step 11a — Pre-launch identity-surface audit
+
+Run the §20 checklist in `docs/runbook/opsec.md` end-to-end before going live: group title + description (§20.1), bot username + display name + about (§20.2), channel-relay env (§20.3), edit-rate posture (§20.4). Each item maps to a classifier-targeting signal isolated by the 2026-04-27 survivor/dead Suncoast comparison. Re-run quarterly and after any group migration (§4 of the OPSEC runbook).
+
+Group-type posture (§18: stay `private_group`, do not voluntarily upgrade to supergroup) is enforced by operator behaviour, not code — read §18 once before launch and again before changing any group-level setting.
+
 ## Step 12 — Smoke test
 
 See spec §16.5.
