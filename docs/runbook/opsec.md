@@ -26,7 +26,7 @@ For full source citations see §9 of the spec doc.
 
 Apply these once when the group is first set up, and re-verify quarterly. None of this is enforced by code.
 
-- [ ] **Group type:** private supergroup with **Request-to-Join + manual admin approval** enabled. Public supergroups attract drive-by reports; open invite links attract bot accounts.
+- [ ] **Group type:** private group, **not** private supergroup, until member count forces the upgrade. Group-type was the single largest variable separating a dead community from a surviving one in the 2026-04-27 same-operator natural experiment (see §18). Once the group auto-upgrades at the 200-member threshold (or when an admin toggles a feature that requires supergroup), enable **Request-to-Join + manual admin approval**. Public supergroups attract drive-by reports; open invite links attract bot accounts.
 - [ ] **Member permissions** (Group Settings → Permissions): members **cannot** add new members, **cannot** change group info, **cannot** pin messages.
 - [ ] **Slow mode** enabled, recommended setting **10 seconds**. Cuts brigading throughput without disrupting legitimate traffic.
 - [ ] **Restrict media:** members may post **text and reactions only**. Only admins may post images, files, GIFs, stickers. This reduces ML-keyword density risk on member-uploaded content (which the bot itself never produces).
@@ -71,7 +71,7 @@ When the live group is gone, ratelimited, or under active attack, switch over. E
 
 ## 5. SQL → Telegram-export-JSON recipe (DR)
 
-For replaying live `vouch_entries` into a fresh group's DB. **Replay-as-DB-only:** since the unified-search-archive design (`docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`), `replay:legacy` only writes to the DB and does **not** post anything to the host group. This eliminates V3's takedown vector (a 2,234-message bulk republish in 24h producing a spam-ring fingerprint). Entries become queryable via `/search @username`; they do not appear in the Telegram chat history of the new group. The `--throttle-ms` flag on the replay command is now a no-op (kept for backward CLI compatibility) since there are no Telegram sends to throttle.
+For replaying live `vouch_entries` into a fresh group's DB. **Replay-as-DB-only:** since the unified-search-archive design (`docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`), `replay:legacy` only writes to the DB and does **not** post anything to the host group. This eliminates V3's takedown vector (a 2,234-message bulk republish in 24h producing a spam-ring fingerprint). Entries become queryable via the admin `/lookup @username` surface (the bot's `/search` and `/recent` were removed in v8.0); they do not appear in the Telegram chat history of the new group. To surface replayed legacy in-group, run `npm run replay:to-telegram` separately — it uses Bot API `forwardMessages` against archived channel posts and is the only path that lands legacy entries in the supergroup post-takedown. The `--throttle-ms` flag on the replay command is now a no-op (kept for backward CLI compatibility) since there are no Telegram sends to throttle.
 
 ### Step 1 — dump the entries as JSONL via `psql`
 
@@ -512,3 +512,139 @@ If the bot fronts behind a CDN or reverse proxy that supports IP-range allowlist
 ### 17.3 Why this is deferred
 
 The webhook secret token in §16 already prevents forged updates from anyone who doesn't have the secret. IP allowlisting is a layer on top, not a replacement, and adds operational fragility (if Telegram adds an IP and we don't notice, real updates start failing). Single-operator project with a 32-byte secret is fine without this for now. Revisit if the operator gains the staffing to monitor Telegram IP changes.
+
+## 18. Group-type posture: stay private_group as long as possible
+
+Telegram exposes two distinct chat shapes that both look like "private group" in the UI: **basic group** (`chat.type = "group"`) and **supergroup** (`chat.type = "supergroup"`). The supergroup shape unlocks Request-to-Join, public links, granular permissions, topics, and large member counts. It also appears to carry a heavier classifier weight when correlated with vouch-flavoured naming, custom-branded bots, and templated post density. The 2026-04-27 same-operator natural experiment isolated this:
+
+| Variable | Dead group ("Suncoast Vouches") | Survivor ("Sunny coast") |
+|---|---|---|
+| Type | private **supergroup** | private **group** |
+| Title | contains "Vouches" | generic |
+| Custom-named publish bot | yes (`Suncoast Vouch Bot`) | none |
+| Templated POS density | 47.3% of messages | 0.0% |
+| Auto-forwards (KB:F2.5 shape) | 0.9% | 20.7% |
+| Edit-after-send rate | 47% | 5.5% |
+| Outcome | banned 2026-04-07 | alive despite being reported repeatedly by the operator |
+
+Sender overlap was 10/18 — same community, same operator, same content category. The structural identity surface is what differed.
+
+### 18.1 Operational rule
+
+- **Do not voluntarily upgrade** the host group to a supergroup. The upgrade is one-way: there is no Telegram-side path to revert a supergroup back to a basic group, so every upgrade is permanent.
+- Telegram **auto-upgrades** a basic group when it exceeds **200 members** or when an admin enables a feature that requires supergroup (public username, topics, slow mode at certain settings, privacy links, etc.). Treat each of those toggles as a one-way door.
+- **Slow mode** is the most likely accidental trigger of an upgrade. The §2 checklist recommends 10s slow mode; on a basic group the setting is unavailable and toggling it forces the upgrade. Decision: leave slow mode **off** while in basic-group shape; rely on the chat-moderation lexicon (v6) and member-velocity alert (takedown-resilience) for brigading defence instead. Re-enable slow mode the day the group auto-upgrades past 200 members.
+- **Member-add permissions:** the §2 rule "members cannot add new members" still applies. Basic groups expose the same permission. No tension here.
+- **Public link / username:** never. Same as §2.
+
+### 18.2 What changes after the forced upgrade
+
+When the group does auto-upgrade (member count, or a feature you genuinely need), revisit:
+
+- Re-enable slow mode at 10s (§2).
+- Enable Request-to-Join + manual admin approval (§2).
+- Audit the group title and description against §2's marketplace-language list. The post-upgrade migration is the natural moment to sanitize.
+- Run `npm run telegram:onboarding` to re-apply bot-side hardening (commands, descriptions) — chat-id format does not change on upgrade, but the supergroup id will be a new `-100…` prefixed integer; update `TELEGRAM_ALLOWED_CHAT_IDS` accordingly.
+
+### 18.3 Why this isn't enforced in code
+
+The bot can't tell Telegram "do not upgrade this chat" — the upgrade is admin-side state. Surfacing it as an admin-only doc rule is the correct enforcement boundary. The bot does observe `chat.type` on every update and the v6 schema captures it on captured channel posts; if a future operator mis-reads this section and upgrades the group, no code path fails — the OPSEC posture quietly degrades to the dead-group baseline. That is acceptable; the rule is documented, the trade-off is explicit, and the operator owns the decision.
+
+### 18.4 Source
+
+Empirical comparison: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`. Cross-checked against TBC26 (alive, supergroup-shaped, but operating at a scale and with anonymous-admin features unavailable below ~50K members per KB:F2.6) and Queensland Vouches (alive, supergroup, low templated density). The basic-group rule is correct for VouchVault's current scale; it does not generalise to 50K+-member communities, which have already crossed the upgrade threshold and operate under a different threat model.
+
+## 19. Bot privacy-mode posture (TBC asymmetry, accepted tradeoff)
+
+Empirical 2026-04-27: **TBC's group-help bot and TBC's channel bot both run with privacy mode ON** — they receive only commands directed at them (`/cmd@botname`) and explicit @mentions, not the full message stream. VouchVault's ingest bot diverges deliberately: it subscribes to `message` and `edited_message` updates with privacy mode effectively OFF, so it sees every group post.
+
+### 19.1 Why VouchVault diverges
+
+Three load-bearing features need full message visibility:
+
+- **Lexicon moderation (v6).** `runChatModeration` in `src/core/chatModeration.ts` scans every group message against the empirically-derived lexicon and deletes hits. Without full message scope it would only see commands — i.e. nothing to moderate.
+- **Edited-message moderation.** The `edited_message` branch of `processTelegramUpdate` re-runs the lexicon over edits so a member can't post clean and edit dirty. Same scope requirement.
+- **DM wizard.** All DM updates already arrive regardless of privacy mode (privacy only affects groups), so this isn't the constraint — but worth noting that the bot can't be bot-privacy-ON in groups while being responsive in DMs without the asymmetric scoping the current setup already provides.
+
+### 19.2 Identity-surface cost
+
+A bot that ingests every message looks more "engaged" on the wire than TBC's narrow command bots. The classifier-signal impact is unknown — the survivor/dead Suncoast comparison did not isolate this variable (both used custom-branded vouch bots; neither was the privacy-ON shape TBC uses). The cost is accepted because lexicon moderation is the v6 brigading defence and removing it to mimic TBC's shape would trade a load-bearing control for an unmeasured signal-reduction.
+
+### 19.3 What this means operationally
+
+- **Do NOT toggle `/setprivacy` to ENABLE in BotFather** for the ingest bot. It would silently break lexicon moderation — the bot would still process commands and DMs, but group lexicon hits would never reach the handler. Failure mode is invisible (no error, just no deletes); the only signal is `lexicon.deletes_24h` in `/healthz` (added in v8 C9) staying flat against a backdrop of obvious lexicon-hit posts.
+- **Subscribe to the minimum update set anyway.** `scripts/setTelegramWebhook.ts:149` lists `allowed_updates` explicitly — `message`, `edited_message`, `callback_query`, `my_chat_member`, `chat_member`, `chat_join_request`. Adding others (e.g. `poll`, `chosen_inline_result`) without a feature need would expand the on-the-wire shape without payoff. Keep this list tight.
+- **If a future feature genuinely doesn't need group message visibility** — e.g. a side-bot that only handles a specific command — give that bot privacy mode ON and a narrower `allowed_updates` set. The asymmetry between TBC's narrow bots and VouchVault's wide ingest bot is the cost of the v6 moderation feature, not a default to replicate elsewhere.
+
+### 19.4 Source
+
+Direct observation 2026-04-27: TBC group-help bot and TBC channel bot both fail to respond to non-command messages and do not appear in any export's `actor` field for non-command events — consistent with privacy-ON (`/setprivacy` ENABLE) configuration. This is the BotFather default for new bots; TBC's operators kept the default. VouchVault's posture (privacy OFF) is a deliberate v6 decision, not an oversight.
+
+## 20. Identity-surface audit checklist (pre-launch + quarterly)
+
+Run this checklist before initial launch, after any group migration (§4), and quarterly thereafter. Each item maps to an empirically-supported classifier-targeting signal from the 2026-04-27 same-operator survivor/dead comparison. The four items together cover the v8.1 priorities derived from that experiment that are not enforceable in code.
+
+### 20.1 Group title + description audit
+
+The dead Suncoast group's title contained "**Vouches**". The survivor's title was "**Sunny coast**" (geographic, no marketplace term). Title is plain text in every classifier feature set — single highest-leverage signal an operator controls.
+
+Check, in the Telegram client → group profile:
+
+- **Title** must not contain: `vouch`, `vouches`, `vouching`, `vendor`, `seller`, `plug`, `connect`, `market`, `marketplace`, `trade`, `swap`. Any case, any spacing, any leetspeak (`v0uch`, `v-ouch`, `v_ouch` all count — classifiers normalise).
+- **Title** should be: geographic, social, or community-flavoured neutral. "Sunny coast", "Eastside chat", "QLD locals" are survivor-shaped.
+- **Description** same wordlist applies. Plus: no "rules" mentioning ratings, transactions, scams, refunds, escrow, deposits, midpoints. Description is one of the few fields visible to non-members in invite previews.
+- **Pinned message** (if any): same wordlist. Pinned content travels with the group and is read by the same classifier features.
+
+Failure to pass this audit is a one-fix issue (rename in client). It is the single most cost-effective hardening step; nothing else in this runbook beats it for ROI.
+
+### 20.2 Bot username audit
+
+The dead Suncoast group's publish bot was named `Suncoast Vouch Bot` — literally announcing its function on every message via the sender field. The survivor had no custom-named bot. Bot identity is read by classifier features that scan `from.username` and `from.first_name` on every event.
+
+Check, in BotFather → `/mybots` → select bot → Bot Settings:
+
+- **Bot username** (`@…bot`) must not contain: `vouch`, `vouches`, `vendor`, `plug`, `market`, `trade`, `seller`, `escrow`. Same wordlist as §20.1, applied to the bot handle.
+- **Bot display name** (the human-readable name shown next to messages) — same wordlist. This is what members and classifiers actually see; the username is the technical handle.
+- **Bot description** (`/setdescription`) and **about** (`/setabouttext`): same wordlist. These show on the bot's profile page, scraped into classifier features.
+- Survivor-shape names: generic ("Helper Bot", "Group Bot", or the group's own name without function suffix). Match the group's vibe, not the bot's job.
+
+Renaming is reversible in BotFather but takes effect within ~minutes; member-facing display name updates immediately. Username changes invalidate any prior `t.me/<oldhandle>` links — coordinate with §11 channel-pair links if they reference the bot handle.
+
+### 20.3 Channel-relay env audit (`VV_RELAY_ENABLED`)
+
+The architectural shape that distinguishes survivors (TBC, Queensland Vouches) from dead groups is **send-side-only ingestion to a channel + auto-forward to linked group**, vs. **bot directly publishing into the group**. VouchVault's channel-relay path implements the former when env is set; without it, the bot falls back to direct group publishes.
+
+Check in production env:
+
+- `VV_RELAY_ENABLED=true` is set.
+- `TELEGRAM_CHANNEL_ID` is set to a negative integer with `-100` prefix (boot validation in v8 C9 logs an error if mis-shaped; check `/healthz` boot logs).
+- The configured channel is **linked** to the host group (Telegram client → channel → Manage → Discussion → set host group). Without the link, channel posts don't auto-forward and the relay path is broken in a way that doesn't error but does silently revert to direct publishes.
+- `/healthz` returns `relay.last_capture_at` within the last hour during normal use (added in v8 C9). If it stays null while vouches are being published, the auto-forward link is broken.
+
+The §11 channel-pair operator-setup procedure is the canonical step-by-step for getting this right initially; this section is the recurring audit that the configuration hasn't drifted.
+
+### 20.4 Edit-rate on published posts
+
+The dead Suncoast group had a 47% edit-after-send rate on published vouches. The survivor had 5.5%. High edit-rate on the dead group's bot output is a plausible classifier signal (templated message + frequent edit = automated-looking traffic; or: edits expose template-substitution bugs the classifier can fingerprint).
+
+**Code-side audit (verified 2026-04-27):** `publishedMessageId` in `vouch_entries` is **write-once**. Searched all `editTelegramMessage` call sites in `src/telegramBot.ts` and `src/core/`; none take a published-post `chat_id`/`message_id` pair as input. Every `editTelegramMessage` call edits the in-DM wizard message (the callback-query context's chatId = reviewer's DM, never the host group). Conclusion: VouchVault's bot **cannot** edit a published post; structural edit-rate is 0%.
+
+**Operator-side audit:** humans can still edit published posts via the Telegram client (admin → reply → edit). This is what shows up in classifier-visible edit-rate. Rule:
+
+- **Do not edit published vouches in the client.** If a vouch is wrong, the corrective action is post a new vouch with the correction; leave the original alone or delete it cleanly. Edits on automated-looking templated content are the classifier signal.
+- The pinned guide (`buildPinnedGuideText`) is operator-edited at most once per major copy revision — that's fine and necessary; one pinned-message edit per quarter does not move the rate.
+- Welcome messages on member join are bot-sent, not bot-edited; no action needed.
+
+If a future feature genuinely needs to mutate a published post (status badge, retraction marker, etc.), spec it explicitly and weigh the edit-rate cost against the feature value — do not add silent edit paths.
+
+### 20.5 Audit log
+
+Each pass through this checklist should be logged in `admin_audit_log` via the operator's own account (not the bot) as a manual `audit:identity_surface` entry, or — simpler — kept as a dated note in this runbook. The point is a paper trail, not bureaucracy. One line per audit:
+
+```
+2026-04-27 §20 audit: title=ok, bot=ok, relay=ok, edit-rate=ok. Notes: …
+```
+
+### 20.6 Source
+
+Same dataset as §18: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`, cross-checked against TBC26 and Queensland Vouches. Edit-rate code audit performed 2026-04-27 against `src/telegramBot.ts` + `src/core/archivePublishing.ts` + `src/core/archiveStore.ts`.
