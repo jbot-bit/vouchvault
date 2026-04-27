@@ -45,6 +45,15 @@ NODE_ENV=production
 
 Optional: `TELEGRAM_BOT_USERNAME`, `LEGACY_BOT_SENDERS`, `LOG_LEVEL`.
 
+For the v9 backup-channel mirror (recommended): create a private Telegram channel, add the bot as admin with **post messages** permission, and set:
+
+```
+VV_MIRROR_ENABLED=true
+TELEGRAM_CHANNEL_ID=<channel id, -100… form>
+```
+
+The bot will forward every member-posted message in `TELEGRAM_ALLOWED_CHAT_IDS` into the channel via `forwardMessage` (idempotent, real-time). The channel becomes the durable replica used by `npm run replay:to-telegram` for takedown recovery. See `docs/runbook/opsec.md` §21.
+
 ## Step 6 — Generate the public URL
 
 Service Settings → Networking → **Generate Domain**. Copy the `*.up.railway.app` URL. Set it as `PUBLIC_BASE_URL` in Variables. The service will auto-redeploy.
@@ -99,11 +108,11 @@ This pushes the trimmed BotFather slash menu (`/start`, `/cancel`, `/help` only 
 
 In `@BotFather`: `/setprivacy` → choose your bot → **Disable**.
 
-This is required for v6 lexicon moderation — the bot must receive every group message + edit to scan against the lexicon. The asymmetry vs TBC's privacy-ON bots is documented in `docs/runbook/opsec.md` §19; do not flip this back to Enable without first removing the lexicon-moderation code path, or moderation will silently stop working (only signal: `lexicon.deletes_24h` in `/healthz` going flat).
+This is required for v6 lexicon moderation **and** the v9 backup-channel mirror — the bot must receive every group message + edit to scan against the lexicon and to forward member posts into `TELEGRAM_CHANNEL_ID`. The asymmetry vs TBC's privacy-ON bots is documented in `docs/runbook/opsec.md` §19; do not flip this back to Enable while either feature is on, or both will silently stop working.
 
 ## Step 11a — Pre-launch identity-surface audit
 
-Run the §20 checklist in `docs/runbook/opsec.md` end-to-end before going live: group title + description (§20.1), bot username + display name + about (§20.2), channel-relay env (§20.3), edit-rate posture (§20.4). Each item maps to a classifier-targeting signal isolated by the 2026-04-27 survivor/dead Suncoast comparison. Re-run quarterly and after any group migration (§4 of the OPSEC runbook).
+Run the §20 checklist in `docs/runbook/opsec.md` end-to-end before going live: group title + description (§20.1), bot username + display name + about (§20.2), backup-channel mirror env (§20.3), edit-rate posture (§20.4). Then run the §21 mirror posture check (bot is channel admin with post permission; `mirror_log` is being written). Each item maps to a classifier-targeting signal isolated by the 2026-04-27 survivor/dead Suncoast comparison. Re-run quarterly and after any group migration (§4 of the OPSEC runbook).
 
 Group-type posture (§18: stay `private_group`, do not voluntarily upgrade to supergroup) is enforced by operator behaviour, not code — read §18 once before launch and again before changing any group-level setting.
 
