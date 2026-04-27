@@ -553,3 +553,29 @@ The bot can't tell Telegram "do not upgrade this chat" — the upgrade is admin-
 ### 18.4 Source
 
 Empirical comparison: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`. Cross-checked against TBC26 (alive, supergroup-shaped, but operating at a scale and with anonymous-admin features unavailable below ~50K members per KB:F2.6) and Queensland Vouches (alive, supergroup, low templated density). The basic-group rule is correct for VouchVault's current scale; it does not generalise to 50K+-member communities, which have already crossed the upgrade threshold and operate under a different threat model.
+
+## 19. Bot privacy-mode posture (TBC asymmetry, accepted tradeoff)
+
+Empirical 2026-04-27: **TBC's group-help bot and TBC's channel bot both run with privacy mode ON** — they receive only commands directed at them (`/cmd@botname`) and explicit @mentions, not the full message stream. VouchVault's ingest bot diverges deliberately: it subscribes to `message` and `edited_message` updates with privacy mode effectively OFF, so it sees every group post.
+
+### 19.1 Why VouchVault diverges
+
+Three load-bearing features need full message visibility:
+
+- **Lexicon moderation (v6).** `runChatModeration` in `src/core/chatModeration.ts` scans every group message against the empirically-derived lexicon and deletes hits. Without full message scope it would only see commands — i.e. nothing to moderate.
+- **Edited-message moderation.** The `edited_message` branch of `processTelegramUpdate` re-runs the lexicon over edits so a member can't post clean and edit dirty. Same scope requirement.
+- **DM wizard.** All DM updates already arrive regardless of privacy mode (privacy only affects groups), so this isn't the constraint — but worth noting that the bot can't be bot-privacy-ON in groups while being responsive in DMs without the asymmetric scoping the current setup already provides.
+
+### 19.2 Identity-surface cost
+
+A bot that ingests every message looks more "engaged" on the wire than TBC's narrow command bots. The classifier-signal impact is unknown — the survivor/dead Suncoast comparison did not isolate this variable (both used custom-branded vouch bots; neither was the privacy-ON shape TBC uses). The cost is accepted because lexicon moderation is the v6 brigading defence and removing it to mimic TBC's shape would trade a load-bearing control for an unmeasured signal-reduction.
+
+### 19.3 What this means operationally
+
+- **Do NOT toggle `/setprivacy` to ENABLE in BotFather** for the ingest bot. It would silently break lexicon moderation — the bot would still process commands and DMs, but group lexicon hits would never reach the handler. Failure mode is invisible (no error, just no deletes); the only signal is `lexicon.deletes_24h` in `/healthz` (added in v8 C9) staying flat against a backdrop of obvious lexicon-hit posts.
+- **Subscribe to the minimum update set anyway.** `scripts/setTelegramWebhook.ts:149` lists `allowed_updates` explicitly — `message`, `edited_message`, `callback_query`, `my_chat_member`, `chat_member`, `chat_join_request`. Adding others (e.g. `poll`, `chosen_inline_result`) without a feature need would expand the on-the-wire shape without payoff. Keep this list tight.
+- **If a future feature genuinely doesn't need group message visibility** — e.g. a side-bot that only handles a specific command — give that bot privacy mode ON and a narrower `allowed_updates` set. The asymmetry between TBC's narrow bots and VouchVault's wide ingest bot is the cost of the v6 moderation feature, not a default to replicate elsewhere.
+
+### 19.4 Source
+
+Direct observation 2026-04-27: TBC group-help bot and TBC channel bot both fail to respond to non-command messages and do not appear in any export's `actor` field for non-command events — consistent with privacy-ON (`/setprivacy` ENABLE) configuration. This is the BotFather default for new bots; TBC's operators kept the default. VouchVault's posture (privacy OFF) is a deliberate v6 decision, not an oversight.
