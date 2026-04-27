@@ -7,9 +7,7 @@ import {
   buildLookupText,
   buildPreviewText,
   buildPreviewTextV35,
-  buildProfileText,
   buildPublishedDraftText,
-  buildRecentEntriesText,
   buildResultPromptText,
   buildTagPromptText,
   buildTargetPromptText,
@@ -38,7 +36,6 @@ import {
   TAG_LABELS,
   toggleTag,
   MAX_LOOKUP_ENTRIES,
-  MAX_RECENT_ENTRIES,
   type EntryResult,
   type EntrySource,
   type EntryTag,
@@ -63,8 +60,6 @@ import {
   getBusinessProfileByUsername,
   getDraftByReviewerTelegramId,
   getOrCreateBusinessProfile,
-  getRecentArchiveEntries,
-  getProfileSummary,
   hasRecentEntryForReviewerAndTarget,
   listFrozenProfiles,
   markArchiveEntryRemoved,
@@ -387,7 +382,7 @@ async function startDraftFlow(input: {
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: "Vouching is paused. An admin will lift this when ready. Use /recent to see the archive.",
+        text: "Vouching is paused. An admin will lift this when ready. The archive is still searchable in the group via the search bar.",
       },
       input.logger,
     );
@@ -499,69 +494,6 @@ async function handleLookupCommand(input: {
           privateNote: entry.privateNote ?? null,
         })),
       }),
-      ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-    },
-    input.logger,
-  );
-}
-
-async function handleSearchCommand(input: {
-  chatId: number;
-  rawUsername: string | null | undefined;
-  replyToMessageId?: number | null;
-  messageThreadId?: number | null;
-  disableNotification?: boolean;
-  logger?: LoggerLike;
-}) {
-  const targetUsername = normalizeUsername(input.rawUsername ?? "");
-  if (!targetUsername) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "Use: /search @username.",
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-      },
-      input.logger,
-    );
-    return;
-  }
-  const summary = await getProfileSummary(targetUsername);
-  await sendTelegramMessage(
-    {
-      chatId: input.chatId,
-      text: buildProfileText({
-        targetUsername,
-        ...summary,
-        hasCaution: summary.totals.negative > 0,
-      }),
-      ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-    },
-    input.logger,
-  );
-}
-
-async function handleRecentCommand(input: {
-  chatId: number;
-  replyToMessageId?: number | null;
-  messageThreadId?: number | null;
-  disableNotification?: boolean;
-  logger?: LoggerLike;
-}) {
-  const entries = await getRecentArchiveEntries(MAX_RECENT_ENTRIES);
-  await sendTelegramMessage(
-    {
-      chatId: input.chatId,
-      text: buildRecentEntriesText(
-        entries.map((entry) => ({
-          id: entry.id,
-          reviewerUsername: entry.reviewerUsername,
-          targetUsername: entry.targetUsername,
-          entryType: SERVICE_ENTRY_TYPE,
-          result: entry.result as EntryResult,
-          createdAt: entry.createdAt,
-          source: entry.source as EntrySource,
-        })),
-      ),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
     },
     input.logger,
@@ -716,10 +648,10 @@ async function handleAdminCommand(input: {
 
     // Mark removed in DB FIRST so the source of truth flips before we touch
     // Telegram. If the Telegram delete fails (or is interrupted), the entry
-    // is still treated as removed by /lookup, /search, and /recent. The
-    // alternative ordering (delete from Telegram first, then DB) leaves a
-    // ghost entry visible in DB-driven views when the DB write fails after
-    // the message is already gone.
+    // is still treated as removed by /lookup. The alternative ordering
+    // (delete from Telegram first, then DB) leaves a ghost entry visible
+    // in DB-driven views when the DB write fails after the message is
+    // already gone.
     await markArchiveEntryRemoved(entryId);
 
     if (entry.publishedMessageId) {
@@ -1193,11 +1125,6 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
 
-    if (command === "/recent") {
-      await handleRecentCommand({ chatId, logger });
-      return;
-    }
-
     if (command === "/lookup") {
       // /lookup is admin-only — it returns the full audit list including
       // private NEGs and the admin-only private_note. The group-context
@@ -1222,11 +1149,6 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
         rawUsername: args[0],
         logger,
       });
-      return;
-    }
-
-    if (command === "/search") {
-      await handleSearchCommand({ chatId, rawUsername: args[0], logger });
       return;
     }
 
@@ -1474,7 +1396,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
 
   // Forum-mode: preserve topic context for every bot reply. Bot API:
   // https://core.telegram.org/bots/api#sendmessage (message_thread_id).
-  // Without this, replies to a /search in a topic land in General.
+  // Without this, replies to /lookup in a topic land in General.
   const messageThreadId =
     typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
 
@@ -1483,17 +1405,6 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       chatId,
       replyToMessageId: message.message_id,
       messageThreadId,
-      logger,
-    });
-    return;
-  }
-
-  if (command === "/recent") {
-    await handleRecentCommand({
-      chatId,
-      replyToMessageId: message.message_id,
-      messageThreadId,
-      disableNotification: true,
       logger,
     });
     return;
@@ -1520,30 +1431,6 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       return;
     }
     await handleLookupCommand({
-      chatId,
-      rawUsername: args[0],
-      replyToMessageId: message.message_id,
-      messageThreadId,
-      disableNotification: true,
-      logger,
-    });
-    return;
-  }
-
-  if (command === "/search") {
-    // Open to all members in the host group — /search is the read path for
-    // the unified archive (Caution status from private NEGs, plus all
-    // queryable POS/MIX entries from legacy + live). Audit row recorded
-    // non-denied for soft visibility on who is checking whom.
-    await recordAdminAction({
-      adminTelegramId: message.from?.id ?? 0,
-      adminUsername: message.from?.username ?? null,
-      command,
-      targetChatId: chatId,
-      targetUsername: args[0] ?? null,
-      denied: false,
-    });
-    await handleSearchCommand({
       chatId,
       rawUsername: args[0],
       replyToMessageId: message.message_id,

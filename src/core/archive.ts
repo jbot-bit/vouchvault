@@ -228,7 +228,6 @@ export function buildVouchProseRejectionText(
 export const DEFAULT_DUPLICATE_COOLDOWN_HOURS = 72;
 export const DEFAULT_DRAFT_TIMEOUT_HOURS = 24;
 export const MAX_LOOKUP_ENTRIES = 5;
-export const MAX_RECENT_ENTRIES = 10;
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
@@ -535,7 +534,7 @@ export function buildWelcomeText(): string {
     "4. I post the entry back to the group.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Type <code>/search @username</code> in the group to see anyone's vouch history and current status.",
+    "Use the search bar at the top of the group to look up anyone's @username. Every published vouch is searchable in the group.",
     "",
     "<b><u>Chat moderation</u></b>",
     "Posts that look like buy/sell arrangements, or that try to publish a vouch outside the bot, are auto-removed. Contact an admin if you think this happened in error.",
@@ -640,34 +639,6 @@ export function buildLookupText(input: {
   return withCeiling(lines, 0);
 }
 
-export function buildRecentEntriesText(
-  entries: Array<{
-    id: number;
-    reviewerUsername: string;
-    targetUsername: string;
-    entryType: EntryType;
-    result: EntryResult;
-    createdAt: Date;
-    source?: EntrySource;
-  }>,
-): string {
-  if (entries.length === 0) {
-    return "No entries yet.";
-  }
-
-  const lines = ["<b><u>Recent entries</u></b>", ""];
-  for (const entry of entries) {
-    const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
-    lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
-    lines.push(
-      `${fmtUser(entry.reviewerUsername)} → ${fmtUser(entry.targetUsername)} • ${fmtDate(entry.createdAt)}`,
-    );
-    lines.push("");
-  }
-
-  return withCeiling(lines, 0);
-}
-
 export function buildLauncherText(): string {
   return ["<b>Submit a vouch</b>", "Tap below to open the short DM form."].join("\n");
 }
@@ -684,7 +655,7 @@ export function buildPinnedGuideText(): string {
     "3. I post the final entry back here.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Type <code>/search @username</code> here to see anyone's vouch history and current status.",
+    "Use the search bar at the top of this group to look up anyone's @username. Every published vouch is searchable here.",
     "",
     "<b><u>Chat moderation</u></b>",
     "Posts that look like buy/sell arrangements, or that try to publish a vouch outside the bot, are auto-removed. Contact an admin if you think this happened in error.",
@@ -784,7 +755,7 @@ export function buildLookupBotDescription(): string {
   return [
     "Read-only lookup for the Vouch Hub community.",
     "",
-    "Type /search @username in the group to see anyone's vouch history and current status. Use /recent to see the latest entries.",
+    "Use the search bar at the top of the group to look up anyone's @username — every published vouch is searchable there.",
     "",
     "I never post vouches and never DM members on my own.",
   ].join("\n");
@@ -846,34 +817,6 @@ export function buildAdminHelpText(): string {
     "/pause — pause new vouches",
     "/unpause — resume vouches",
   ].join("\n");
-}
-
-export function buildProfileText(input: {
-  targetUsername: string;
-  totals: { positive: number; mixed: number; negative: number };
-  isFrozen: boolean;
-  freezeReason: string | null;
-  recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
-  hasCaution: boolean;
-}): string {
-  // Member-visible profile. The Negative count is hidden — admins still see
-  // it via /lookup, which renders the full per-entry audit list including
-  // the private_note column. NEG entries in `recent` are also filtered so a
-  // member can't infer the count by listing.
-  const lines = [
-    `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`,
-    `Positive: ${input.totals.positive} • Mixed: ${input.totals.mixed}`,
-    fmtStatusLine(input.isFrozen, input.freezeReason, input.hasCaution),
-  ];
-  const visible = input.recent.filter((r) => r.result !== "negative");
-  if (visible.length > 0) {
-    lines.push("");
-    lines.push("<b>Recent entries</b>");
-    for (const r of visible) {
-      lines.push(`<b>#${r.id}</b> — ${fmtResult(r.result)} • ${fmtDate(r.createdAt)}`);
-    }
-  }
-  return withCeiling(lines, 0);
 }
 
 export function buildFrozenListText(

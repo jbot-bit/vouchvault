@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import {
   buildFrozenListText,
   buildLookupText,
-  buildProfileText,
-  buildRecentEntriesText,
 } from "./archive.ts";
 
 test("lookup truncates to <= 4096 chars with …and N more.", () => {
@@ -25,20 +23,6 @@ test("lookup truncates to <= 4096 chars with …and N more.", () => {
   assert.match(text, /…and \d+ more\./);
 });
 
-test("recent entries truncates to <= 4096 chars with …and N more.", () => {
-  const entries = Array.from({ length: 100 }).map((_, i) => ({
-    id: i,
-    reviewerUsername: "alice_" + i,
-    targetUsername: "bob_" + i,
-    entryType: "service" as const,
-    result: "positive" as const,
-    createdAt: new Date(),
-  }));
-  const text = buildRecentEntriesText(entries);
-  assert.ok(text.length <= 4096);
-  assert.match(text, /…and \d+ more\./);
-});
-
 test("frozen_list stays under <= 4096 chars even with 50 long-reason rows", () => {
   // 10-row visible cap × 200-char max reason ≈ 2500 chars; well under.
   // The ceiling wrapper still runs to defend against future label growth.
@@ -53,24 +37,6 @@ test("frozen_list stays under <= 4096 chars even with 50 long-reason rows", () =
   // "…and N more — refine with /lookup @x" footer (or, if the cap pass
   // truncates further, the generic …and N more. footer from withCeiling).
   assert.match(text, /…and \d+ more/);
-});
-
-test("profile text stays under <= 4096 chars even with a long legacy free-text reason", () => {
-  // Legacy free-text reasons (pre-enum) render verbatim and could in theory
-  // be long; verify the ceiling guard holds.
-  const text = buildProfileText({
-    targetUsername: "icebox",
-    totals: { positive: 0, mixed: 0, negative: 99 },
-    isFrozen: true,
-    freezeReason: "x".repeat(200),
-    recent: Array.from({ length: 5 }).map((_, i) => ({
-      id: 1000 + i,
-      result: "positive" as const,
-      createdAt: new Date(Date.UTC(2026, 3, 5, 12)),
-    })),
-    hasCaution: true,
-  });
-  assert.ok(text.length <= 4096);
 });
 
 test("lookup leaves short lists untouched (no ellipsis line)", () => {

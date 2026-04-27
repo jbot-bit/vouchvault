@@ -111,7 +111,7 @@ Replace `YOUR_NEW_CHAT_ID` with the backup group's numeric chat ID.
 npm run replay:legacy export.json -- --target-chat-id YOUR_NEW_CHAT_ID
 ```
 
-No Telegram posts are sent. Entries are inserted with `status='published'` and `published_message_id IS NULL`; the unified privacy predicate in `archiveStore.ts` recognises legacy archive rows via `source='legacy_import'` and surfaces them in `/search @username` and `/recent`.
+No Telegram posts are sent. Entries are inserted with `status='published'` and `published_message_id IS NULL`. The unified privacy predicate in `archiveStore.ts` (used by admin-only `/lookup`) recognises legacy archive rows via `source='legacy_import'`. After running `npm run replay:to-telegram` the legacy POS/MIX surface lands in the supergroup as forwards and becomes searchable via Telegram's native in-group search.
 
 ### Caveats
 
@@ -245,14 +245,18 @@ The v6 architecture (`docs/superpowers/specs/2026-04-26-vouchvault-impenetrable-
 | **User-history** (`@SangMata_beta_bot`) | Members query `@SangMata_beta_bot allhistory <user_id>` | n/a (off-the-shelf). Free tier has a **daily quota** that TBC26 hit during high-traffic days (KB:F2.27). If quota is exhausted, fall back to `@userinfo3bot` (BALFROCAK's own backup recommendation per KB:F2.27 msg 30587). | n/a |
 
 **v6 originally specced 5 bots** (separate Lookup + Admin in addition
-to Ingest). Both dropped 2026-04-27 per user direction:
+to Ingest). Both dropped 2026-04-27 per user direction. **v8.0 commit 2
+removed `/search` and `/recent` entirely** as the final step of this
+simplification:
 
-- Once the channel-relay path is on and every published vouch lands in
-  the supergroup via auto-forward, **Telegram's native in-group search
-  handles discovery**. No custom lookup bot needed. Existing /search
-  and /recent commands stay in the ingest bot for the V3 archive
-  surface and become fully redundant after running
-  `npm run replay:to-telegram` to backfill legacy.
+- The channel-relay path is on. Every published vouch lands in the
+  supergroup via auto-forward; mass-forward replay backfills legacy
+  POS/MIX into the supergroup. **Telegram's native in-group search
+  handles discovery** — members tap the supergroup's search bar and
+  type an @handle. No custom lookup bot needed; no `/search` or
+  `/recent` shim either.
+- `/lookup @username` remains as the **admin-only** caution + freeze
+  + full-audit surface. Members never invoke it.
 - A separate admin bot is plumbing (token rotation, BotFather setup,
   separate webhook) for marginal failure-domain isolation. At our
   scale a single ingest bot is the right shape. If a specific failure
@@ -380,7 +384,7 @@ If yes, rotate:
 1. Provision a replacement via @BotFather. Same role permissions; new token.
 2. Add the replacement bot to the channel + supergroup with the same permissions as the bot it's replacing.
 3. Update the relevant token env var in Railway. Service redeploys.
-4. Verify `/healthz` + `/readyz` come up green. Test the bot's role end-to-end (ingest: DM wizard; lookup: `/search`; admin: `/freeze`).
+4. Verify `/healthz` + `/readyz` come up green. Test the bot's role end-to-end (ingest: DM wizard publishes a test vouch into the channel and lands in the supergroup via auto-forward; lookup: open the supergroup's search bar and verify the test vouch is findable by @handle; admin: `/freeze` + `/lookup`).
 5. Delete the old bot via @BotFather. Token revokes.
 
 Do **not** wait for a takedown event to discover a token is dead. Quarterly cadence keeps the swap muscle warm.

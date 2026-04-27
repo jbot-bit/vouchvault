@@ -67,76 +67,6 @@ export async function getOrCreateBusinessProfile(username: string) {
   }
 }
 
-export async function getProfileSummary(targetUsername: string): Promise<{
-  totals: { positive: number; mixed: number; negative: number };
-  isFrozen: boolean;
-  freezeReason: string | null;
-  recent: Array<{ id: number; result: EntryResult; createdAt: Date }>;
-}> {
-  const profile = await db
-    .select({
-      isFrozen: businessProfiles.isFrozen,
-      freezeReason: businessProfiles.freezeReason,
-    })
-    .from(businessProfiles)
-    .where(eq(businessProfiles.username, targetUsername));
-
-  const counts = await db
-    .select({
-      result: vouchEntries.result,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(vouchEntries)
-    .where(
-      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
-    )
-    .groupBy(vouchEntries.result);
-
-  // Member-visible recent list. The unified privacy predicate:
-  //   - status='published' (filters out 'pending' / 'publishing' / 'removed')
-  //   - result IN ('positive', 'mixed') — exclude all NEG (private + legacy NEG)
-  //   - either has a real Telegram message_id OR is a legacy archive row
-  //     (legacy entries don't republish to the group post-v1.1, but still
-  //     exist in the unified searchable archive).
-  // Caution status uses totals.negative from the count query above; that
-  // count INCLUDES private NEGs, which is correct because Caution should
-  // fire on any NEG.
-  const recent = await db
-    .select({
-      id: vouchEntries.id,
-      result: vouchEntries.result,
-      createdAt: vouchEntries.createdAt,
-    })
-    .from(vouchEntries)
-    .where(
-      and(
-        eq(vouchEntries.targetUsername, targetUsername),
-        eq(vouchEntries.status, "published"),
-        ne(vouchEntries.result, "negative"),
-        or(
-          isNotNull(vouchEntries.publishedMessageId),
-          eq(vouchEntries.source, "legacy_import"),
-        ),
-      ),
-    )
-    .orderBy(desc(vouchEntries.createdAt))
-    .limit(20);
-
-  const totals = { positive: 0, mixed: 0, negative: 0 };
-  for (const row of counts) {
-    if (row.result === "positive") totals.positive = row.count;
-    else if (row.result === "mixed") totals.mixed = row.count;
-    else if (row.result === "negative") totals.negative = row.count;
-  }
-
-  return {
-    totals,
-    isFrozen: profile[0]?.isFrozen ?? false,
-    freezeReason: profile[0]?.freezeReason ?? null,
-    recent: recent.map((r) => ({ id: r.id, result: r.result as EntryResult, createdAt: r.createdAt })),
-  };
-}
-
 export async function listFrozenProfiles() {
   // 10× the visible cap of buildFrozenListText leaves margin for the
   // "…and N more" footer math without scanning every frozen row.
@@ -555,27 +485,6 @@ export async function markArchiveEntryRemoved(entryId: number) {
     .returning();
 
   return rows[0]!;
-}
-
-export async function getRecentArchiveEntries(limit: number) {
-  // Member-callable in group + DM. Same unified privacy predicate as
-  // getProfileSummary.recent — exclude NEG (private + legacy), include
-  // legacy POS/MIX (which now live in the DB after replay-as-DB-only).
-  return db
-    .select()
-    .from(vouchEntries)
-    .where(
-      and(
-        eq(vouchEntries.status, "published"),
-        ne(vouchEntries.result, "negative"),
-        or(
-          isNotNull(vouchEntries.publishedMessageId),
-          eq(vouchEntries.source, "legacy_import"),
-        ),
-      ),
-    )
-    .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
-    .limit(limit);
 }
 
 export async function getArchiveEntriesForTarget(targetUsername: string, limit: number) {

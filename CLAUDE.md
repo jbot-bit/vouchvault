@@ -109,16 +109,15 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 
 Recovery from a Telegram-side group takedown is **manual**: change `TELEGRAM_ALLOWED_CHAT_IDS` to a backup group, redeploy, then run the post-deploy commands in `DEPLOY.md` §9–10. Optional DB replay into the new group via the SQL → Telegram-export-JSON recipe in `docs/runbook/opsec.md`. The runtime detection (chat-gone admin paging, member-velocity alerts, `/readyz` getMe probe) is in code; OPSEC posture and migration steps are in `docs/runbook/opsec.md`.
 
-## Unified search archive (replay-as-DB-only)
+## Unified search archive (replay-as-DB-only + native Telegram search)
 
-Spec: `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md`. V3's takedown was caused by bulk-replaying ~2,234 templated bot messages in 24h, which produced a spam-ring fingerprint Telegram's ML auto-classified for ban. The current design eliminates that vector:
+Spec: `docs/superpowers/specs/2026-04-26-unified-search-archive-design.md` (historical) + v8.0 commit-2 simplification. V3's takedown was caused by bulk-replaying ~2,234 templated bot messages in 24h, which produced a spam-ring fingerprint Telegram's ML auto-classified for ban. The current design eliminates that vector:
 
 - `scripts/replayLegacyTelegramExport.ts` writes legacy entries to the DB only; **no Telegram sends**. Rows land with `status='published'` and `published_message_id IS NULL`. **Never reintroduce a publish step here** — this is the V3 takedown vector.
 - The v6 recovery script `scripts/replayToTelegramAsForwards.ts` is a separate, operator-only recovery tool (spec: `2026-04-26-vouchvault-impenetrable-architecture-v6.md` §4.5). It uses Bot API `forwardMessages` (not `sendMessage`) to replay archived **channel** posts into a destination chat after a takedown. Forwards preserve `forward_origin` attribution — a different on-the-wire shape from V3's templated bulk publish. Throttled to ≤25 msgs/sec, idempotent via `replay_log`. Not wired into the bot's webhook flow; only invoked manually via `npm run replay:to-telegram`.
-- `/search @username` (formerly `/profile`) is the read path. It surfaces the unified archive: live POS/MIX (with a real `published_message_id`), legacy POS/MIX (`source='legacy_import'`), and a derived `Caution` status when any NEG exists (private NEGs included in the count, never in the per-entry list).
-- `/recent` shares the same privacy predicate as `/search`. Both exclude all NEG (private + legacy) at the query layer; the predicate lives in `getProfileSummary` and `getRecentArchiveEntries` in `src/core/archiveStore.ts`.
-- Member-visible recent list expanded from 5 → 20 entries.
-- `/profile` no longer exists. Anywhere bot-side or doc-side that mentions `/profile` is stale and should be fixed to `/search`.
+- **Read path = native Telegram search.** Channel-relay posts every published vouch into the supergroup; mass-forward replay (the v6 recovery tool) lands legacy POS/MIX into the supergroup too. Members tap the search bar at the top of the group and type an @handle — Telegram's in-group native search returns every matching vouch. No bot involvement on the read side.
+- `/search` and `/recent` no longer exist (removed in v8.0 commit 2). Any bot-side or doc-side reference to them is stale.
+- `/lookup @username` remains as the **admin-only** caution + freeze + full-audit surface (includes private NEGs and the admin-only `private_note` column). Group `/lookup` is admin-only; DM `/lookup` matches.
 
 ## Environment caveats
 

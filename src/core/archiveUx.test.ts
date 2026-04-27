@@ -18,7 +18,6 @@ import {
   buildPinnedGuideText,
   buildPreviewText,
   buildPreviewTextV35,
-  buildProfileText,
   buildPublishedDraftTextWithUrl,
   buildVouchProsePromptText,
   buildWelcomeText,
@@ -195,7 +194,7 @@ test("buildPreviewText HTML-escapes the admin-only note", () => {
   assert.equal(text.includes("<script>"), false);
 });
 
-test("welcome text uses locked v3.2 wording (community-framing, /search, chat-moderation)", () => {
+test("welcome text uses locked v8 wording (community-framing, native search, chat-moderation)", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
@@ -206,17 +205,19 @@ test("welcome text uses locked v3.2 wording (community-framing, /search, chat-mo
   assert.match(text, /Choose result and tags/);
   assert.match(text, /I post the entry back to the group/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
-  assert.match(text, /\/search @username/);
+  assert.match(text, /search bar at the top of the group/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
+  // V8: /search command is removed; native in-group search is the read path.
+  assert.equal(text.includes("/search"), false);
   // No commerce vocabulary in the locked copy.
   assert.equal(text.includes("local-business"), false);
   assert.equal(text.includes("service experiences"), false);
 });
 
-test("pinned guide text uses locked v3.2 wording (community-framing, /search, chat-moderation)", () => {
+test("pinned guide text uses locked v8 wording (community-framing, native search, chat-moderation)", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
@@ -225,11 +226,13 @@ test("pinned guide text uses locked v3.2 wording (community-framing, /search, ch
   assert.match(text, /In DM, send only the target @username/);
   assert.match(text, /I post the final entry back here/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
-  assert.match(text, /\/search @username/);
+  assert.match(text, /search bar at the top of this group/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
+  // V8: /search command is removed; native in-group search is the read path.
+  assert.equal(text.includes("/search"), false);
   assert.equal(text.includes("local-business"), false);
 });
 
@@ -345,58 +348,6 @@ test("buildFrozenListText caps at 10 rows and notes the remainder", () => {
   assert.match(text, /<b>@user10<\/b>/);
   assert.doesNotMatch(text, /<b>@user11<\/b>/);
   assert.match(text, /…and 3 more — refine with \/lookup @x/);
-});
-
-test("buildProfileText member view shows P/M counts (Negative hidden) and Caution status when negatives exist", () => {
-  const text = buildProfileText({
-    targetUsername: "bobbiz",
-    totals: { positive: 4, mixed: 1, negative: 2 },
-    isFrozen: false,
-    freezeReason: null,
-    recent: [
-      { id: 42, result: "positive", createdAt: new Date(Date.UTC(2026, 3, 5, 12)) },
-      { id: 41, result: "negative", createdAt: new Date(Date.UTC(2026, 3, 4, 12)) },
-    ],
-    hasCaution: true,
-  });
-
-  assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
-  assert.match(text, /Positive: 4 • Mixed: 1/);
-  // Negative count is hidden from members.
-  assert.equal(text.includes("Negative"), false);
-  assert.match(text, /Status: Caution/);
-  assert.match(text, /<b>Recent entries<\/b>/);
-  assert.match(text, /<b>#42<\/b> — <b>Positive<\/b> • 05\/04\/2026/);
-  // NEG #41 must be filtered out of the member-visible recent list.
-  assert.equal(text.includes("#41"), false);
-});
-
-test("buildProfileText shows Active when no NEGs and not frozen", () => {
-  const text = buildProfileText({
-    targetUsername: "alice",
-    totals: { positive: 3, mixed: 0, negative: 0 },
-    isFrozen: false,
-    freezeReason: null,
-    recent: [],
-    hasCaution: false,
-  });
-  assert.match(text, /Status: Active/);
-});
-
-test("buildProfileText shows Frozen status (enum label) when frozen, no recent block when none", () => {
-  const text = buildProfileText({
-    targetUsername: "icebox",
-    totals: { positive: 0, mixed: 0, negative: 1 },
-    isFrozen: true,
-    freezeReason: "policy_violation",
-    recent: [],
-    hasCaution: true,
-  });
-
-  assert.match(text, /Status: Frozen — <i>policy violation<\/i>/);
-  // Frozen wins over Caution.
-  assert.equal(text.includes("Status: Caution"), false);
-  assert.doesNotMatch(text, /Recent entries/);
 });
 
 test("buildLookupText renders admin-only note when present, HTML-escaped", () => {
@@ -580,8 +531,7 @@ test("buildLookupBotShortDescription is the locked V3.5 copy", () => {
 test("buildLookupBotDescription is the locked V3.5 copy", () => {
   const text = buildLookupBotDescription();
   assert.match(text, /Read-only lookup for the Vouch Hub community\./);
-  assert.match(text, /\/search @username/);
-  assert.match(text, /\/recent/);
+  assert.match(text, /search bar at the top of the group/);
   assert.match(text, /never post vouches/);
 });
 
