@@ -26,7 +26,7 @@ For full source citations see §9 of the spec doc.
 
 Apply these once when the group is first set up, and re-verify quarterly. None of this is enforced by code.
 
-- [ ] **Group type:** private supergroup with **Request-to-Join + manual admin approval** enabled. Public supergroups attract drive-by reports; open invite links attract bot accounts.
+- [ ] **Group type:** private group, **not** private supergroup, until member count forces the upgrade. Group-type was the single largest variable separating a dead community from a surviving one in the 2026-04-27 same-operator natural experiment (see §18). Once the group auto-upgrades at the 200-member threshold (or when an admin toggles a feature that requires supergroup), enable **Request-to-Join + manual admin approval**. Public supergroups attract drive-by reports; open invite links attract bot accounts.
 - [ ] **Member permissions** (Group Settings → Permissions): members **cannot** add new members, **cannot** change group info, **cannot** pin messages.
 - [ ] **Slow mode** enabled, recommended setting **10 seconds**. Cuts brigading throughput without disrupting legitimate traffic.
 - [ ] **Restrict media:** members may post **text and reactions only**. Only admins may post images, files, GIFs, stickers. This reduces ML-keyword density risk on member-uploaded content (which the bot itself never produces).
@@ -512,3 +512,44 @@ If the bot fronts behind a CDN or reverse proxy that supports IP-range allowlist
 ### 17.3 Why this is deferred
 
 The webhook secret token in §16 already prevents forged updates from anyone who doesn't have the secret. IP allowlisting is a layer on top, not a replacement, and adds operational fragility (if Telegram adds an IP and we don't notice, real updates start failing). Single-operator project with a 32-byte secret is fine without this for now. Revisit if the operator gains the staffing to monitor Telegram IP changes.
+
+## 18. Group-type posture: stay private_group as long as possible
+
+Telegram exposes two distinct chat shapes that both look like "private group" in the UI: **basic group** (`chat.type = "group"`) and **supergroup** (`chat.type = "supergroup"`). The supergroup shape unlocks Request-to-Join, public links, granular permissions, topics, and large member counts. It also appears to carry a heavier classifier weight when correlated with vouch-flavoured naming, custom-branded bots, and templated post density. The 2026-04-27 same-operator natural experiment isolated this:
+
+| Variable | Dead group ("Suncoast Vouches") | Survivor ("Sunny coast") |
+|---|---|---|
+| Type | private **supergroup** | private **group** |
+| Title | contains "Vouches" | generic |
+| Custom-named publish bot | yes (`Suncoast Vouch Bot`) | none |
+| Templated POS density | 47.3% of messages | 0.0% |
+| Auto-forwards (KB:F2.5 shape) | 0.9% | 20.7% |
+| Edit-after-send rate | 47% | 5.5% |
+| Outcome | banned 2026-04-07 | alive despite being reported repeatedly by the operator |
+
+Sender overlap was 10/18 — same community, same operator, same content category. The structural identity surface is what differed.
+
+### 18.1 Operational rule
+
+- **Do not voluntarily upgrade** the host group to a supergroup. The upgrade is one-way: there is no Telegram-side path to revert a supergroup back to a basic group, so every upgrade is permanent.
+- Telegram **auto-upgrades** a basic group when it exceeds **200 members** or when an admin enables a feature that requires supergroup (public username, topics, slow mode at certain settings, privacy links, etc.). Treat each of those toggles as a one-way door.
+- **Slow mode** is the most likely accidental trigger of an upgrade. The §2 checklist recommends 10s slow mode; on a basic group the setting is unavailable and toggling it forces the upgrade. Decision: leave slow mode **off** while in basic-group shape; rely on the chat-moderation lexicon (v6) and member-velocity alert (takedown-resilience) for brigading defence instead. Re-enable slow mode the day the group auto-upgrades past 200 members.
+- **Member-add permissions:** the §2 rule "members cannot add new members" still applies. Basic groups expose the same permission. No tension here.
+- **Public link / username:** never. Same as §2.
+
+### 18.2 What changes after the forced upgrade
+
+When the group does auto-upgrade (member count, or a feature you genuinely need), revisit:
+
+- Re-enable slow mode at 10s (§2).
+- Enable Request-to-Join + manual admin approval (§2).
+- Audit the group title and description against §2's marketplace-language list. The post-upgrade migration is the natural moment to sanitize.
+- Run `npm run telegram:onboarding` to re-apply bot-side hardening (commands, descriptions) — chat-id format does not change on upgrade, but the supergroup id will be a new `-100…` prefixed integer; update `TELEGRAM_ALLOWED_CHAT_IDS` accordingly.
+
+### 18.3 Why this isn't enforced in code
+
+The bot can't tell Telegram "do not upgrade this chat" — the upgrade is admin-side state. Surfacing it as an admin-only doc rule is the correct enforcement boundary. The bot does observe `chat.type` on every update and the v6 schema captures it on captured channel posts; if a future operator mis-reads this section and upgrades the group, no code path fails — the OPSEC posture quietly degrades to the dead-group baseline. That is acceptable; the rule is documented, the trade-off is explicit, and the operator owns the decision.
+
+### 18.4 Source
+
+Empirical comparison: dead-group export `ChatExport_suncoastvouchoriginal/result.json` vs survivor export `ChatExport_2026-04-27 (3)/result_sc.json`. Cross-checked against TBC26 (alive, supergroup-shaped, but operating at a scale and with anonymous-admin features unavailable below ~50K members per KB:F2.6) and Queensland Vouches (alive, supergroup, low templated density). The basic-group rule is correct for VouchVault's current scale; it does not generalise to 50K+-member communities, which have already crossed the upgrade threshold and operate under a different threat model.
