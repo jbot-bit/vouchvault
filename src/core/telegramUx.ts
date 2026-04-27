@@ -1,6 +1,8 @@
 export const TARGET_USER_REQUEST_ID = 1001;
 
-const THREADED_LAUNCHER_COMMANDS = new Set(["/start", "/help", "/vouch"]);
+// v9: no commands trigger a threaded launcher reply (the launcher is gone).
+// Set is kept empty so callers can still ask the question without crashing.
+const THREADED_LAUNCHER_COMMANDS = new Set<string>();
 
 export function shouldSendThreadedLauncherReply(command: string): boolean {
   return THREADED_LAUNCHER_COMMANDS.has(command.trim().toLowerCase());

@@ -6,20 +6,14 @@ import {
   buildAdminBotDescription,
   buildAdminBotShortDescription,
   buildAdminHelpText,
-  buildArchiveEntryText,
   buildBotDescriptionText,
   buildBotShortDescription,
   buildFrozenListText,
-  buildGroupLauncherReplyText,
   buildLookupBotDescription,
   buildLookupBotShortDescription,
   buildLookupText,
   buildModerationWarnText,
   buildPinnedGuideText,
-  buildPreviewText,
-  buildPreviewTextV35,
-  buildPublishedDraftTextWithUrl,
-  buildVouchProsePromptText,
   buildWelcomeText,
   fmtDate,
   fmtDateTime,
@@ -32,223 +26,68 @@ import {
   TARGET_USER_REQUEST_ID,
 } from "./telegramUx.ts";
 
-test("buildArchiveEntryText renders live entries with a POS/MIX/NEG Vouch heading", () => {
-  const text = buildArchiveEntryText({
-    entryId: 42,
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    entryType: "service",
-    result: "positive",
-    tags: ["good_comms", "on_time"],
-    createdAt: new Date("2026-04-24T10:00:00.000Z"),
-    source: "live",
-  });
+// ---- v9 locked-text assertions ----
+//
+// v9 strips the DM wizard. Welcome / pinned-guide / bot-profile copy
+// describes the new flow: members post vouches as normal group messages;
+// DM /lookup @user searches the legacy archive. Drift in any of these
+// requires a v9 spec amendment first.
 
-  assert.equal(
-    text,
-    [
-      "<b>POS Vouch &gt; @bobbiz</b>",
-      "<b>From:</b> <b>@alice</b>",
-      "<b>Tags:</b> Good Comms, On Time",
-      "<code>#42</code>",
-    ].join("\n"),
-  );
-});
-
-test("buildArchiveEntryText renders legacy entries with a NEG heading and original Date, no repost footer", () => {
-  const text = buildArchiveEntryText({
-    entryId: 7,
-    reviewerUsername: "legacyop",
-    targetUsername: "oldvendor",
-    entryType: "service",
-    result: "negative",
-    tags: ["poor_comms"],
-    createdAt: new Date("2025-11-02T00:00:00.000Z"),
-    source: "legacy_import",
-    legacySourceTimestamp: new Date(Date.UTC(2025, 10, 2, 12)),
-  });
-
-  assert.equal(
-    text,
-    [
-      "<b>NEG Vouch &gt; @oldvendor</b>",
-      "<b>From:</b> <b>@legacyop</b>",
-      "<b>Tags:</b> Poor Comms",
-      "<b>Date:</b> 02/11/2025",
-      "<code>#7</code>",
-    ].join("\n"),
-  );
-});
-
-test("buildArchiveEntryText puts the tap-to-copy id last, after the Date line on legacy", () => {
-  const live = buildArchiveEntryText({
-    entryId: 100,
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    entryType: "service",
-    result: "positive",
-    tags: ["good_comms"],
-    createdAt: new Date("2026-04-26T00:00:00.000Z"),
-    source: "live",
-  });
-  assert.match(live, /<code>#100<\/code>$/);
-
-  const legacy = buildArchiveEntryText({
-    entryId: 9,
-    reviewerUsername: "legacyop",
-    targetUsername: "oldvendor",
-    entryType: "service",
-    result: "negative",
-    tags: ["poor_comms"],
-    createdAt: new Date("2025-11-02T00:00:00.000Z"),
-    source: "legacy_import",
-    legacySourceTimestamp: new Date(Date.UTC(2025, 10, 2, 12)),
-  });
-  // ID line is the absolute last line, after the Date line.
-  const lines = legacy.split("\n");
-  assert.equal(lines[lines.length - 1], "<code>#9</code>");
-  assert.equal(lines[lines.length - 2], "<b>Date:</b> 02/11/2025");
-});
-
-test("buildArchiveEntryText uses MIX prefix for mixed-result entries", () => {
-  const text = buildArchiveEntryText({
-    entryId: 99,
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    entryType: "service",
-    result: "mixed",
-    tags: ["mixed_comms", "some_delays"],
-    createdAt: new Date("2026-04-24T10:00:00.000Z"),
-    source: "live",
-  });
-
-  assert.match(text, /^<b>MIX Vouch &gt; @bobbiz<\/b>/);
-});
-
-test("buildPreviewText mirrors the posted format under a Preview heading + attestation", () => {
-  const text = buildPreviewText({
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    result: "positive",
-    tags: ["good_comms", "on_time"],
-  });
-
-  assert.equal(
-    text,
-    [
-      "<b><u>Preview</u></b>",
-      "",
-      "<b>POS Vouch &gt; @bobbiz</b>",
-      "<b>From:</b> <b>@alice</b>",
-      "<b>Tags:</b> Good Comms, On Time",
-      "",
-      "<i>By confirming, you declare you personally know this member and stand behind this vouch. You are responsible for what you submit.</i>",
-    ].join("\n"),
-  );
-});
-
-test("buildPreviewText includes the honest-opinion attestation line", () => {
-  const text = buildPreviewText({
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    result: "positive",
-    tags: ["good_comms"],
-  });
-  assert.match(
-    text,
-    /By confirming, you declare you personally know this member and stand behind this vouch\./,
-  );
-});
-
-test("buildPreviewText shows admin-only-note label only when note provided", () => {
-  const without = buildPreviewText({
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    result: "negative",
-    tags: ["poor_comms"],
-  });
-  assert.equal(without.includes("Admin-only note"), false);
-
-  const withNote = buildPreviewText({
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    result: "negative",
-    tags: ["poor_comms"],
-    privateNote: "they did not show up twice",
-  });
-  assert.match(
-    withNote,
-    /Admin-only note \(not published\):<\/i> they did not show up twice/,
-  );
-});
-
-test("buildPreviewText HTML-escapes the admin-only note", () => {
-  const text = buildPreviewText({
-    reviewerUsername: "alice",
-    targetUsername: "bobbiz",
-    result: "negative",
-    tags: ["poor_comms"],
-    privateNote: "owes <script>",
-  });
-  assert.match(text, /owes &lt;script&gt;/);
-  assert.equal(text.includes("<script>"), false);
-});
-
-test("welcome text uses locked v8 wording (community-framing, native search, chat-moderation)", () => {
+test("welcome text describes the v9 member-post flow (no wizard)", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
   assert.match(text, /community helps each other find trustworthy people to deal with/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
-  assert.match(text, /Tap <b>Submit Vouch<\/b> in the group/);
-  assert.match(text, /Send the target @username here/);
-  assert.match(text, /Choose result and tags/);
-  assert.match(text, /I post the entry back to the group/);
+  assert.match(text, /Post your vouch as a normal message in the group/);
+  assert.match(text, /There is no form to fill in/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /search bar at the top of the group/);
+  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
-  // V8: /search command is removed; native in-group search is the read path.
+  // v9: no wizard. Text must not refer to the deleted "Submit Vouch" launcher.
+  assert.equal(text.includes("Submit Vouch"), false);
   assert.equal(text.includes("/search"), false);
-  // No commerce vocabulary in the locked copy.
   assert.equal(text.includes("local-business"), false);
-  assert.equal(text.includes("service experiences"), false);
 });
 
-test("pinned guide text uses locked v8 wording (community-framing, native search, chat-moderation)", () => {
+test("pinned guide text describes the v9 member-post flow (no wizard)", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
-  assert.match(text, /Tap <b>Submit Vouch<\/b> below/);
-  assert.match(text, /In DM, send only the target @username/);
-  assert.match(text, /I post the final entry back here/);
+  assert.match(text, /Post your vouch as a normal message in this group/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /search bar at the top of this group/);
+  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
-  // V8: /search command is removed; native in-group search is the read path.
+  assert.equal(text.includes("Submit Vouch"), false);
   assert.equal(text.includes("/search"), false);
   assert.equal(text.includes("local-business"), false);
 });
 
-test("bot profile text uses the locked v3.1 copy (community-framing)", () => {
+test("bot description describes the v9 search-only role (no wizard)", () => {
   const desc = buildBotDescriptionText();
   assert.match(desc, /community vouch hub for members who personally know each other/);
-  assert.match(desc, /Tap Submit Vouch/);
+  assert.match(desc, /members post vouches as normal messages in the group/);
+  assert.match(desc, /\/lookup @username/);
+  assert.match(desc, /I never post vouches on your behalf/);
   assert.match(desc, /Follow Telegram's Terms of Service/);
+  assert.equal(desc.includes("Submit Vouch"), false);
   assert.equal(desc.includes("local-business"), false);
-  assert.equal(desc.includes("service experiences"), false);
   assert.ok(desc.length <= 512);
 
   const short = buildBotShortDescription();
   assert.match(short, /Vouch Hub/);
-  assert.match(short, /community vouches between members who know each other/);
-  assert.equal(short.includes("local-business"), false);
+  assert.match(short, /search community vouches/i);
+  assert.match(short, /\/lookup @username/);
+  assert.equal(short.includes("Submit Vouch"), false);
   assert.ok(short.length <= 120);
 });
 
@@ -265,17 +104,14 @@ test("rules block contains the four bullets in welcome and pinned guide", () => 
 
 test("bot description carries the compact rules line (≤512 chars limit)", () => {
   const desc = buildBotDescriptionText();
-  // The bot description has a 512-char Telegram limit and uses a compact
-  // rules line. The full block is carried by welcome / pinned only.
   assert.match(desc, /Follow Telegram's Terms of Service/);
   assert.match(desc, /Vouch only members you know personally/);
   assert.match(desc, /You are responsible for your vouches/);
-  // Not the multi-bullet shape:
   assert.equal(desc.includes("<b>Rules</b>"), false);
   assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
 });
 
-test("locked v3 copy uses 'review' not 'verify' to avoid the marketplace ML keyword cluster", () => {
+test("locked copy uses 'review' not 'verify' to avoid the marketplace ML keyword cluster", () => {
   for (const text of [
     buildWelcomeText(),
     buildPinnedGuideText(),
@@ -288,7 +124,7 @@ test("locked v3 copy uses 'review' not 'verify' to avoid the marketplace ML keyw
 });
 
 test("telegram UX helpers favor threaded quiet replies", () => {
-  assert.equal(shouldSendThreadedLauncherReply("/vouch"), true);
+  // v9: only /lookup remains as a group command surface; /vouch is gone.
   assert.equal(shouldSendThreadedLauncherReply("/lookup"), false);
   assert.deepEqual(buildThreadedGroupReplyOptions(99), {
     replyToMessageId: 99,
@@ -446,7 +282,7 @@ test("fmtDateTime renders dd/mm/yyyy HH:MM in UTC", () => {
   assert.equal(fmtDateTime(new Date(Date.UTC(2025, 10, 2, 23, 45))), "02/11/2025 23:45");
 });
 
-test("buildAdminHelpText lists every admin command", () => {
+test("buildAdminHelpText lists every admin command (v9 — no /search, no /vouch)", () => {
   const text = buildAdminHelpText();
   assert.match(text, /<b><u>Admin commands<\/u><\/b>/);
   for (const cmd of [
@@ -455,94 +291,38 @@ test("buildAdminHelpText lists every admin command", () => {
     "/frozen_list",
     "/remove_entry",
     "/recover_entry",
-    "/search @x",
     "/lookup @x",
     "/pause",
     "/unpause",
   ]) {
     assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
   }
+  // /search was removed in v8.0 commit 2 and stays gone in v9.
+  assert.doesNotMatch(text, /\/search/);
 });
 
-// ---- V3.5 (impenetrable architecture v6) locked-text assertions ----
-//
-// Drift in any of these requires a V3.5 spec amendment first. Tests
-// assert byte-stable output so a stray edit shows up in diff review.
-
-test("buildVouchProsePromptText uses the locked V3.5 wording", () => {
-  const text = buildVouchProsePromptText();
-  assert.equal(
-    text,
-    [
-      "<b>Last step — write the vouch</b>",
-      "",
-      "Send a short message describing the vouch in your own words. Plain text only — no formatting, no links, no media.",
-      "",
-      "<b>Keep it under 800 characters.</b>",
-    ].join("\n"),
-  );
-});
-
-test("buildPreviewTextV35 renders prose + entry id (no V3 templated heading)", () => {
-  const text = buildPreviewTextV35({
-    bodyTextEscaped: "Solid bloke, smooth pickup.",
-    entryId: 42,
-  });
-  assert.equal(
-    text,
-    [
-      "<i>Preview</i>",
-      "",
-      "Solid bloke, smooth pickup.",
-      "",
-      "<code>#42</code>",
-    ].join("\n"),
-  );
-  // Defensively assert the V3 templated heading does NOT appear in the V3.5 shape.
-  assert.doesNotMatch(text, /POS Vouch|MIX Vouch|NEG Vouch/);
-  // V3 uses <b><u>Preview</u></b>; V3.5 uses <i>Preview</i> per spec.
-  assert.doesNotMatch(text, /<b><u>Preview/);
-});
-
-test("buildPublishedDraftTextWithUrl includes channel post link + entry id", () => {
-  const text = buildPublishedDraftTextWithUrl({
-    entryId: 99,
-    channelPostUrl: "https://t.me/c/3744691748/901",
-  });
-  assert.equal(
-    text,
-    [
-      "<b>✓ Posted to the group</b>",
-      "",
-      "<code>#99</code>",
-      "",
-      `<a href="https://t.me/c/3744691748/901">View in channel</a>`,
-    ].join("\n"),
-  );
-});
-
-test("buildLookupBotShortDescription is the locked V3.5 copy", () => {
+test("buildLookupBotShortDescription is the locked copy", () => {
   assert.equal(
     buildLookupBotShortDescription(),
     "Search vouches by @username. Read-only lookup bot for the Vouch Hub community.",
   );
 });
 
-test("buildLookupBotDescription is the locked V3.5 copy", () => {
+test("buildLookupBotDescription is the locked copy", () => {
   const text = buildLookupBotDescription();
   assert.match(text, /Read-only lookup for the Vouch Hub community\./);
   assert.match(text, /search bar at the top of the group/);
   assert.match(text, /never post vouches/);
 });
 
-test("buildAdminBotShortDescription is the locked V3.5 copy", () => {
+test("buildAdminBotShortDescription is the locked copy", () => {
   assert.equal(
     buildAdminBotShortDescription(),
     "Admin tooling for the Vouch Hub. Restricted access — operator commands only.",
   );
 });
 
-test("buildAdminBotDescription is the locked V3.5 copy", () => {
+test("buildAdminBotDescription is the locked copy", () => {
   const text = buildAdminBotDescription();
   assert.match(text, /Operator-only admin bot/);
   assert.match(text, /freeze\/unfreeze\/audit/);
@@ -563,15 +343,16 @@ test("buildAccountTooNewText uses locked headline", () => {
   assert.match(text, /We wait for new accounts to establish/);
 });
 
-test("buildModerationWarnText: vouch-shape branch points at the in-group launcher", () => {
+test("buildModerationWarnText: vouch-shape branch points back into the group (no wizard)", () => {
   const text = buildModerationWarnText({
     groupName: "VouchVault",
     hitSource: "regex_vouch_for_username",
     adminBotUsername: null,
   });
   assert.match(text, /<b>VouchVault<\/b> was removed/);
-  assert.match(text, /Vouches must go through the bot/);
-  assert.match(text, /<b>Submit Vouch<\/b>/);
+  assert.match(text, /Post your vouch as a normal message in the group/);
+  // v9: no Submit Vouch launcher anymore.
+  assert.equal(text.includes("Submit Vouch"), false);
 });
 
 test("buildModerationWarnText: buy/sell branch with admin-bot username points at the admin bot", () => {

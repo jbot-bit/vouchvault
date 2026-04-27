@@ -1,20 +1,17 @@
-import { and, asc, desc, eq, gte, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 
 import { db, pool } from "./storage/db.ts";
 import {
   businessProfiles,
-  chatLaunchers,
   processedTelegramUpdates,
   vouchDrafts,
   vouchEntries,
 } from "./storage/schema.ts";
 import {
-  DEFAULT_DRAFT_TIMEOUT_HOURS,
   FREEZE_REASONS,
   isFreezeReason,
   PROCESSED_UPDATE_RETENTION_DAYS,
   STALE_UPDATE_PROCESSING_MINUTES,
-  type DraftStep,
   type EntryResult,
   type EntrySource,
   type EntryStatus,
@@ -23,11 +20,11 @@ import {
   serializeSelectedTags,
 } from "./archive.ts";
 
-// Postgres advisory-lock keys are 64-bit; this offset shifts reviewer
-// Telegram user IDs into a region that can't collide with raw chat IDs
-// used by other locks. -9e15 sits safely below any Telegram ID and within
-// JavaScript's Number.MIN_SAFE_INTEGER so arithmetic stays exact.
-const REVIEWER_DRAFT_LOCK_OFFSET = -9_000_000_000_000_000;
+// v9: vouchDrafts table is retained on the schema side for migration
+// safety, but the wizard that wrote to it is gone. Maintenance still
+// purges old rows in case any pre-v9 drafts linger; new rows are never
+// inserted from the codebase.
+const LEGACY_DRAFT_RETENTION_HOURS = 24;
 
 export async function getBusinessProfileByUsername(username: string) {
   const result = await db
@@ -119,177 +116,6 @@ export async function setBusinessProfileFrozen(input: {
   return rows[0]!;
 }
 
-export async function getDraftByReviewerTelegramId(reviewerTelegramId: number) {
-  const result = await db
-    .select()
-    .from(vouchDrafts)
-    .where(eq(vouchDrafts.reviewerTelegramId, reviewerTelegramId))
-    .limit(1);
-
-  return result[0] ?? null;
-}
-
-export async function createOrResetDraft(input: {
-  reviewerTelegramId: number;
-  reviewerUsername: string | null;
-  reviewerFirstName: string | null;
-  privateChatId: number;
-  targetGroupChatId: number | null;
-}) {
-  const existing = await getDraftByReviewerTelegramId(input.reviewerTelegramId);
-
-  if (existing) {
-    const rows = await db
-      .update(vouchDrafts)
-      .set({
-        reviewerUsername: input.reviewerUsername,
-        reviewerFirstName: input.reviewerFirstName,
-        privateChatId: input.privateChatId,
-        targetGroupChatId: input.targetGroupChatId,
-        targetUsername: null,
-        entryType: null,
-        result: null,
-        selectedTags: "[]",
-        step: "awaiting_target",
-        updatedAt: new Date(),
-      })
-      .where(eq(vouchDrafts.id, existing.id))
-      .returning();
-
-    return rows[0]!;
-  }
-
-  try {
-    const rows = await db
-      .insert(vouchDrafts)
-      .values({
-        reviewerTelegramId: input.reviewerTelegramId,
-        reviewerUsername: input.reviewerUsername,
-        reviewerFirstName: input.reviewerFirstName,
-        privateChatId: input.privateChatId,
-        targetGroupChatId: input.targetGroupChatId,
-        targetUsername: null,
-        entryType: null,
-        result: null,
-        selectedTags: "[]",
-        step: "awaiting_target",
-        updatedAt: new Date(),
-      })
-      .returning();
-
-    return rows[0]!;
-  } catch {
-    const retried = await getDraftByReviewerTelegramId(input.reviewerTelegramId);
-    if (!retried) {
-      throw new Error(`Failed to create draft for reviewer ${input.reviewerTelegramId}`);
-    }
-
-    const rows = await db
-      .update(vouchDrafts)
-      .set({
-        reviewerUsername: input.reviewerUsername,
-        reviewerFirstName: input.reviewerFirstName,
-        privateChatId: input.privateChatId,
-        targetGroupChatId: input.targetGroupChatId,
-        targetUsername: null,
-        entryType: null,
-        result: null,
-        selectedTags: "[]",
-        step: "awaiting_target",
-        updatedAt: new Date(),
-      })
-      .where(eq(vouchDrafts.id, retried.id))
-      .returning();
-
-    return rows[0]!;
-  }
-}
-
-export async function updateDraftByReviewerTelegramId(
-  reviewerTelegramId: number,
-  updates: Partial<{
-    reviewerUsername: string | null;
-    reviewerFirstName: string | null;
-    privateChatId: number;
-    targetGroupChatId: number | null;
-    targetUsername: string | null;
-    entryType: EntryType | null;
-    result: EntryResult | null;
-    selectedTags: EntryTag[];
-    step: DraftStep;
-    privateNote: string | null;
-    bodyText: string | null;
-  }>,
-) {
-  const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-  if (!draft) {
-    return null;
-  }
-
-  const rows = await db
-    .update(vouchDrafts)
-    .set({
-      reviewerUsername: updates.reviewerUsername ?? draft.reviewerUsername,
-      reviewerFirstName: updates.reviewerFirstName ?? draft.reviewerFirstName,
-      privateChatId: updates.privateChatId ?? draft.privateChatId,
-      targetGroupChatId:
-        updates.targetGroupChatId === undefined
-          ? draft.targetGroupChatId
-          : updates.targetGroupChatId,
-      targetUsername:
-        updates.targetUsername === undefined ? draft.targetUsername : updates.targetUsername,
-      entryType: updates.entryType === undefined ? draft.entryType : updates.entryType,
-      result: updates.result === undefined ? draft.result : updates.result,
-      selectedTags:
-        updates.selectedTags === undefined
-          ? draft.selectedTags
-          : serializeSelectedTags(updates.selectedTags),
-      step: updates.step ?? (draft.step as DraftStep),
-      privateNote:
-        updates.privateNote === undefined ? draft.privateNote : updates.privateNote,
-      bodyText:
-        updates.bodyText === undefined ? draft.bodyText : updates.bodyText,
-      updatedAt: new Date(),
-    })
-    .where(eq(vouchDrafts.id, draft.id))
-    .returning();
-
-  return rows[0]!;
-}
-
-export async function clearDraftByReviewerTelegramId(reviewerTelegramId: number) {
-  const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-  if (!draft) {
-    return;
-  }
-
-  await db.delete(vouchDrafts).where(eq(vouchDrafts.id, draft.id));
-}
-
-export async function hasRecentEntryForReviewerAndTarget(input: {
-  reviewerTelegramId: number;
-  targetUsername: string;
-  withinHours: number;
-}): Promise<Date | null> {
-  const cutoff = new Date(Date.now() - input.withinHours * 60 * 60 * 1000);
-
-  const result = await db
-    .select({ createdAt: vouchEntries.createdAt })
-    .from(vouchEntries)
-    .where(
-      and(
-        eq(vouchEntries.reviewerTelegramId, input.reviewerTelegramId),
-        eq(vouchEntries.targetUsername, input.targetUsername),
-        gte(vouchEntries.createdAt, cutoff),
-        eq(vouchEntries.status, "published"),
-      ),
-    )
-    .orderBy(desc(vouchEntries.createdAt))
-    .limit(1);
-
-  return result[0]?.createdAt ?? null;
-}
-
 export async function createArchiveEntry(input: {
   reviewerUserId: number | null;
   reviewerTelegramId: number;
@@ -346,95 +172,6 @@ export async function createArchiveEntry(input: {
 
   // insert().returning() always returns the inserted row
   return rows[0]!;
-}
-
-export async function setArchiveEntryPublishedMessageId(
-  entryId: number,
-  publishedMessageId: number,
-) {
-  // Guard on status='publishing' so we don't resurrect an entry that was
-  // marked 'removed' (via /remove_entry) while the Telegram send was in
-  // flight. Without this guard, the race window between
-  // markArchiveEntryPublishing and the Telegram callback returning could
-  // silently undo a concurrent /remove_entry.
-  const rows = await db
-    .update(vouchEntries)
-    .set({
-      publishedMessageId,
-      status: "published",
-      updatedAt: new Date(),
-    })
-    .where(and(eq(vouchEntries.id, entryId), eq(vouchEntries.status, "publishing")))
-    .returning();
-
-  // null means the row's status was no longer 'publishing' — typically
-  // because /remove_entry won the race. The caller logs and handles the
-  // orphan Telegram message (admin can re-delete; we don't track the new
-  // messageId here because the row is already 'removed').
-  return rows[0] ?? null;
-}
-
-export async function markArchiveEntryPublishing(entryId: number) {
-  const updated = await db
-    .update(vouchEntries)
-    .set({
-      status: "publishing",
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(vouchEntries.id, entryId),
-        eq(vouchEntries.status, "pending"),
-        isNull(vouchEntries.publishedMessageId),
-      ),
-    )
-    .returning();
-
-  return updated[0] ?? null;
-}
-
-// V3.5.4 channel-relay path: after a successful channel send the
-// entry holds the channel-side message_id but the supergroup auto-
-// forward hasn't been observed yet. Status 'channel_published' is the
-// in-between state. Same race-guard as setArchiveEntryPublishedMessageId.
-export async function setArchiveEntryChannelPublished(
-  entryId: number,
-  channelMessageId: number,
-) {
-  const rows = await db
-    .update(vouchEntries)
-    .set({
-      channelMessageId,
-      status: "channel_published",
-      updatedAt: new Date(),
-    })
-    .where(and(eq(vouchEntries.id, entryId), eq(vouchEntries.status, "publishing")))
-    .returning();
-  return rows[0] ?? null;
-}
-
-// Auto-forward observed: link the supergroup-side message id and
-// flip to 'published'. Lookup keys on (channel_message_id, source
-// channel) — the relay capture handler matches before calling here.
-export async function captureSupergroupForward(input: {
-  channelMessageId: number;
-  supergroupMessageId: number;
-}) {
-  const rows = await db
-    .update(vouchEntries)
-    .set({
-      publishedMessageId: input.supergroupMessageId,
-      status: "published",
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(vouchEntries.channelMessageId, input.channelMessageId),
-        eq(vouchEntries.status, "channel_published"),
-      ),
-    )
-    .returning();
-  return rows[0] ?? null;
 }
 
 export async function setArchiveEntryStatus(entryId: number, status: EntryStatus) {
@@ -498,44 +235,6 @@ export async function getArchiveEntriesForTarget(targetUsername: string, limit: 
     .limit(limit);
 }
 
-export async function getLauncherByChatId(chatId: number) {
-  const result = await db
-    .select()
-    .from(chatLaunchers)
-    .where(eq(chatLaunchers.chatId, chatId))
-    .limit(1);
-
-  return result[0] ?? null;
-}
-
-export async function saveLauncherMessage(chatId: number, messageId: number) {
-  const existing = await getLauncherByChatId(chatId);
-
-  if (existing) {
-    const rows = await db
-      .update(chatLaunchers)
-      .set({
-        messageId,
-        updatedAt: new Date(),
-      })
-      .where(eq(chatLaunchers.id, existing.id))
-      .returning();
-
-    return rows[0]!;
-  }
-
-  const rows = await db
-    .insert(chatLaunchers)
-    .values({
-      chatId,
-      messageId,
-      updatedAt: new Date(),
-    })
-    .returning();
-
-  return rows[0]!;
-}
-
 /**
  * `pg_advisory_lock` is a session-level lock — it must be acquired AND released
  * on the same Postgres connection. Going through `db.execute(...)` checks out a
@@ -573,14 +272,6 @@ async function withAdvisoryLock<T>(lockKey: number, fn: () => Promise<T>): Promi
     // PoolClient.release contract). Otherwise return the connection cleanly.
     client.release(unlockFailed);
   }
-}
-
-export async function withChatLauncherLock<T>(chatId: number, fn: () => Promise<T>) {
-  return withAdvisoryLock(chatId, fn);
-}
-
-export async function withReviewerDraftLock<T>(reviewerTelegramId: number, fn: () => Promise<T>) {
-  return withAdvisoryLock(REVIEWER_DRAFT_LOCK_OFFSET + reviewerTelegramId, fn);
 }
 
 // Bot-kind discriminator for multi-bot idempotency. Telegram update_ids
@@ -685,7 +376,10 @@ export async function releaseTelegramUpdate(
 }
 
 export async function runArchiveMaintenance() {
-  const draftCutoff = new Date(Date.now() - DEFAULT_DRAFT_TIMEOUT_HOURS * 60 * 60 * 1000);
+  // v9: vouchDrafts table is unused at runtime but we still purge
+  // anything older than LEGACY_DRAFT_RETENTION_HOURS in case pre-v9
+  // rows linger.
+  const draftCutoff = new Date(Date.now() - LEGACY_DRAFT_RETENTION_HOURS * 60 * 60 * 1000);
   await db.delete(vouchDrafts).where(lt(vouchDrafts.updatedAt, draftCutoff));
 
   const processedUpdateCutoff = new Date(
@@ -694,31 +388,4 @@ export async function runArchiveMaintenance() {
   await db
     .delete(processedTelegramUpdates)
     .where(lt(processedTelegramUpdates.updatedAt, processedUpdateCutoff));
-}
-
-export async function countRecentEntriesByReviewer(input: {
-  reviewerTelegramId: number;
-  withinHours: number;
-}): Promise<{ count: number; oldestInWindow: Date | null }> {
-  const cutoff = new Date(Date.now() - input.withinHours * 3600 * 1000);
-  const filter = and(
-    eq(vouchEntries.reviewerTelegramId, input.reviewerTelegramId),
-    gte(vouchEntries.createdAt, cutoff),
-    ne(vouchEntries.status, "removed"),
-  );
-
-  const [countRow, oldestRow] = await Promise.all([
-    db.select({ count: sql<number>`count(*)::int` }).from(vouchEntries).where(filter),
-    db
-      .select({ createdAt: vouchEntries.createdAt })
-      .from(vouchEntries)
-      .where(filter)
-      .orderBy(asc(vouchEntries.createdAt))
-      .limit(1),
-  ]);
-
-  return {
-    count: Number(countRow[0]?.count ?? 0),
-    oldestInWindow: oldestRow[0]?.createdAt ?? null,
-  };
 }

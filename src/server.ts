@@ -149,38 +149,6 @@ async function main() {
         // returns ok:true for liveness. Failing the whole endpoint
         // because one optional probe died would mask the bot itself
         // being healthy.
-        const channelId = process.env.TELEGRAM_CHANNEL_ID?.trim();
-        const relayEnabled = process.env.VV_RELAY_ENABLED === "true";
-        let staleRelayRows: number | null = null;
-        let lastCaptureAt: string | null = null;
-        if (relayEnabled && channelId) {
-          try {
-            const { pool } = await import("./core/storage/db.ts");
-            // Filter on updated_at (the moment the row transitioned to
-            // channel_published) NOT created_at (when the wizard
-            // started, possibly long before the channel publish).
-            const r = await pool.query(
-              "SELECT count(*)::int AS n FROM vouch_entries " +
-                "WHERE channel_message_id IS NOT NULL " +
-                "AND status = 'channel_published' " +
-                "AND updated_at < now() - interval '5 minutes'",
-            );
-            staleRelayRows = r.rows[0]?.n ?? 0;
-            // last_capture_at: max updated_at for status='published'
-            // rows transitioned within the last hour. Tracks the
-            // freshness of the relayCapture path; null when no
-            // captures in the last hour (legitimate quiet period).
-            const r2 = await pool.query(
-              "SELECT max(updated_at) AS t FROM vouch_entries " +
-                "WHERE status = 'published' " +
-                "AND updated_at > now() - interval '1 hour'",
-            );
-            const t = r2.rows[0]?.t;
-            lastCaptureAt = t instanceof Date ? t.toISOString() : null;
-          } catch (error) {
-            logger.warn({ err: error }, "[/healthz] relay probe failed");
-          }
-        }
         let poolStats: { total: number; idle: number; waiting: number } | null = null;
         try {
           const { pool } = await import("./core/storage/db.ts");
@@ -208,21 +176,6 @@ async function main() {
           logger.warn({ err: error }, "[/healthz] lexicon-deletes probe failed");
         }
         const body: Record<string, unknown> = { ok: true };
-        if (relayEnabled) {
-          const relay: Record<string, unknown> = {
-            configured: Boolean(channelId),
-            stale_relay_rows: staleRelayRows ?? 0,
-          };
-          if (lastCaptureAt != null) relay.last_capture_at = lastCaptureAt;
-          body.relay = relay;
-          // Keep the prior `channel` key for backwards compatibility
-          // with any external monitor that scrapes it. Mirrors the
-          // subset of `relay` it always carried.
-          body.channel = {
-            configured: Boolean(channelId),
-            stale_relay_rows: staleRelayRows ?? 0,
-          };
-        }
         if (poolStats != null) body.db_pool = poolStats;
         if (lexiconDeletes24h != null) body.lexicon_deletes_24h = lexiconDeletes24h;
         const response = jsonResponse(body);

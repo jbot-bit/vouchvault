@@ -1,32 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-const KNOWN_CALLBACKS = [
-  "archive:start",
-  "archive:start:-1001234567890",
-  "archive:start:-100999999999999999",
-  "archive:result:positive",
-  "archive:result:mixed",
-  "archive:result:negative",
-  "archive:tag:good_comms",
-  "archive:tag:efficient",
-  "archive:tag:on_time",
-  "archive:tag:good_quality",
-  "archive:tag:mixed_comms",
-  "archive:tag:some_delays",
-  "archive:tag:acceptable_quality",
-  "archive:tag:minor_issue",
-  "archive:tag:poor_comms",
-  "archive:tag:late",
-  "archive:tag:quality_issue",
-  "archive:tag:item_mismatch",
-  "archive:done",
-  "archive:cancel",
-  "archive:confirm",
-  "archive:skip_admin_note",
-  // v8.0 commit 4 (U5): edit-prose back-edge from V3.5 preview.
-  "archive:edit_prose",
-];
+// v9: the DM wizard is gone, so the bot no longer mints any callback_data
+// strings of its own. This test stays as a guardrail: if a future change
+// reintroduces callbacks, append them here so the 64-byte ceiling check
+// runs in CI from day one.
+const KNOWN_CALLBACKS: string[] = [];
 
 test("every callback data string is <= 64 bytes", () => {
   for (const cb of KNOWN_CALLBACKS) {

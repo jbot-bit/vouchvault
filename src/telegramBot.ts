@@ -1,69 +1,29 @@
 import {
-  buildAccountTooNewText,
   buildAdminHelpText,
   buildAdminOnlyText,
   buildFrozenListText,
-  buildGroupLauncherReplyText,
   buildLookupText,
-  buildPreviewText,
-  buildPreviewTextV35,
-  buildPublishedDraftText,
-  buildResultPromptText,
-  buildTagPromptText,
-  buildTargetPromptText,
-  buildVouchProsePromptText,
-  buildVouchProseRejectionText,
   buildWelcomeText,
-  classifyVouchProseMessage,
-  escapeHtml,
-  validateVouchProse,
-  DEFAULT_DUPLICATE_COOLDOWN_HOURS,
-  DEFAULT_DRAFT_TIMEOUT_HOURS,
   MAINTENANCE_EVERY_N_UPDATES,
   FREEZE_REASONS,
-  fmtDate,
-  fmtDateTime,
   formatUsername,
-  getAllowedTagsForResult,
-  isEntryResult,
   isFreezeReason,
-  isReservedTarget,
-  MAX_PRIVATE_NOTE_CHARS,
   normalizeUsername,
-  validatePrivateNote,
   parseSelectedTags,
-  RESULT_LABELS,
-  TAG_LABELS,
-  toggleTag,
   MAX_LOOKUP_ENTRIES,
   type EntryResult,
   type EntrySource,
-  type EntryTag,
 } from "./core/archive.ts";
-import { publishArchiveEntryRecord } from "./core/archivePublishing.ts";
 import { runChatModeration } from "./core/chatModeration.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
 import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
 import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
-  getPrimaryGroupChatId,
-  isAllowedGroupChatId,
-  refreshGroupLauncher,
-  sendLauncherPrompt,
-} from "./core/archiveLauncher.ts";
-import {
-  clearDraftByReviewerTelegramId,
   completeTelegramUpdate,
-  countRecentEntriesByReviewer,
-  createArchiveEntry,
-  createOrResetDraft,
   getArchiveEntriesForTarget,
   getArchiveEntryById,
   getBusinessProfileByUsername,
-  getDraftByReviewerTelegramId,
-  getOrCreateBusinessProfile,
-  hasRecentEntryForReviewerAndTarget,
   listFrozenProfiles,
   markArchiveEntryRemoved,
   releaseTelegramUpdate,
@@ -71,28 +31,17 @@ import {
   reserveTelegramUpdate,
   runArchiveMaintenance,
   setBusinessProfileFrozen,
-  updateDraftByReviewerTelegramId,
-  withReviewerDraftLock,
 } from "./core/archiveStore.ts";
-import {
-  buildTargetRequestReplyMarkup,
-  buildThreadedGroupReplyOptions,
-  shouldSendThreadedLauncherReply,
-  TARGET_USER_REQUEST_ID,
-} from "./core/telegramUx.ts";
+import { buildThreadedGroupReplyOptions } from "./core/telegramUx.ts";
 import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
-import { createOrUpdateUser } from "./core/tools/userTools.ts";
 import {
   answerTelegramCallbackQuery,
-  buildInlineKeyboard,
   deleteTelegramMessage,
-  editTelegramMessage,
   forwardTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
 import {
   isChatDisabled,
-  isChatPaused,
   setChatActive,
   setChatGone,
   setChatKicked,
@@ -109,33 +58,17 @@ import {
 } from "./core/memberVelocity.ts";
 import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
-import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
-import { getUserFirstSeen, recordUserFirstSeen } from "./core/userTracking.ts";
-import { checkAccountAge } from "./core/accountAge.ts";
-import { classifyUserIdBand } from "./core/userIdBand.ts";
+import { recordUserFirstSeen } from "./core/userTracking.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
-import { classifyAutoForward } from "./core/relayCapture.ts";
-import { captureSupergroupForward } from "./core/archiveStore.ts";
 import { recordInviteLinkUsed } from "./core/inviteLinks.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
-const SERVICE_ENTRY_TYPE = "service";
 const allowedTelegramChatIds = getAllowedTelegramChatIdSet();
 
 // Per takedown spec §3.4. In-memory; resets on deploy. The alert is a
 // heuristic; a fresh window after redeploy is acceptable.
 const velocityState = createMemberVelocityState();
-
-function buildEntryDeepLink(chatId: number, messageId: number): string {
-  // Telegram URL format: https://t.me/c/<chatPart>/<messageId>
-  // Supergroup chat IDs are like -1001234567890; the chatPart drops the -100 prefix.
-  const stringId = String(chatId);
-  const chatPart = stringId.startsWith("-100")
-    ? stringId.slice(4)
-    : stringId.replace(/^-/, "");
-  return `https://t.me/c/${chatPart}/${messageId}`;
-}
 
 function getAdminIds(): Set<number> {
   return new Set(
@@ -150,70 +83,6 @@ function isAdmin(telegramId: number | null | undefined): boolean {
   return telegramId != null && getAdminIds().has(telegramId);
 }
 
-// V3.5.4 / v6 §4: when true, the wizard inserts a free-form prose step
-// before preview and the publish path goes channel → auto-forward
-// instead of direct supergroup send. Env-var gated for backwards
-// compat — default-off keeps the V3 path intact.
-function isRelayEnabled(): boolean {
-  return process.env.VV_RELAY_ENABLED === "true";
-}
-
-// Returns the channel id when the relay is enabled AND TELEGRAM_CHANNEL_ID
-// is a safe integer; null otherwise. Misconfiguration falls back to
-// direct publish (relay considered disabled).
-function resolveRelayChannelId(): number | null {
-  if (!isRelayEnabled()) return null;
-  const raw = process.env.TELEGRAM_CHANNEL_ID?.trim();
-  if (!raw) return null;
-  const id = Number(raw);
-  return Number.isSafeInteger(id) ? id : null;
-}
-
-// Match an inbound auto-forwarded supergroup message back to its
-// channel-side row (status='channel_published') and flip to
-// 'published' with the supergroup-side message_id populated. No-op
-// when the inbound message isn't an auto-forward from our channel.
-async function captureAutoForwardIfMatched(
-  message: any,
-  logger?: LoggerLike,
-): Promise<void> {
-  const channelId = resolveRelayChannelId();
-  if (channelId == null) return;
-  const allowed = [...allowedTelegramChatIds];
-  const match = classifyAutoForward({
-    message,
-    expectedChannelId: channelId,
-    allowedSupergroupIds: allowed,
-  });
-  if (!match.matched) return;
-  const updated = await captureSupergroupForward({
-    channelMessageId: match.channelMessageId,
-    supergroupMessageId: match.supergroupMessageId,
-  });
-  if (updated == null) {
-    // Either the row was already 'published' (duplicate auto-forward
-    // — Telegram doesn't double-send but we tolerate the no-op) or
-    // the row is in a different state (race with /remove_entry, or
-    // the channel post wasn't ours). Either way, nothing actionable.
-    logger?.info?.(
-      {
-        channelMessageId: match.channelMessageId,
-        supergroupMessageId: match.supergroupMessageId,
-      },
-      "relayCapture: no row in channel_published status to update",
-    );
-    return;
-  }
-  logger?.info?.(
-    {
-      entryId: updated.id,
-      channelMessageId: match.channelMessageId,
-      supergroupMessageId: match.supergroupMessageId,
-    },
-    "relayCapture: auto-forward matched and row flipped to published",
-  );
-}
-
 function getCommandParts(text: string) {
   const trimmed = text.trim();
   const parts = trimmed.split(/\s+/);
@@ -222,117 +91,6 @@ function getCommandParts(text: string) {
   const args = parts.slice(1);
   const command = rawCommand.split("@")[0]!.toLowerCase();
   return { command, args };
-}
-
-function getStartPayload(text: string) {
-  const { command, args } = getCommandParts(text);
-  if (command !== "/start") {
-    return null;
-  }
-
-  return args[0] ?? null;
-}
-
-function getTargetGroupChatIdFromStartPayload(payload: string | null): number | null {
-  if (!payload) {
-    return null;
-  }
-
-  if (!payload.startsWith("vouch_")) {
-    return null;
-  }
-
-  const value = Number(payload.slice("vouch_".length));
-  return Number.isSafeInteger(value) && isAllowedGroupChatId(value) ? value : null;
-}
-
-function isDraftExpired(draft: { updatedAt: Date }) {
-  return Date.now() - draft.updatedAt.getTime() > DEFAULT_DRAFT_TIMEOUT_HOURS * 60 * 60 * 1000;
-}
-
-function buildStartKeyboard(targetGroupChatId?: number | null) {
-  return buildInlineKeyboard([
-    [
-      {
-        text: "Start a Vouch",
-        callback_data:
-          targetGroupChatId != null && isAllowedGroupChatId(targetGroupChatId)
-            ? `archive:start:${targetGroupChatId}`
-            : "archive:start",
-      },
-    ],
-  ]);
-}
-
-function buildRestartKeyboard(targetGroupChatId?: number | null) {
-  return buildInlineKeyboard([
-    [
-      {
-        text: "Start Another Vouch",
-        callback_data:
-          targetGroupChatId != null && isAllowedGroupChatId(targetGroupChatId)
-            ? `archive:start:${targetGroupChatId}`
-            : "archive:start",
-      },
-    ],
-  ]);
-}
-
-function buildResultKeyboard() {
-  return buildInlineKeyboard([
-    [{ text: RESULT_LABELS.positive, callback_data: "archive:result:positive" }],
-    [{ text: RESULT_LABELS.mixed, callback_data: "archive:result:mixed" }],
-    [{ text: RESULT_LABELS.negative, callback_data: "archive:result:negative" }],
-    [{ text: "Cancel", callback_data: "archive:cancel" }],
-  ]);
-}
-
-function buildTagKeyboard(result: EntryResult, selectedTags: EntryTag[]) {
-  const tagRows = getAllowedTagsForResult(result).map((tag) => [
-    {
-      text: `${selectedTags.includes(tag) ? "✓ " : ""}${TAG_LABELS[tag]}`,
-      callback_data: `archive:tag:${tag}`,
-    },
-  ]);
-
-  return buildInlineKeyboard([
-    ...tagRows,
-    [{ text: "Done", callback_data: "archive:done" }],
-    [{ text: "Cancel", callback_data: "archive:cancel" }],
-  ]);
-}
-
-// v8.0 commit 4 (U5): in the V3.5 prose-mode preview, show an Edit
-// Prose button so the reviewer can fix a typo without restarting the
-// whole wizard. The button only renders when bodyText is set on the
-// draft (i.e. the relay-enabled path); the V3 templated preview keeps
-// the original two-button layout. Callback "archive:edit_prose" routes
-// back to step="awaiting_prose" with bodyText cleared.
-function buildPreviewKeyboard(opts: { withEditProse?: boolean } = {}) {
-  const rows: { text: string; callback_data: string }[][] = [];
-  if (opts.withEditProse) {
-    rows.push([{ text: "Edit prose", callback_data: "archive:edit_prose" }]);
-  }
-  rows.push([{ text: "Publish", callback_data: "archive:confirm" }]);
-  rows.push([{ text: "Cancel", callback_data: "archive:cancel" }]);
-  return buildInlineKeyboard(rows);
-}
-
-function buildAdminNoteKeyboard() {
-  return buildInlineKeyboard([
-    [{ text: "Skip", callback_data: "archive:skip_admin_note" }],
-    [{ text: "Cancel", callback_data: "archive:cancel" }],
-  ]);
-}
-
-function buildAdminNotePromptText(): string {
-  return [
-    "<b>Optional: add a short note for admins</b>",
-    "",
-    `Up to ${MAX_PRIVATE_NOTE_CHARS} characters. Send the note text here, or tap <b>Skip</b>.`,
-    "",
-    "<i>This note is visible to admins only. It is never published to the group.</i>",
-  ].join("\n");
 }
 
 function buildReplyOptions(
@@ -353,130 +111,6 @@ function buildReplyOptions(
     ...buildThreadedGroupReplyOptions(replyToMessageId, messageThreadId),
     disableNotification,
   };
-}
-
-async function sendGroupLauncherReply(input: {
-  chatId: number;
-  replyToMessageId: number;
-  messageThreadId?: number | null;
-  logger?: LoggerLike;
-  text?: string;
-}) {
-  return sendLauncherPrompt(input.chatId, input.logger, {
-    text: input.text ?? buildGroupLauncherReplyText(),
-    ...buildThreadedGroupReplyOptions(input.replyToMessageId, input.messageThreadId),
-  });
-}
-
-async function startDraftFlow(input: {
-  chatId: number;
-  from: any;
-  targetGroupChatId?: number | null;
-  logger?: LoggerLike;
-}) {
-  const resolvedTargetGroupChatId =
-    input.targetGroupChatId == null
-      ? getPrimaryGroupChatId()
-      : isAllowedGroupChatId(input.targetGroupChatId)
-        ? input.targetGroupChatId
-        : null;
-
-  if (resolvedTargetGroupChatId == null) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "That launcher is no longer active. Open the current group launcher and try again.",
-        replyMarkup: buildStartKeyboard(),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  if (await isChatPaused(resolvedTargetGroupChatId)) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "Vouching is paused. An admin will lift this when ready. The archive is still searchable in the group via the search bar.",
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  // V3.5.3 / v6 §5: account-age guard. Reject submissions from accounts
-  // whose first interaction with the bot was <24h ago. Fail-closed on
-  // a missing users_first_seen row (checkAccountAge returns
-  // allowed:false for null), so a brand-new throwaway can't slip
-  // through during the gap between observe and record.
-  const reviewerTelegramId = input.from?.id;
-  if (typeof reviewerTelegramId === "number") {
-    const firstSeen = await getUserFirstSeen(reviewerTelegramId);
-    const ageCheck = checkAccountAge(firstSeen);
-    // Audit-only secondary signal (KB:F2.33). Logged regardless of
-    // ageCheck outcome so an operator reviewing logs can correlate
-    // a suspected throwaway with its numeric-id band. Returns
-    // "unknown" for everything until thresholds are calibrated.
-    input.logger?.info?.(
-      {
-        reviewerTelegramId,
-        userIdBand: classifyUserIdBand(reviewerTelegramId),
-        audit_only_signal: true,
-      },
-      "[Wizard] account-age guard: user-id band signal",
-    );
-    if (!ageCheck.allowed) {
-      await sendTelegramMessage(
-        {
-          chatId: input.chatId,
-          text: buildAccountTooNewText(ageCheck.hoursRemaining),
-        },
-        input.logger,
-      );
-      return;
-    }
-  }
-
-  await withReviewerDraftLock(input.from.id, async () => {
-    const reviewerUsername = input.from?.username ? normalizeUsername(input.from.username) : null;
-    if (!reviewerUsername) {
-      await sendTelegramMessage(
-        {
-          chatId: input.chatId,
-          text: "You need a public Telegram @username to create a vouch entry.",
-        },
-        input.logger,
-      );
-      return;
-    }
-
-    await createOrUpdateUser(
-      {
-        telegramId: input.from.id,
-        username: reviewerUsername,
-        firstName: input.from.first_name ?? null,
-        lastName: input.from.last_name ?? null,
-      },
-      input.logger,
-    );
-
-    await createOrResetDraft({
-      reviewerTelegramId: input.from.id,
-      reviewerUsername,
-      reviewerFirstName: input.from.first_name ?? null,
-      privateChatId: input.chatId,
-      targetGroupChatId: resolvedTargetGroupChatId,
-    });
-
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: buildTargetPromptText(),
-        replyMarkup: buildTargetRequestReplyMarkup(),
-      },
-      input.logger,
-    );
-  });
 }
 
 async function handleLookupCommand(input: {
@@ -682,10 +316,7 @@ async function handleAdminCommand(input: {
 
     // Mark removed in DB FIRST so the source of truth flips before we touch
     // Telegram. If the Telegram delete fails (or is interrupted), the entry
-    // is still treated as removed by /lookup. The alternative ordering
-    // (delete from Telegram first, then DB) leaves a ghost entry visible
-    // in DB-driven views when the DB write fails after the message is
-    // already gone.
+    // is still treated as removed by /lookup.
     await markArchiveEntryRemoved(entryId);
 
     if (entry.publishedMessageId) {
@@ -698,11 +329,10 @@ async function handleAdminCommand(input: {
           input.logger,
         );
       } catch (error) {
-        input.logger?.warn({ error, entryId }, "Failed to delete published entry");
+        input.logger?.warn?.({ error, entryId }, "Failed to delete published entry");
       }
     }
 
-    await refreshGroupLauncher(entry.chatId, input.logger);
     await recordAdminAction({
       adminTelegramId: input.from.id,
       adminUsername: input.from.username ?? null,
@@ -867,518 +497,76 @@ async function handleAdminCommand(input: {
   }
 }
 
-async function applySelectedTarget(input: {
-  reviewerTelegramId: number;
-  reviewerUsername: string;
-  reviewerFirstName: string | null;
-  chatId: number;
-  draft: Awaited<ReturnType<typeof getDraftByReviewerTelegramId>>;
-  targetUsername: string;
-  logger?: LoggerLike;
-}) {
-  if (!input.draft) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "Open the group launcher and start again.",
-        replyMarkup: buildStartKeyboard(),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  if (input.targetUsername === input.reviewerUsername) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "Self-vouching is not allowed.",
-        replyMarkup: buildTargetRequestReplyMarkup(),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  if (isReservedTarget(input.targetUsername)) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "That handle can't be a vouch subject.",
-        replyMarkup: buildTargetRequestReplyMarkup(),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  const businessProfile = await getOrCreateBusinessProfile(input.targetUsername);
-  if (businessProfile.isFrozen) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: `${formatUsername(input.targetUsername)} is currently frozen and cannot receive new archive entries.`,
-        replyMarkup: buildTargetRequestReplyMarkup(),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  const lastVouchedAt = await hasRecentEntryForReviewerAndTarget({
-    reviewerTelegramId: input.reviewerTelegramId,
-    targetUsername: input.targetUsername,
-    withinHours: DEFAULT_DUPLICATE_COOLDOWN_HOURS,
-  });
-
-  if (lastVouchedAt) {
-    const cooldownEnd = new Date(
-      lastVouchedAt.getTime() + DEFAULT_DUPLICATE_COOLDOWN_HOURS * 60 * 60 * 1000,
-    );
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: `You vouched <b>${formatUsername(input.targetUsername)}</b> on ${fmtDate(lastVouchedAt)}.\nCooldown ends ${fmtDate(cooldownEnd)}.`,
-        replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  const daily = await countRecentEntriesByReviewer({
-    reviewerTelegramId: input.reviewerTelegramId,
-    withinHours: 24,
-  });
-  if (daily.count >= 5 && daily.oldestInWindow) {
-    const resetAt = new Date(daily.oldestInWindow.getTime() + 24 * 60 * 60 * 1000);
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: `Daily limit reached. Try again after ${fmtDateTime(resetAt)}.`,
-        replyMarkup: buildRestartKeyboard(input.draft.targetGroupChatId),
-      },
-      input.logger,
-    );
-    return;
-  }
-
-  await updateDraftByReviewerTelegramId(input.reviewerTelegramId, {
-    reviewerUsername: input.reviewerUsername,
-    reviewerFirstName: input.reviewerFirstName,
-    targetUsername: input.targetUsername,
-    entryType: SERVICE_ENTRY_TYPE,
-    result: null,
-    selectedTags: [],
-    step: "selecting_result",
-  });
-
-  await sendTelegramMessage(
-    {
-      chatId: input.chatId,
-      text: buildResultPromptText(input.targetUsername),
-      replyMarkup: buildResultKeyboard(),
-    },
-    input.logger,
-  );
-}
-
-async function handleSharedTargetSelection(message: any, logger?: LoggerLike) {
-  const reviewerTelegramId = message.from?.id;
-  const chatId = message.chat?.id;
-
-  if (!reviewerTelegramId || !chatId) {
-    return;
-  }
-
-  const usersShared = message.users_shared;
-  if (!usersShared || usersShared.request_id !== TARGET_USER_REQUEST_ID) {
-    return;
-  }
-
-  await withReviewerDraftLock(reviewerTelegramId, async () => {
-    const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-    if (draft && isDraftExpired(draft)) {
-      await clearDraftByReviewerTelegramId(reviewerTelegramId);
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "Your last draft expired. Start again.",
-          replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (!draft) {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "Open the group launcher and start again.",
-          replyMarkup: buildStartKeyboard(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    const sharedUser = Array.isArray(usersShared.users) ? usersShared.users[0] : null;
-    const reviewerUsername = normalizeUsername(
-      draft.reviewerUsername || message.from?.username || "",
-    );
-    if (!reviewerUsername) {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "You need a public Telegram @username to create a vouch entry.",
-        },
-        logger,
-      );
-      return;
-    }
-
-    const targetUsername = normalizeUsername(sharedUser?.username ?? "");
-    if (!targetUsername) {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "The selected account needs a public @username. Choose another target.",
-          replyMarkup: buildTargetRequestReplyMarkup(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    await applySelectedTarget({
-      reviewerTelegramId,
-      reviewerUsername,
-      reviewerFirstName: message.from?.first_name ?? null,
-      chatId,
-      draft,
-      targetUsername,
-      logger,
-    });
-  });
-}
-
 async function handlePrivateMessage(message: any, logger?: LoggerLike) {
   const chatId = message.chat.id;
   const text = typeof message.text === "string" ? message.text.trim() : "";
 
-  if (message.users_shared) {
-    await handleSharedTargetSelection(message, logger);
+  if (!text || !text.startsWith("/")) {
+    // v9: bot has no DM wizard. Any non-command DM gets the welcome
+    // explainer so a member who messages the bot directly knows what
+    // to do.
+    if (text) {
+      await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
+    }
     return;
   }
 
-  if (!text) {
+  const { command, args } = getCommandParts(text);
+
+  if (command === "/start" || command === "/help") {
+    await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
     return;
   }
 
-  if (text.startsWith("/")) {
-    const { command, args } = getCommandParts(text);
-
-    if (command === "/start") {
-      const payload = getStartPayload(text);
-      const targetGroupChatId = getTargetGroupChatIdFromStartPayload(payload);
-      if (payload === "vouch" || targetGroupChatId != null) {
-        await startDraftFlow({
-          chatId,
-          from: message.from,
-          targetGroupChatId,
-          logger,
-        });
-        return;
-      }
-
-      if (payload?.startsWith("vouch_")) {
+  if (command === "/lookup") {
+    // v9 phase 2: DM /lookup opens to all members. Admins get the full
+    // audit (private NEGs + private_note); members get the public view
+    // (POS + MIX only, private_note hidden). Members are rate-limited
+    // to one lookup per LOOKUP_INTERVAL_MS.
+    const fromId = message.from?.id;
+    const isAdminCaller = isAdmin(fromId);
+    if (!isAdminCaller && typeof fromId === "number") {
+      const limited = memberLookupLimiter.tryConsume(fromId);
+      if (!limited.allowed) {
+        const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
         await sendTelegramMessage(
-          {
-            chatId,
-            text: "That launcher is no longer active. Open the current group launcher and try again.",
-            replyMarkup: buildStartKeyboard(),
-          },
+          { chatId, text: `Hold on — try again in ${seconds}s.` },
           logger,
         );
         return;
       }
-
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildWelcomeText(),
-          replyMarkup: buildStartKeyboard(),
-        },
-        logger,
-      );
-      return;
     }
-
-    if (command === "/help") {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildWelcomeText(),
-          replyMarkup: buildStartKeyboard(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (command === "/cancel") {
-      await withReviewerDraftLock(message.from.id, async () => {
-        const draft = await getDraftByReviewerTelegramId(message.from.id);
-        if (!draft) {
-          await sendTelegramMessage(
-            { chatId, text: "No active draft." },
-            logger,
-          );
-          return;
-        }
-        await clearDraftByReviewerTelegramId(message.from.id);
-        await sendTelegramMessage(
-          {
-            chatId,
-            text: "Cancelled.",
-            replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
-          },
-          logger,
-        );
-      });
-      return;
-    }
-
-    if (command === "/vouch") {
-      await startDraftFlow({
-        chatId,
-        from: message.from,
-        logger,
-      });
-      return;
-    }
-
-    if (command === "/lookup") {
-      // v9 phase 2: DM /lookup opens to all members. Admins get the full
-      // audit (private NEGs + private_note); members get the public view
-      // (POS + MIX only, private_note hidden). Members are rate-limited
-      // to one lookup per LOOKUP_INTERVAL_MS; the group-context /lookup
-      // (still admin-only) is gated below.
-      const fromId = message.from?.id;
-      const isAdminCaller = isAdmin(fromId);
-      if (!isAdminCaller && typeof fromId === "number") {
-        const limited = memberLookupLimiter.tryConsume(fromId);
-        if (!limited.allowed) {
-          const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
-          await sendTelegramMessage(
-            {
-              chatId,
-              text: `Hold on — try again in ${seconds}s.`,
-            },
-            logger,
-          );
-          return;
-        }
-      }
-      await handleLookupCommand({
-        chatId,
-        rawUsername: args[0],
-        viewerScope: isAdminCaller ? "admin" : "member",
-        logger,
-      });
-      return;
-    }
-
-    if (
-      command === "/freeze" ||
-      command === "/unfreeze" ||
-      command === "/remove_entry" ||
-      command === "/frozen_list" ||
-      command === "/recover_entry" ||
-      command === "/pause" ||
-      command === "/unpause" ||
-      command === "/admin_help"
-    ) {
-      await handleAdminCommand({
-        command,
-        args,
-        chatId,
-        from: message.from,
-        logger,
-      });
-      return;
-    }
-  }
-
-  await withReviewerDraftLock(message.from.id, async () => {
-    const draft = await getDraftByReviewerTelegramId(message.from.id);
-    if (draft && isDraftExpired(draft)) {
-      await clearDraftByReviewerTelegramId(message.from.id);
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "Your last draft expired. Start again.",
-          replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (!draft) {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "Use the group launcher or /vouch to start.",
-          replyMarkup: buildStartKeyboard(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (draft.step === "awaiting_target") {
-      const reviewerUsername = normalizeUsername(
-        draft.reviewerUsername || message.from?.username || "",
-      );
-      if (!reviewerUsername) {
-        await sendTelegramMessage(
-          {
-            chatId,
-            text: "You need a public Telegram @username to create a vouch entry.",
-          },
-          logger,
-        );
-        return;
-      }
-
-      const parsedTarget = parseTypedTargetUsername(text);
-      if (!parsedTarget.targetUsername) {
-        await sendTelegramMessage(
-          {
-            chatId,
-            text: `${parsedTarget.error} You can also tap Choose Target below.`,
-            replyMarkup: buildTargetRequestReplyMarkup(),
-          },
-          logger,
-        );
-        return;
-      }
-
-      await applySelectedTarget({
-        reviewerTelegramId: message.from.id,
-        reviewerUsername,
-        reviewerFirstName: message.from?.first_name ?? null,
-        chatId,
-        draft,
-        targetUsername: parsedTarget.targetUsername,
-        logger,
-      });
-      return;
-    }
-
-    if (draft.step === "awaiting_admin_note") {
-      const validation = validatePrivateNote(text);
-      if (!validation.ok) {
-        const reason =
-          validation.reason === "too_long"
-            ? `Note too long. Keep it under ${MAX_PRIVATE_NOTE_CHARS} characters.`
-            : validation.reason === "control_chars"
-              ? "Note contains characters that aren't allowed."
-              : "Note is empty. Send the note text or tap Skip.";
-        await sendTelegramMessage(
-          { chatId, text: reason, replyMarkup: buildAdminNoteKeyboard() },
-          logger,
-        );
-        return;
-      }
-      const latestTargetUsername = draft.targetUsername;
-      const latestResult = isEntryResult(draft.result) ? draft.result : null;
-      const latestSelectedTags = parseSelectedTags(draft.selectedTags);
-      if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
-        await sendTelegramMessage(
-          { chatId, text: "Draft is incomplete. Use /vouch to restart." },
-          logger,
-        );
-        return;
-      }
-      // V3.5 simplification: NEG note submit goes direct to preview.
-      // (See the matching skip-note callback branch above for rationale.)
-      await updateDraftByReviewerTelegramId(message.from.id, {
-        step: "preview",
-        privateNote: validation.value,
-      });
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildPreviewText({
-            reviewerUsername:
-              draft.reviewerUsername || message.from?.username || "",
-            targetUsername: latestTargetUsername,
-            result: latestResult,
-            tags: latestSelectedTags,
-            privateNote: validation.value,
-          }),
-          replyMarkup: buildPreviewKeyboard(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    // V3.5.2: handle the new awaiting_prose step. Plain text only,
-    // <=800 chars, no formatting entities. On valid input, store body
-    // text on the draft, transition to preview, render via V3.5 shape.
-    if (draft.step === "awaiting_prose") {
-      const classification = classifyVouchProseMessage(message);
-      if (classification.kind !== "text") {
-        await sendTelegramMessage(
-          { chatId, text: buildVouchProseRejectionText(classification.kind) },
-          logger,
-        );
-        return;
-      }
-      const validation = validateVouchProse(classification.text);
-      if (!validation.ok) {
-        await sendTelegramMessage(
-          { chatId, text: buildVouchProseRejectionText(validation.reason) },
-          logger,
-        );
-        return;
-      }
-      await updateDraftByReviewerTelegramId(message.from.id, {
-        step: "preview",
-        bodyText: validation.value,
-      });
-      // Pseudo-entry-id surfaces in the preview footer; the real id is
-      // assigned on confirm by the publish path. Use 0 as a
-      // placeholder — the wizard's preview is for the reviewer's
-      // approval, not for back-reference.
-      const escapedProse = escapeHtml(validation.value);
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildPreviewTextV35({
-            bodyTextEscaped: escapedProse,
-            entryId: 0,
-          }),
-          replyMarkup: buildPreviewKeyboard({ withEditProse: true }),
-        },
-        logger,
-      );
-      return;
-    }
-
-    await sendTelegramMessage(
-      {
-        chatId,
-        text: "Use the buttons in your current draft, or send /vouch to restart.",
-        replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
-      },
+    await handleLookupCommand({
+      chatId,
+      rawUsername: args[0],
+      viewerScope: isAdminCaller ? "admin" : "member",
       logger,
-    );
-  });
+    });
+    return;
+  }
+
+  if (
+    command === "/freeze" ||
+    command === "/unfreeze" ||
+    command === "/remove_entry" ||
+    command === "/frozen_list" ||
+    command === "/recover_entry" ||
+    command === "/pause" ||
+    command === "/unpause" ||
+    command === "/admin_help"
+  ) {
+    await handleAdminCommand({
+      command,
+      args,
+      chatId,
+      from: message.from,
+      logger,
+    });
+    return;
+  }
+
+  // Unknown command — point the user at the welcome explainer.
+  await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
 }
 
 async function maybeMirrorToBackupChannel(
@@ -1435,24 +623,6 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
-  // V3.5.4 channel-relay capture. When the bot's own channel post is
-  // auto-forwarded into the supergroup, Telegram sets
-  // is_automatic_forward + forward_origin (post-Bot-API-7.0). Match
-  // it back to the channel-published row and flip status='published'
-  // with the supergroup-side message id. Fires BEFORE moderation so
-  // the bot-via-channel post isn't accidentally moderated. The
-  // existing runChatModeration self-skip (is_bot + via_bot) covers
-  // the case where moderation does see it — the auto-forward's
-  // sender_chat is the channel, not a user, so the moderator's
-  // from?.is_bot check is the relevant guard.
-  if (resolveRelayChannelId() != null && message?.is_automatic_forward === true) {
-    try {
-      await captureAutoForwardIfMatched(message, logger);
-    } catch (error) {
-      logger?.warn?.({ err: error }, "relayCapture: handler failed (non-fatal)");
-    }
-  }
-
   // ── Chat moderation runs first. A delete short-circuits everything,
   // including command parsing — a member cannot smuggle a phrase past
   // moderation by prefixing it with a slash command.
@@ -1491,16 +661,6 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   // Without this, replies to /lookup in a topic land in General.
   const messageThreadId =
     typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
-
-  if (shouldSendThreadedLauncherReply(command)) {
-    await sendGroupLauncherReply({
-      chatId,
-      replyToMessageId: message.message_id,
-      messageThreadId,
-      logger,
-    });
-    return;
-  }
 
   if (command === "/lookup") {
     if (!isAdmin(message.from?.id)) {
@@ -1591,12 +751,7 @@ async function handleMyChatMember(update: any, logger?: LoggerLike) {
 
   // Bot is now present (member/administrator). If the chat row is currently
   // in any disabled state (kicked / gone / migrated_away), flip it back to
-  // 'active'. This deliberately ignores oldStatus — Telegram's
-  // my_chat_member events don't always carry a clean kicked→member
-  // transition (e.g. when a chat marked 'gone' from a transient API quirk
-  // resolves, the next event may show oldStatus='member' already), and
-  // staying disabled in that case would leave the bot silently dead in a
-  // working chat.
+  // 'active'.
   if (newStatus === "member" || newStatus === "administrator") {
     if (await isChatDisabled(chatId)) {
       await setChatActive(chatId);
@@ -1668,590 +823,16 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
 }
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
-  const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
-  const reviewerTelegramId = callbackQuery.from?.id;
+  // v9: no wizard means no callback surfaces from this bot.
+  // Acknowledge any stray callback so the inline button stops
+  // showing the loading spinner; do nothing else.
   const chatId = callbackQuery.message?.chat?.id;
-  const messageId = callbackQuery.message?.message_id;
-
-  if (!data.startsWith("archive:") || !reviewerTelegramId || !chatId || !messageId) {
-    if (callbackQuery.id) {
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-    }
-    return;
-  }
-
-  const parts = data.split(":");
-  const action = parts[1];
-  const value = parts[2];
-
-  if (action === "start") {
-    if (callbackQuery.message?.chat?.type !== "private") {
-      await answerTelegramCallbackQuery(
-        {
-          callbackQueryId: callbackQuery.id,
-          chatId,
-          text: "Open the bot in DM to start.",
-          showAlert: true,
-        },
-        logger,
-      );
-      return;
-    }
-
-    const requestedTargetGroupChatId = value ? Number(value) : null;
-    if (
-      value &&
-      (!Number.isSafeInteger(requestedTargetGroupChatId) ||
-        !isAllowedGroupChatId(requestedTargetGroupChatId))
-    ) {
-      await answerTelegramCallbackQuery(
-        {
-          callbackQueryId: callbackQuery.id,
-          chatId,
-          text: "That launcher is no longer active.",
-          showAlert: true,
-        },
-        logger,
-      );
-      return;
-    }
-
-    await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-    await startDraftFlow({
-      chatId,
-      from: callbackQuery.from,
-      targetGroupChatId: requestedTargetGroupChatId,
-      logger,
-    });
-    return;
-  }
-
-  await withReviewerDraftLock(reviewerTelegramId, async () => {
-    const draft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-    if (!draft) {
-      await answerTelegramCallbackQuery(
-        {
-          callbackQueryId: callbackQuery.id,
-          chatId,
-          text: "Start again from the launcher.",
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (isDraftExpired(draft)) {
-      await clearDraftByReviewerTelegramId(reviewerTelegramId);
-      await answerTelegramCallbackQuery(
-        {
-          callbackQueryId: callbackQuery.id,
-          chatId,
-          text: "Draft expired. Start again.",
-          showAlert: true,
-        },
-        logger,
-      );
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: "Draft expired. Start again.",
-          replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
-        },
-        logger,
-      );
-      return;
-    }
-
-    const targetUsername = draft.targetUsername;
-    const result = isEntryResult(draft.result) ? draft.result : null;
-    const selectedTags = parseSelectedTags(draft.selectedTags);
-
-    if (action === "cancel") {
-      await clearDraftByReviewerTelegramId(reviewerTelegramId);
-      await answerTelegramCallbackQuery(
-        { callbackQueryId: callbackQuery.id,
-          chatId, text: "Cancelled." },
-        logger,
-      );
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: "Cancelled.",
-          replyMarkup: buildRestartKeyboard(draft.targetGroupChatId),
-        },
-        logger,
-      );
-      return;
-    }
-
-    // v8.0 commit 4 (U5): edit-prose back-edge from preview. Only
-    // valid when the draft is in step="preview" with bodyText set
-    // (V3.5 relay path). Reuses the existing awaiting_prose text
-    // handler — clear bodyText, transition step, re-prompt.
-    if (action === "edit_prose") {
-      if (draft.step !== "preview" || !draft.bodyText) {
-        await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id, chatId, text: "Not at the prose preview step." },
-          logger,
-        );
-        return;
-      }
-      await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-        step: "awaiting_prose",
-        bodyText: null,
-      });
-      await answerTelegramCallbackQuery(
-        { callbackQueryId: callbackQuery.id, chatId },
-        logger,
-      );
-      // Clear the preview's inline keyboard explicitly. Telegram's
-      // editMessageText preserves the existing reply_markup when the
-      // field is omitted from the request — passing
-      // {inline_keyboard: []} replaces it with an empty keyboard so the
-      // stale Publish / Cancel / Edit prose buttons don't keep
-      // appearing on the prose-prompt screen.
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: buildVouchProsePromptText(),
-          replyMarkup: { inline_keyboard: [] },
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (action === "result") {
-      if (!value || !isEntryResult(value) || !targetUsername) {
-        await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id,
-          chatId, text: "Choose a target first." },
-          logger,
-        );
-        return;
-      }
-
-      await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-        entryType: SERVICE_ENTRY_TYPE,
-        result: value,
-        selectedTags: [],
-        step: "selecting_tags",
-      });
-
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: buildTagPromptText(targetUsername, value, []),
-          replyMarkup: buildTagKeyboard(value, []),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (action === "tag") {
-      const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-      const latestTargetUsername = latestDraft?.targetUsername ?? targetUsername;
-      const latestResult =
-        latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = latestDraft
-        ? parseSelectedTags(latestDraft.selectedTags)
-        : selectedTags;
-
-      if (
-        !value ||
-        !latestResult ||
-        !latestTargetUsername ||
-        !getAllowedTagsForResult(latestResult).includes(value as EntryTag)
-      ) {
-        await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id,
-          chatId, text: "Choose a result first." },
-          logger,
-        );
-        return;
-      }
-
-      const nextTags = toggleTag(latestSelectedTags, value as EntryTag);
-      await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-        selectedTags: nextTags,
-        step: "selecting_tags",
-      });
-
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: buildTagPromptText(latestTargetUsername, latestResult, nextTags),
-          replyMarkup: buildTagKeyboard(latestResult, nextTags),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (action === "done") {
-      const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-      const latestTargetUsername = latestDraft?.targetUsername ?? targetUsername;
-      const latestResult =
-        latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = latestDraft
-        ? parseSelectedTags(latestDraft.selectedTags)
-        : selectedTags;
-
-      if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "Select at least one tag.",
-          },
-          logger,
-        );
-        return;
-      }
-
-      // NEG drafts get an extra step: an optional admin-only note before
-      // preview. POS/MIX skip straight to preview as today.
-      if (latestResult === "negative") {
-        await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-          step: "awaiting_admin_note",
-          privateNote: null,
-        });
-
-        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-        await editTelegramMessage(
-          {
-            chatId,
-            messageId,
-            text: buildAdminNotePromptText(),
-            replyMarkup: buildAdminNoteKeyboard(),
-          },
-          logger,
-        );
-        return;
-      }
-
-      // V3.5.2: when relay is enabled the wizard collects a free-form
-      // prose body before preview. POS/MIX skip admin_note (none on
-      // non-NEG) and go straight to awaiting_prose; otherwise, V3 path
-      // goes direct to preview as before.
-      if (isRelayEnabled()) {
-        await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-          step: "awaiting_prose",
-        });
-        await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-        await editTelegramMessage(
-          {
-            chatId,
-            messageId,
-            text: buildVouchProsePromptText(),
-          },
-          logger,
-        );
-        return;
-      }
-
-      await updateDraftByReviewerTelegramId(reviewerTelegramId, { step: "preview" });
-
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-      // POS/MIX path — no privateNote (validator and DB constraint both
-      // forbid notes on non-NEG entries).
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: buildPreviewText({
-            reviewerUsername: draft.reviewerUsername || callbackQuery.from.username,
-            targetUsername: latestTargetUsername,
-            result: latestResult,
-            tags: latestSelectedTags,
-          }),
-          replyMarkup: buildPreviewKeyboard(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (action === "skip_admin_note") {
-      const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-      if (!latestDraft || latestDraft.step !== "awaiting_admin_note") {
-        await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id, chatId, text: "Not at the note step." },
-          logger,
-        );
-        return;
-      }
-      const latestTargetUsername = latestDraft.targetUsername ?? targetUsername;
-      const latestResult =
-        isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = parseSelectedTags(latestDraft.selectedTags);
-      if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
-        await answerTelegramCallbackQuery(
-          { callbackQueryId: callbackQuery.id, chatId, text: "Draft is incomplete." },
-          logger,
-        );
-        return;
-      }
-      // V3.5 simplification: NEG vouches skip the prose step entirely.
-      // privateNote carries admin-only context, NEG rows are DB-only
-      // (never published — see shouldPublishToGroup), so a separate
-      // body_text would just duplicate the note. Go direct to preview
-      // with the V3 templated shape regardless of VV_RELAY_ENABLED.
-      await updateDraftByReviewerTelegramId(reviewerTelegramId, {
-        step: "preview",
-        privateNote: null,
-      });
-      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
-      await editTelegramMessage(
-        {
-          chatId,
-          messageId,
-          text: buildPreviewText({
-            reviewerUsername: draft.reviewerUsername || callbackQuery.from.username,
-            targetUsername: latestTargetUsername,
-            result: latestResult,
-            tags: latestSelectedTags,
-            privateNote:
-              latestResult === "negative" ? (latestDraft?.privateNote ?? null) : null,
-          }),
-          replyMarkup: buildPreviewKeyboard(),
-        },
-        logger,
-      );
-      return;
-    }
-
-    if (action === "confirm") {
-      const latestDraft = await getDraftByReviewerTelegramId(reviewerTelegramId);
-      const latestTargetUsername = latestDraft?.targetUsername ?? targetUsername;
-      const latestResult =
-        latestDraft && isEntryResult(latestDraft.result) ? latestDraft.result : result;
-      const latestSelectedTags = latestDraft
-        ? parseSelectedTags(latestDraft.selectedTags)
-        : selectedTags;
-      const latestTargetGroupChatId =
-        latestDraft?.targetGroupChatId ?? draft.targetGroupChatId ?? null;
-
-      if (!latestTargetUsername || !latestResult || latestSelectedTags.length === 0) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "Draft is incomplete.",
-          },
-          logger,
-        );
-        return;
-      }
-
-      if (latestTargetGroupChatId == null || !isAllowedGroupChatId(latestTargetGroupChatId)) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "This draft no longer points to an active group. Start again from the current launcher.",
-            showAlert: true,
-          },
-          logger,
-        );
-        await editTelegramMessage(
-          {
-            chatId,
-            messageId,
-            text: "Start again from the current group launcher.",
-            replyMarkup: buildRestartKeyboard(),
-          },
-          logger,
-        );
-        return;
-      }
-
-      const reviewerUsername = normalizeUsername(
-        draft.reviewerUsername || callbackQuery.from?.username || "",
-      );
-      if (!reviewerUsername) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "You need a public @username.",
-            showAlert: true,
-          },
-          logger,
-        );
-        return;
-      }
-
-      if (await isChatPaused(latestTargetGroupChatId)) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "Vouching is paused.",
-            showAlert: true,
-          },
-          logger,
-        );
-        return;
-      }
-
-      const targetProfile = await getBusinessProfileByUsername(latestTargetUsername);
-      if (targetProfile?.isFrozen) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "That target is currently frozen.",
-          },
-          logger,
-        );
-        return;
-      }
-
-      const recentEntryAt = await hasRecentEntryForReviewerAndTarget({
-        reviewerTelegramId,
-        targetUsername: latestTargetUsername,
-        withinHours: DEFAULT_DUPLICATE_COOLDOWN_HOURS,
-      });
-
-      if (recentEntryAt) {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: "A recent entry already exists for that target.",
-          },
-          logger,
-        );
-        return;
-      }
-
-      const reviewer = await createOrUpdateUser(
-        {
-          telegramId: reviewerTelegramId,
-          username: reviewerUsername,
-          firstName: callbackQuery.from?.first_name ?? null,
-          lastName: callbackQuery.from?.last_name ?? null,
-        },
-        logger,
-      );
-
-      const businessProfile =
-        targetProfile ?? (await getOrCreateBusinessProfile(latestTargetUsername));
-      const createdEntry = await createArchiveEntry({
-        reviewerUserId: reviewer.id,
-        reviewerTelegramId,
-        reviewerUsername,
-        targetProfileId: businessProfile.id,
-        targetUsername: latestTargetUsername,
-        chatId: latestTargetGroupChatId,
-        entryType: SERVICE_ENTRY_TYPE,
-        result: latestResult,
-        selectedTags: latestSelectedTags,
-        privateNote: latestResult === "negative" ? (latestDraft?.privateNote ?? null) : null,
-        // V3.5.2 — promote the wizard's prose body onto the entry.
-        // Null on V3 path (VV_RELAY_ENABLED=false), set on V3.5 path.
-        bodyText: latestDraft?.bodyText ?? null,
-      });
-
-      await publishArchiveEntryRecord(createdEntry, logger);
-
-      try {
-        await refreshGroupLauncher(latestTargetGroupChatId, logger);
-      } catch (error) {
-        // Rethrow chat-gone so processTelegramUpdate's outer catch can route
-        // to handleChatGone. Swallowing it here would leave the chat
-        // permanently un-flagged and we'd silently log "Failed to refresh
-        // launcher" forever.
-        if (error instanceof TelegramChatGoneError) throw error;
-        logger?.warn?.(
-          { error, groupChatId: latestTargetGroupChatId },
-          "Failed to refresh launcher",
-        );
-      }
-
-      try {
-        await clearDraftByReviewerTelegramId(reviewerTelegramId);
-      } catch (error) {
-        logger?.warn({ error, reviewerTelegramId }, "Failed to clear published draft");
-      }
-
-      const isPrivateNeg = latestResult === "negative";
-
-      try {
-        await answerTelegramCallbackQuery(
-          {
-            callbackQueryId: callbackQuery.id,
-          chatId,
-            text: isPrivateNeg ? "Recorded." : "Posted.",
-          },
-          logger,
-        );
-      } catch (error) {
-        logger?.warn(
-          { error, reviewerTelegramId, entryId: createdEntry.id },
-          "Failed to answer publish callback",
-        );
-      }
-
-      const publishedEntry = await getArchiveEntryById(createdEntry.id);
-      const viewUrl =
-        !isPrivateNeg && publishedEntry?.publishedMessageId
-          ? buildEntryDeepLink(latestTargetGroupChatId, publishedEntry.publishedMessageId)
-          : null;
-
-      const confirmKeyboard = viewUrl
-        ? buildInlineKeyboard([
-            [{ text: "Start Another Vouch", callback_data: `archive:start:${latestTargetGroupChatId}` }],
-            [{ text: "View this entry", url: viewUrl }],
-          ])
-        : buildRestartKeyboard(latestTargetGroupChatId);
-
-      const confirmText = isPrivateNeg
-        ? [
-            "<b>✓ Concern recorded</b>",
-            "",
-            `Your concern about ${formatUsername(latestTargetUsername)} has been recorded as <code>#${createdEntry.id}</code>.`,
-            "Admins will see it; the wider group will not.",
-          ].join("\n")
-        : buildPublishedDraftText(latestTargetUsername, latestResult);
-
-      try {
-        await editTelegramMessage(
-          {
-            chatId,
-            messageId,
-            text: confirmText,
-            replyMarkup: confirmKeyboard,
-          },
-          logger,
-        );
-      } catch (error) {
-        logger?.warn(
-          { error, reviewerTelegramId, entryId: createdEntry.id },
-          "Failed to edit published draft message",
-        );
-      }
-      return;
-    }
-
+  if (callbackQuery.id) {
     await answerTelegramCallbackQuery(
-      {
-        callbackQueryId: callbackQuery.id,
-          chatId,
-        text: "Unsupported action.",
-      },
+      { callbackQueryId: callbackQuery.id, chatId },
       logger,
     );
-  });
+  }
 }
 
 export async function processTelegramUpdate(payload: any, logger: LoggerLike = console) {
@@ -2285,11 +866,8 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     }
   }
 
-  // V3.5.3 / v6 §5: record first-seen timestamp for the originating
-  // user. Fire-and-forget — a DB hiccup here must not block webhook
-  // processing, and the wizard's account-age guard fail-closes on
-  // missing rows anyway. ON CONFLICT DO NOTHING in the helper means
-  // duplicate calls for a known user are no-ops.
+  // Record first-seen timestamp for the originating user. Fire-and-forget —
+  // a DB hiccup here must not block webhook processing.
   const observedUserId = extractUpdateUserId(payload);
   if (observedUserId != null) {
     void recordUserFirstSeen(observedUserId).catch((error) => {
@@ -2320,10 +898,8 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     } else if (payload.message) {
       await handleGroupMessage(payload.message, logger);
     } else if (payload.chat_join_request) {
-      // v8.0 commit 3 (U2): capture which one-shot invite link was used.
-      // Bot API ChatJoinRequest.invite_link is a ChatInviteLink object
-      // (snapshot 5530); ChatInviteLink.invite_link is the string URL.
-      // Best-effort: links not minted by us no-op in recordInviteLinkUsed.
+      // Capture which one-shot invite link was used. Best-effort: links
+      // not minted by us no-op in recordInviteLinkUsed.
       const joinReq = payload.chat_join_request;
       const joinChatId = joinReq?.chat?.id;
       if (typeof joinChatId === "number" && allowedTelegramChatIds.has(joinChatId)) {
@@ -2385,10 +961,7 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
   } catch (error) {
     if (error instanceof TelegramChatGoneError) {
       // Only treat as a "group gone" event when the offending chatId is in
-      // the allowlist. answerCallbackQuery now threads chatId from DM
-      // callbacks too (positive user-id, not a group id); a 'chat not found'
-      // 400 against a deleted user account would otherwise be misclassified
-      // as a takedown of a non-existent group.
+      // the allowlist.
       if (
         error.chatId !== undefined &&
         !allowedTelegramChatIds.has(error.chatId)

@@ -5,10 +5,17 @@ import { parseSelectedTags } from "./archive.ts";
 import { createTokenBucket } from "./tokenBucket.ts";
 import { getLegacyBotSenders } from "./legacyBotSenders.ts";
 import {
-  getPrimaryGroupChatId,
-  isAllowedGroupChatId,
-  refreshGroupLauncher,
-} from "./archiveLauncher.ts";
+  getAllowedTelegramChatIds,
+  getPrimaryAllowedTelegramChatId,
+} from "./telegramChatConfig.ts";
+
+function isAllowedGroupChatId(chatId: number | null | undefined): chatId is number {
+  return chatId != null && getAllowedTelegramChatIds().includes(chatId);
+}
+
+function getPrimaryGroupChatId(): number {
+  return getPrimaryAllowedTelegramChatId();
+}
 import {
   createArchiveEntry,
   getArchiveEntryByLegacySource,
@@ -39,11 +46,10 @@ export type LegacyImportSummary = {
   skippedBotSender: number;
   skippedDuplicates: number;
   skippedOther: number;
-  launcherRefreshed: boolean;
 };
 
 export type LegacyReplayFailure = {
-  stage: "entry_conflict" | "publish" | "launcher_refresh";
+  stage: "entry_conflict" | "publish";
   message: string;
   sourceMessageId?: number;
   entryId?: number;
@@ -131,7 +137,6 @@ function createInitialSummary(): LegacyImportSummary {
     skippedBotSender: 0,
     skippedDuplicates: 0,
     skippedOther: 0,
-    launcherRefreshed: false,
   };
 }
 
@@ -469,17 +474,7 @@ export async function replayLegacyExport(
     }
   }
 
-  if (!dryRun && failure == null && lastPublishedReplayChatId != null) {
-    try {
-      await refreshGroupLauncher(lastPublishedReplayChatId, logger);
-      summary.launcherRefreshed = true;
-    } catch (error) {
-      failure = {
-        stage: "launcher_refresh",
-        message: `Failed to refresh launcher for replay target ${lastPublishedReplayChatId}: ${error instanceof Error ? error.message : String(error)}`,
-      };
-    }
-  }
+  // v9: launcher is gone. Nothing to refresh after a legacy import.
 
   await persistCheckpoint(aborted ? "running" : failure == null ? "completed" : "failed");
 
