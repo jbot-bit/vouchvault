@@ -727,6 +727,69 @@ These are operator-level rules established across multiple sessions. Every chang
 - **First learned:** 2026-04-27 (cross-check pass)
 - **Last verified:** 2026-04-27
 
+### F2.31 Reactions function as audit evidence in TBC's actual practice
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** in TBC26 reactions are treated as evidence, not decoration. Msg 1321 explicitly cites reaction counts as part of the audit trail when establishing reputation/dispute outcomes. Total reaction count in the export: 4,632.
+- **Implication for VouchVault:** documented for completeness. **We deliberately do NOT act on this** per user direction (2026-04-27): reactions don't need to count for anything in VouchVault. The signal exists in TBC's culture; in our design we keep the per-vouch heading + verdict prefix as the only reputation signal. If a future v9.x ever wants reaction-as-attestation, this is the corroborating prior art.
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
+### F2.32 Cross-operator approval network exists
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC26 is not a single-island operation. Msg 27172 evidences a cross-operator approval/vetting network among related communities — operators consult each other on member admission and reputation decisions.
+- **Implication for VouchVault:** confirms the threat model is "ecosystem of communities" rather than "lone group". For VouchVault scope this is informational only — we're not joining or building such a network. Closes the prior open question about whether TBC operated in isolation.
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
+### F2.33 Phone-registration date as account-age proxy
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC admins manually use phone-registration date / user_id monotonicity to estimate account age when vetting requests. Msg 13337 explicitly references this practice ("look at when the number was registered").
+- **Implication for VouchVault:** confirms the empirical basis for using `user_id` magnitude as an account-age proxy. This is the prior art behind v8.0 commit 8 (`estimateAccountAgeFromUserId`). Telegram numeric user_ids are monotonic-ish over time, so a low id ≈ older account, high id ≈ newer account. We use this as a **secondary audit-only signal**; primary gate stays `users_first_seen` (when did *this bot* first observe the user).
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
+### F2.34 Doxing/exposure semantic distinction
+
+- **Status:** verified
+- **Confidence:** medium
+- **Claim:** TBC distinguishes "doxing" (publishing real-world identifying info — address, real name, photo) from "exposure" (publishing pseudonymous/handle-level evidence of misconduct). Msg 3370 evidences this distinction in moderation discussion: exposure is allowed; doxing is removable.
+- **Implication for VouchVault:** **out of v8 scope.** v9.0 candidate for an anti-doxing lexicon (analogous to the compound_buy_solicit pattern but tuned for PII patterns: address regex, real-name + handle pairing, etc.). Would require its own corpus calibration — not a copy-paste of the buy_solicit calibration. Filed here so a future spec can pick up the thread.
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
+### F2.35 Progressive punishment ladder (notice → mute → contact → removal)
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC operates a graduated moderation ladder rather than flat ban. Msg 29110 enumerates the stages: (1) public notice, (2) timed mute, (3) admin DM contact, (4) removal/ban. The early stages preserve the member's chance to course-correct; the late stages are reserved for repeat or egregious offenders.
+- **Implication for VouchVault:** **out of v8 scope.** v9.0 candidate to replace the current binary `/freeze` (frozen vs not) with a stages enum. Would need: schema migration (`status` becomes ordinal, not boolean), audit log of stage transitions, lexicon-hit triggers default to stage 1 not stage 4. Big design surface; deserves its own spec when prioritized.
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
+### F2.36 Time-based ban gates (1200hr reply deadline + morning-avoidance)
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** TBC operators apply time-based gates to ban decisions: msgs 26823 and 27184–27195 evidence (a) a 1200-hour reply deadline before a non-response is treated as guilt, and (b) explicit avoidance of issuing bans "in the early hours of the morning" (target's local time) to prevent the appearance of one-sided process.
+- **Implication for VouchVault:** community norm, not code. Logged for cultural completeness — informs how an operator should manually time their `/freeze` decisions, but the bot does not enforce timing windows. If we ever build the F2.35 progressive ladder, the morning-avoidance gate becomes a candidate code-side check (compare current UTC against target's known timezone if available).
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
+### F2.37 Cyber-skills recruitment normalized in public
+
+- **Status:** verified
+- **Confidence:** high
+- **Claim:** in TBC's public chat, recruitment for cyber-skills work (DDoS-as-a-service operators, scraper authors, hire-a-hacker) happens openly. Msg 288133 is one example among several. The community treats this as normal commerce.
+- **Implication for VouchVault:** **threat-model context only.** It means an attacker against VouchVault has cheap access to a labour market for skills like: mass-account creation, mass-report bots, ML-classifier-evading text generators, scraper-as-a-service for our channel posts. Our defenses must assume the adversary is buying capability, not building it. This raises the bar but does not change any specific v8 design — we already assume hostile, capable adversaries (V3 takedown was already proof).
+- **First learned:** 2026-04-27 (v8 research pass)
+- **Last verified:** 2026-04-27
+
 ---
 
 ## §3 Cadence and behavior
