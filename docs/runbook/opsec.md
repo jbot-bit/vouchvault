@@ -676,3 +676,55 @@ If the host group is taken down, the operator runs `npm run replay:to-telegram` 
 ### 21.5 Source
 
 v9 spec: `docs/superpowers/specs/2026-04-27-vouchvault-v9-simplification-design.md` §4. Implementation: `src/core/mirrorPublish.ts` + `src/core/mirrorStore.ts` + `src/telegramBot.ts:maybeMirrorToBackupChannel`.
+
+## 22. TBC-shape operator practices (off-shelf bots + anonymous-admin)
+
+TBC's stack contains 21 bots accumulated reactively across three takedowns (KB:F2.1). VouchVault is not obligated to inherit that complexity, but a small number of off-the-shelf utilities map to TBC's narrow-bot survival shape and add measurable value with zero code change. This section is operator-side setup; nothing here touches the codebase.
+
+### 22.1 GateShieldBot — auto-removes deleted accounts
+
+KB:F2.1 documents `@GateShieldBot` in TBC's stack ("1 deleted accounts has been removed from this group 👻 🤖 Prevent spam bot using @GateShieldBot" — 54 mentions in TBC's export). When a member's Telegram account is deleted, their tombstone (`Deleted Account` user) lingers in the member list until manually removed. GateShield removes them automatically, keeping the member-list export (KB:F4.3 recovery asset) clean.
+
+Setup:
+1. Telegram client → search `@GateShieldBot` → start.
+2. Add to host group as admin with **Ban users** permission. No other permissions needed.
+3. Verify by checking the bot's profile says it's an admin in the group.
+
+No env var, no code, no risk. The bot is widely used (TBC, many other communities); BotFather approval is a non-issue.
+
+### 22.2 Anonymous-admin posting (`Send anonymously` mode)
+
+KB:F2.5 §3 documents TBC's curation pattern: admins post under the supergroup's channel-id identity rather than their personal account, shielding the curator's account from the publish action. This is a Telegram-native admin permission, not a bot feature.
+
+Operator practice:
+- When an admin posts in the host group as part of moderation/curation duties (announcement, scammer call-out, pinned-rule update), enable **Anonymous** in their admin settings: group settings → Administrators → select admin → enable **Remain Anonymous**.
+- The admin's personal account no longer appears as the sender; messages display as `from: <group title>`.
+- Disable on accounts whose identity should remain visible (e.g. a bot whose ops messages need attribution).
+
+Why this matters: in a takedown audit, the curator's personal account is one of the highest-risk attribution surfaces. Anonymous mode breaks that link. TBC has been explicit about this being load-bearing for survival. Free, no code, applies immediately.
+
+### 22.3 Optional: SangMata-class username history bot
+
+KB:F2.1 documents `@SangMata_beta_bot` (42 mentions, 32 `via_bot` invocations in TBC's export) for username/name history lookup. Members and admins use it to detect username-pivot scammers — someone who renames between communities to dodge reputation.
+
+Setup is the same shape as GateShield: add bot, no admin rights needed (SangMata responds to inline-query mentions). Quota-limited; donations increase quota.
+
+This is **optional**: useful when the community grows large enough that members start asking "has @newhandle been here before under a different name?" Until then, low ROI. Document here so it's known.
+
+### 22.4 GroupHelp moderation (option-3 path; spec'd as v9.1)
+
+The deferred option-3 path: replace VouchVault's on-bot lexicon (`src/core/chatModeration.ts`) with off-shelf moderation via `@GroupHelpBot` or a clone. Operator-confirmed safe (multiple groups, no takedowns attributed to GroupHelp). This would shrink VouchVault's bot surface further AND let us flip ingest-bot privacy-ON, matching TBC's posture (KB:F2.1, opsec §19).
+
+**Pre-conditions before we ship the code change:**
+1. Add GroupHelp (or clone — `@GHClone5Bot`, `@TBC_grouphelp_bot`) to the host group as admin with delete + ban permissions.
+2. Configure the lexicon equivalent (GroupHelp has built-in word/phrase filters via `/config`).
+3. Operator confirms GroupHelp is moderating the same hits VouchVault's lexicon currently catches — observe for a week.
+4. Only after that observation: ship the code change in the v9.1 spec (drops `runChatModeration`, drops `message`/`edited_message` from `allowed_updates`, BotFather privacy ENABLE).
+
+Spec: `docs/superpowers/specs/2026-04-27-vouchvault-v9.1-grouphelp-moderation-design.md`. Do not run the code-side change before completing operator pre-conditions; doing so creates a moderation gap.
+
+### 22.5 What we are deliberately NOT replicating
+
+- **Userbot** (KB:F2.2). TOS-violating; permanent no.
+- **21-bot count for its own sake.** TBC's stack is reactive accumulation; we choose narrow-bot additions when each adds measurable value, not to match a count.
+- **Forum-mode supergroup with 13 topics** (KB:F2.6). Conflicts with §18 (stay private_group). Defer until member count forces upgrade to supergroup.
