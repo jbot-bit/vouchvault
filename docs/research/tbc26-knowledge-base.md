@@ -1049,3 +1049,231 @@ When a new TBC export arrives:
 - Not exhaustive. Re-exports will surface more.
 - Not authoritative about Telegram's behavior in general — only about TBC26 as observed.
 - Not a substitute for verification. When acting on a KB entry, re-run the verification command. Data drifts.
+
+---
+
+## §9 Cross-export behavioral comparison: TBC26 (survivor) vs Suncoast V3 (taken-down)
+
+Added 2026-04-28. Source: `Export/result_tbc.json` (TBC26, 25,871 msgs, 2025-03-19 → 2026-04-26) and `Export/result_v3.json` (Suncoast V3, 2,565 msgs, 2026-04-09 → 2026-04-25, ~16 days before takedown).
+
+### F9.1 Bot footprint volume — the loudest single difference
+
+**Status:** verified | **Confidence:** high
+
+| Metric | TBC26 (survivor) | Suncoast V3 (taken-down) |
+|---|---|---|
+| Bot-authored messages with name suffixed `Bot` | 0 | 28 (Suncoast Bot 5, SEQ Admin Bot 23) |
+| Group Help authored msgs visible in export | 186 over 13 months (~14/mo) | not present (different bot wrapper) |
+| Of those, **enforcement announcements** (ban/warn/kick cards) | 1 | 23 |
+| Templated bot-authored vouch posts | 0 | 2,234 in 24h (the V3 publish path) |
+
+TBC's Group Help is configured to enforce **silently** — no public ban/warn cards. Of 186 Group Help messages: 86 are `/info` lookups, 57 setup/admin messages, 15 custom-button posts (helicopter/Waze surveillance counter-intel), 14 settings, 7 blacklist imports, 5 admin promotions, 1 ban-card. **Visible enforcement output ≈ 0.5% of bot's messages.** Suncoast V3's SEQ Admin Bot was 100% enforcement cards.
+
+**Inference (medium):** classifier-visible bot-authored content is heavily weighted in the takedown signal. TBC minimizes it; V3 maximized it (bulk replay) and lit up.
+
+### F9.2 Mass-invite bursts are NOT the takedown trigger
+
+**Status:** verified | **Confidence:** high
+
+TBC26 had 19 invite bursts of ≥10 invites in a single minute, including:
+
+- 76 invites in 2026-01-11 15:06 (one minute)
+- 75 invites in 2026-01-12 17:41
+- 51 invites in 2026-01-10 10:23
+- 38, 36, 33, 32, 31, 28, 27 ... (top 10 each ≥27/min)
+
+TBC survived all of these. Suncoast V3's largest burst was 23 invites in a single second (2026-04-23 J_'s mass-add). **Bursty member-add API usage is not a takedown trigger by itself.** This rules out one earlier hypothesis. The trigger is the bot-authored content layer (F9.1 / KB:F2.5), not member-add cadence.
+
+### F9.3 TBC pays for Group Help "pro" tier
+
+**Status:** verified | **Confidence:** high | **Evidence:** Group Help msg `Group -1002609134181 made pro` at 2026-01-09 15:45.
+
+Pro tier unlocks: personal blacklists (sync across multiple groups), expanded `/info` (Warns, Join date, Language, Message-count visible per user), custom URL buttons, multi-bot detection (`✅ GHSecurityBot detected / ✅ GHSecurity2Bot detected`).
+
+### F9.4 Personal blacklist is BALFROCAK's cross-community ban-sync
+
+**Status:** verified | **Confidence:** high
+
+Group Help logs show `✅ Blacklist imported. 👤 Created by @BAL_FR0_CAK2 [7853873030]` on 2026-01-09 14:40 and 2026-01-12 02:50 (and 5 more times). This is Group Help's **personal blacklist** feature: a list of user IDs that any group the operator owns can subscribe to, applied automatically. Effectively: BALFROCAK maintains one ban list, every TBC-family group enforces it.
+
+**Implication for VouchVault:** the v9 `/lookup`-by-username pattern serves a similar cross-community function (scammer lookup) without requiring a Group Help-style centralized blacklist. Worth not blurring the two — VouchVault is a registry, not a ban orchestrator.
+
+### F9.5 BALFROCAK rejects mass-mention bots within minutes
+
+**Status:** verified | **Confidence:** high
+
+On 2026-04-04 18:00, "Member Mentioner" bot was added as admin. At 18:01 (60 seconds later), BALFROCAK removed it via `remove_members`. Inference: the operator actively gatekeeps which bots can run, and rejects bots whose primary effect is high-volume mention-based notifications — exactly the kind of bot-authored noise that lit up V3.
+
+### F9.6 Group title editing posture
+
+**Status:** verified | **Confidence:** high
+
+TBC26 changed title twice in 13 months (`ADL ZONE BACKUP 1` → `TBC 26`, both during early-Jan 2026 rebrand). Suncoast V3 changed title 3 times in **18 minutes** during boot on 2026-04-10 (`Suncoast Vouches.` → `Suncoast Vouches. (re-uploading)` → `Suncoast Vouches.`). Title-edit cadence may be a soft classifier signal correlated with rebrand/migration churn — TBC's stability vs Suncoast's churn fits the pattern.
+
+---
+
+## §10 Suncoast V3 lessons — what NOT to do again
+
+Added 2026-04-28. Source: `Export/result_v3.json` (V3 export covering 2026-04-09 → 2026-04-25, group taken down ~04-25). Each lesson has its empirical anchor in the export and the corresponding code-side guard.
+
+### L1. Never reintroduce a bulk templated-publish path
+
+**Anchor:** the V3 takedown vector was 2,234 templated `POS Vouch > @target` messages bot-authored in 24h (KB:F2.5 + memory `project_v3_takedown_root_cause`).
+
+**Guard:** v9 deleted `archivePublishing.ts`, the wizard, and the `archiveLauncher`. Legacy import is **DB-only** (`scripts/replayLegacyTelegramExport.ts` writes rows with `published_message_id IS NULL`, no Telegram sends). v9 spec is canonical.
+
+**Watchpoint:** any future PR that reintroduces a "publish to group" path on legacy data is a regression — flag and reject.
+
+### L2. Do not let the bot post visible ban/warn cards at high volume
+
+**Anchor:** SEQ Admin Bot posted 23 enforcement cards in 14 days on Suncoast V3 (1.6/day). TBC posts ~0.08/day visible. Per-day enforcement-card volume = a sampling surface for classifiers.
+
+**Guard:** chat moderation in `src/core/chatModeration.ts` is config'd policy "delete + best-effort DM warn, no public ban/warn card". This already matches TBC's silent posture. Hold the line — don't add public moderation announcements even if it'd be "nicer UX".
+
+### L3. Title churn during boot/migration is a signal — minimize it
+
+**Anchor:** J_ edited the V3 group title 3× in 18 minutes during launch (`Suncoast Vouches.` → `Suncoast Vouches. (re-uploading)` → `Suncoast Vouches.`). TBC: 2 edits across 13 months.
+
+**Guard:** post-takedown migration runbook in `docs/runbook/opsec.md` should set the new group's title **once**, before adding the bot or re-inviting. Append a checklist item: "title finalized BEFORE bot is added; no title edits in first 24h".
+
+### L4. Do not invite members in 20+ batches via the API
+
+**Anchor:** J_'s 2026-04-23 16:27:17 mass-add of 23 users in a single second (Telegram Bot API `addChatMember`-style call, not manual taps). TBC has bigger bursts and survived (F9.2), so this is **not** the primary trigger — but it stacks on top of L1 to amplify the takedown profile.
+
+**Guard:** any operator script that bulk-invites should throttle to ≤1 invite/sec and ≤30 invites/hour. No code path in VouchVault currently does this; if one is added, gate it with `OPERATOR_BULK_INVITE_ENABLED=false` by default.
+
+### L5. Bot-username suffix `*Bot` is a high-visibility classifier hint
+
+**Anchor:** Suncoast had `Suncoast Bot` and `SEQ Admin Bot` (both ending in literal `Bot`). TBC's primary moderation bot surfaces as `Group Help` (no `Bot` suffix). Telegram requires bot accounts to end in `bot`, but the **display name** does not — TBC operators chose a display name that doesn't read as a bot.
+
+**Guard:** when registering the live VouchVault bot with BotFather, set the display name to something neutral (e.g. "Vouch Vault" or a short brand name) — **not** "Vouch Vault Bot" or any name ending in "Bot". Update `docs/runbook/opsec.md` §20 (identity-surface audit) with this rule.
+
+### L6. Mass-mention / mention-spam bot capabilities are a takedown amplifier
+
+**Anchor:** TBC's BALFROCAK removed "Member Mentioner" bot 60 seconds after it was added (F9.5). The operator-class adversary actively excludes bots whose primary effect is mass-mention noise.
+
+**Guard:** VouchVault must never iterate group members and `@`-mention them at scale. There is no current code path that does this; mark it as a never-do in the v9 spec.
+
+### L7. Free-text ban reasons leak personal/operator language into the export
+
+**Anchor:** SEQ Admin Bot ban cards in V3 included reasons like `"Jewish scammer"`, `"Fuck off junkie"`, `"and associates"`. Even if Telegram's classifier is text-blind to these, an export hand-off (e.g. for legal discovery, leak, or third-party screenshot) carries operator-supplied profanity/slurs into evidence.
+
+**Guard:** if VouchVault ever gains a ban-reason field, it should be enum-typed (e.g. `scam | spam | impersonation | other`), not free-text. Currently no such surface exists; keep it that way.
+
+### L8. Invite the bot last, not first
+
+**Anchor:** Suncoast V3 invited `Suncoast Bot` on 2026-04-10 08:53, before the bulk-replay started. By contrast TBC's Group Help joined 2026-01-09 at 07:32 — *after* the supergroup was migrated, settings tuned, admin promotions completed. Operationally this matters because the bot-add event is the first place Telegram's classifier can correlate group-id ↔ bot-id ↔ operator-id.
+
+**Guard:** in the post-takedown migration runbook (`docs/runbook/opsec.md`), order is: (1) create supergroup, (2) edit title once, (3) promote human admins, (4) **then** add the bot. Add this to §opsec migration checklist.
+
+### Cross-reference
+
+Lessons L1, L2, L5 are already enforced by v9 architecture. Lessons L3, L4, L6, L7, L8 are runbook/posture rules and should be promoted into `docs/runbook/opsec.md` as explicit migration checklist items in a follow-up doc PR.
+
+---
+
+## §11 Bot inventory — what's running in TBC26
+
+Added 2026-04-28. Source: `Export/result_tbc.json`. **In progress** — BALFROCAK is still iterating, so this list is a snapshot, not steady-state. Re-export will refresh.
+
+Telegram exports surface bot presence through 5 channels: (a) `via_bot` field on inline-bot replies, (b) sender-name with bot suffix, (c) service-event actor/members, (d) `mention`/`text_link` entities pointing to `@*bot` handles, (e) Group Help boot logs that name detected bots. We cross-reference all 5.
+
+### F11.1 Confirmed active in-group bots (admin-class, currently installed)
+
+**Status:** verified | **Confidence:** high
+
+| Display name | Handle (where seen) | Role | Evidence |
+|---|---|---|---|
+| Group Help | `@GroupHelpBot` | Primary moderation, /info, blacklist sync, custom buttons | 186 in-group messages over 13 months |
+| GHSecurityBot | `@GHSecurityBot` (inferred — same Group Help family) | Group Help anti-spam companion (auto-detected by parent) | Group Help boot log 2026-01-09 07:49: `✅ GHSecurityBot detected` |
+| GHSecurity2Bot | inferred handle | Second Group Help security companion | Same boot log: `✅ GHSecurity2Bot detected` |
+| GHClone5Bot | `@GHClone5Bot` | Group Help clone (resilience: if main bot is banned, clone takes over) | Mentioned in-text 2× |
+| TBC26AUTOFORWARD_BOT | `@TBC26AUTOFORWARD_BOT` / earlier `@ADLautoFORWARDbot` | **Auto-forwarding** — almost certainly the v9-style backup mirror, capturing group msgs into a backup channel | text_link mention; service event 2026-03-15 invited "Advanced Auto Forwarder Robot 🚀" |
+| TBC26_bot | `@TBC26_bot` | Branded operator bot (purpose unconfirmed — likely custom helper) | mention entity |
+| TBC_grouphelp_bot | `@TBC_grouphelp_bot` | TBC-branded Group Help fork or named instance | mention entity |
+| KRONIK_BOTANIK | (unclear if a bot or a member named that) | Joined 2026-01-10 10:23 | service invite_members, no `Bot` suffix in handle inferable |
+
+**Inference (medium):** TBC has at minimum **4 redundant Group-Help-class bots** running concurrently (Group Help + GHSecurityBot + GHSecurity2Bot + GHClone5Bot). Same family. This is a deliberate clone-redundancy posture: if Telegram bans the primary bot account, clones keep moderation alive without operator intervention. Maps to KB:F2.x bot-resilience theme.
+
+### F11.2 Inline bots in active use
+
+**Status:** verified | **Confidence:** high | **Evidence:** `via_bot` field on messages.
+
+| Handle | Inline-call count | Purpose |
+|---|---|---|
+| `@SangMata_beta_bot` | 32 (+1 mention as `@SangMata_BOT`) | Username/display-name change history lookup — the de-facto OPSEC tool for "is this account who they say they are" |
+| `@userdatailsbot` | 2 | Generic user-ID/details lookup (alternative to SangMata) |
+
+**Inference (high):** SangMata is the primary OPSEC tool members reach for. 32 inline calls + 42 text mentions over 13 months = roughly weekly use. VouchVault's `/lookup @user` plays a complementary role (vouch-history, not name-change-history). Worth not duplicating SangMata's scope.
+
+### F11.3 Mentioned bots — referenced in text but not necessarily installed
+
+**Status:** verified-mentioned | **Confidence:** medium (mention does not imply currently-installed)
+
+| Handle | Mention count | Likely role |
+|---|---|---|
+| `@gateshieldbot` | 54 | **Top mentioned bot.** Anti-bot-raid / verification gate. Likely the verification system new joiners are pointed to. |
+| `@shiiinabot` | 8 | Unknown — Japanese-style handle, possibly a Group-Help alternative |
+| `@username_to_id_bot` | 5 | ID lookup helper |
+| `@spambot` | 4 | Telegram's official `@SpamBot` (used to check ban status of own account) |
+| `@bot_pigeon` / `@pearly_pigeon_bot` | 3 + 1 | Pigeon family — anonymous comment / proxy posting |
+| `@scanidbot` | 2 | ID scanner |
+| `@userdatabot` | 2 | User data lookup |
+| `@combot` | 2 | Combot (analytics + moderation, popular alternative to Group Help) |
+| `@mention_of_all_membersbot` | 1 | Mass-mention bot (BALFROCAK *removed* "Member Mentioner" in 60 sec — F9.5 — so this is talked-about but not installed) |
+| `@userinfo3bot` | 1 | User info |
+
+### F11.4 Bots BALFROCAK has actively rejected/removed
+
+**Status:** verified | **Confidence:** high
+
+| Bot | When | Action | Implication |
+|---|---|---|---|
+| Member Mentioner | 2026-04-04 18:00–18:01 | added by another admin → BALFROCAK removed at 18:01 (60 sec) | Mass-mention bots = banned class (F9.5) |
+| Advanced Auto Forwarder Robot 🚀 | 2026-03-15 21:15 | invited (actor blank) | Auto-forwarder kept — this is the backup-mirror layer |
+
+The remove-Mention-Robot event tells us BALFROCAK has at least two posture rules: (1) no mass-mention bots, (2) auto-forwarders are OK (backup mirror is desirable).
+
+### F11.5 Architectural read on TBC's bot stack — corrected 2026-04-28
+
+**Status:** inferred | **Confidence:** medium | **Correction note:** an earlier draft of this section described TBC as running a deliberate "layered bot architecture (moderation tier / backup-mirror tier / OPSEC tier / verification tier / custom branded)". User pushback (2026-04-28): that framing over-engineers what is actually visible. Re-read below is the honest version.
+
+**Corrected read:** BALFROCAK is a **configurator, not an engineer**. Every bot in TBC is off-the-shelf SaaS that anyone can add:
+
+- Group Help + GHSecurityBot + GHSecurity2Bot + GHClone5Bot — all four are products *Group Help itself ships* for clone-redundancy. Adding all four is a documented Group Help feature, not a custom architecture.
+- SangMata, userdatailsbot, GateShield, Combot, SpamBot, pigeon family — all public inline/utility bots invokable by any group member.
+- `@TBC26AUTOFORWARD_BOT` (display name "Advanced Auto Forwarder Robot 🚀") is almost certainly a rebranded off-the-shelf auto-forwarder. The public BotHub has several.
+- `@TBC26_bot` — branded handle with zero observed messages in the export. May be parked, may be empty, may be a personal admin handle.
+
+**There is no evidence BALFROCAK has written or runs custom-coded bot infrastructure.** What looks like "architecture" is the sum of: (a) buying Group Help pro tier, (b) installing the clones Group Help recommends, (c) importing a personal blacklist, (d) adding custom URL-buttons via Group Help's admin panel, (e) promoting human admins, (f) gatekeeping which third-party bots get added. All of that is SaaS configuration.
+
+**Implication for VouchVault comparison:** the right comparator is *not* "BALFROCAK's custom platform". It is "Group Help pro + 3 clones + 1 auto-forwarder + native Telegram features". VouchVault is doing something *different* — running a custom-coded bot for vouch-archive lookup, which Group Help doesn't offer. Different problem, different shape; not "TBC has more, we have less".
+
+**What VouchVault could legitimately steal from this read:**
+- The clone-redundancy *posture*. Whether implemented via Group Help-style published clones, or by pre-registering 1–2 backup BotFather handles that share VouchVault's DB and can be swapped via webhook reconfig if the primary is suspended. The mechanism doesn't matter; the posture (one ban ≠ one death) does.
+- The silent-moderation default (F9.1) — already matches our chat-moderation policy.
+- The auto-forward-to-backup pattern — already implemented as v9 mirror.
+
+**What VouchVault should NOT steal:** custom URL-buttons, member-mention pings, blacklist-import flows. Those serve TBC's specific use case (operator dashboard, cross-community ban sync) and are out of scope for VouchVault per memory `project_vouchvault_scope_boundary`.
+
+### F11.6 What this means for VouchVault hardening
+
+- TBC's Group-Help-clone redundancy is the strongest takeaway and is *not* yet in VouchVault. Future hardening work item: register 1–2 clone bot accounts that share the same DB, ready to swap in via DNS/webhook reconfig if main bot is suspended. Does **not** require running them simultaneously — pre-registration is enough.
+- TBC's auto-forward architecture matches VouchVault v9 mirror — confirms the design choice.
+- TBC's silent-moderation posture (F9.1) matches VouchVault chat moderation policy.
+- TBC's SangMata reliance is out-of-scope for VouchVault and should stay that way.
+
+### Re-verification
+
+To refresh on next TBC export:
+
+```bash
+node --experimental-strip-types -e "
+const fs=require('fs'); const d=JSON.parse(fs.readFileSync('Export/result_tbc.json','utf8'));
+const flat=t=>typeof t==='string'?t:(Array.isArray(t)?t.map(p=>typeof p==='string'?p:p.text||'').join(''):'');
+const viaBot={}; for(const m of d.messages){if(m.via_bot)viaBot[m.via_bot]=(viaBot[m.via_bot]||0)+1;}
+const ment={}; for(const m of d.messages){const ms=flat(m.text||'').match(/@[A-Za-z0-9_]*[Bb]ot[A-Za-z0-9_]*/g)||[]; for(const x of ms)ment[x.toLowerCase()]=(ment[x.toLowerCase()]||0)+1;}
+console.log('via_bot:',viaBot); console.log('mentions:',ment);"
+```
+
+Compare new output against F11.1–F11.4. New handles = new entries. Disappeared handles = mark `superseded`.
