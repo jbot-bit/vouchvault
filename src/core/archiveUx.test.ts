@@ -62,7 +62,10 @@ test("pinned guide text describes the v9 member-post flow (no wizard)", () => {
   assert.match(text, /Post your vouch as a normal message in this group/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /search bar at the top of this group/);
-  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
+  assert.match(text, /<code>\/lookup @username<\/code>/);
+  assert.match(text, /<code>@VouchVaultBot @username<\/code>/);
+  assert.match(text, /<b><u>Spotting fakes<\/u><\/b>/);
+  assert.match(text, /via @VouchVaultBot/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);

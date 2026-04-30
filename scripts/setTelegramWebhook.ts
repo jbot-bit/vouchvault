@@ -157,6 +157,11 @@ async function main() {
       // Operator must run `npm run telegram:webhook` after deploy to refresh
       // server-side allowed_updates state (telegram-references.md gotcha).
       "chat_join_request",
+      // Inline-cards phase 2: inline mode (@VouchVaultBot @target) plus
+      // chosen_inline_result analytics. Requires BotFather /setinline +
+      // /setinlinefeedback enabled, otherwise these silently never fire.
+      "inline_query",
+      "chosen_inline_result",
     ],
     max_connections: 10,
     drop_pending_updates: true,

@@ -27,6 +27,10 @@ import {
   runForgeryCheckOnEdit,
   runForgeryCheckOnMessage,
 } from "./core/forgeryRunner.ts";
+import {
+  runChosenInlineResult,
+  runInlineQuery,
+} from "./core/inlineRunner.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
@@ -706,29 +710,33 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
 
   if (command === "/lookup") {
-    if (!isAdmin(message.from?.id)) {
-      await recordAdminAction({
-        adminTelegramId: message.from?.id ?? 0,
-        adminUsername: message.from?.username ?? null,
-        command,
-        targetChatId: chatId,
-        targetUsername: args[0] ?? null,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildAdminOnlyText(),
-          ...buildReplyOptions(message.message_id, true, messageThreadId),
-        },
-        logger,
-      );
-      return;
+    // Inline-cards phase 2: members can run /lookup in-group (member
+    // flavour — no admin-only NEGs / private_note). Admins still get
+    // the full audit. Per-user inline-namespace rate limit applies to
+    // member calls only.
+    const callerId = message.from?.id;
+    const isAdminCaller = isAdmin(callerId);
+    if (!isAdminCaller) {
+      if (typeof callerId === "number") {
+        const rl = memberLookupLimiter.tryConsume(callerId, undefined, "inline");
+        if (!rl.allowed) {
+          const retrySec = Math.max(1, Math.round(rl.retryAfterMs / 1000));
+          await sendTelegramMessage(
+            {
+              chatId,
+              text: `Slow down a sec — try again in ${retrySec}s.`,
+              ...buildReplyOptions(message.message_id, true, messageThreadId),
+            },
+            logger,
+          );
+          return;
+        }
+      }
     }
     await handleLookupCommand({
       chatId,
       rawUsername: args[0],
-      viewerScope: "admin",
+      viewerScope: isAdminCaller ? "admin" : "member",
       replyToMessageId: message.message_id,
       messageThreadId,
       disableNotification: true,
@@ -982,6 +990,18 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
           }
         }
       }
+    } else if (payload.inline_query) {
+      try {
+        await runInlineQuery(payload.inline_query, logger);
+      } catch (error) {
+        logger.warn({ error }, "[inline] runInlineQuery threw (non-fatal)");
+      }
+    } else if (payload.chosen_inline_result) {
+      try {
+        await runChosenInlineResult(payload.chosen_inline_result, logger);
+      } catch (error) {
+        logger.warn({ error }, "[inline] runChosenInlineResult threw (non-fatal)");
+      }
     } else if (payload.edited_message) {
       // Edited messages in any allowed non-private chat go through the
       // same chat-moderation path as fresh messages. A clean message
@@ -1023,7 +1043,9 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
         payload.callback_query ||
           payload.message ||
           payload.my_chat_member ||
-          payload.chat_member,
+          payload.chat_member ||
+          payload.inline_query ||
+          payload.chosen_inline_result,
       ),
     };
   } catch (error) {

@@ -295,6 +295,36 @@ export async function getTelegramBotId(logger?: any): Promise<number | null> {
   return cachedBotId;
 }
 
+// Inline-cards phase 2: answerInlineQuery for the inline_query handler.
+// Telegram requires answering within ~10s of receiving the query;
+// callers should enforce a soft deadline (~7s) before timing out.
+export async function answerInlineQuery(
+  input: {
+    inlineQueryId: string;
+    results: Array<Record<string, unknown>>;
+    cacheTime?: number;
+    isPersonal?: boolean;
+    nextOffset?: string;
+    button?: { text: string; start_parameter?: string };
+  },
+  logger?: any,
+) {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "answerInlineQuery",
+      {
+        inline_query_id: input.inlineQueryId,
+        results: input.results,
+        cache_time: input.cacheTime ?? 0,
+        is_personal: input.isPersonal ?? true,
+        next_offset: input.nextOffset,
+        button: input.button,
+      },
+      logger,
+    ),
+  );
+}
+
 export function buildUrlInlineKeyboard(text: string, url: string) {
   return {
     inline_keyboard: [[{ text, url }]],

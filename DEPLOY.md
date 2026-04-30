@@ -110,6 +110,21 @@ In `@BotFather`: `/setprivacy` → choose your bot → **Disable**.
 
 This is required for v6 lexicon moderation **and** the v9 backup-channel mirror — the bot must receive every group message + edit to scan against the lexicon and to forward member posts into `TELEGRAM_CHANNEL_ID`. The asymmetry vs TBC's privacy-ON bots is documented in `docs/runbook/opsec.md` §19; do not flip this back to Enable while either feature is on, or both will silently stop working.
 
+## Step 11b — Inline vouch cards (2026-05-01)
+
+Inline mode (`@VouchVaultBot @target`) lets SC45 members drop a member-attributed vouch card from the legacy archive into chat. Required steps after deploying the inline-cards feature branch:
+
+1. **Re-register webhook** — `npm run telegram:webhook`. Adds `inline_query` and `chosen_inline_result` to `allowed_updates`. Without this, inline silently never fires (same gotcha as v8.0 `chat_join_request`).
+2. **BotFather `/setinline`** — choose your bot → enable → set placeholder `username to look up — e.g. daveyboi`.
+3. **BotFather `/setinlinefeedback`** — enable. Lets us track which cards actually get inserted (vs just previewed) for abuse detection.
+4. **Backfill member registry** — `npm run sc45:backfill-members`. One-shot seed of admins; regular members auto-register on first post in SC45.
+5. **Group permissions** — verify SC45 member permission "Send via inline bots" is ON. Off → inline insertion silently fails for members.
+
+Optional env vars (defaults are sane):
+- `TELEGRAM_BOT_ID` — numeric bot id; lets the forgery detector bypass the boot-time `getMe` call.
+- `FORGERY_FREEZE_THRESHOLD` (default `3`) — strikes before auto-freeze.
+- `FORGERY_FREEZE_WINDOW_HOURS` (default `168` — 7 days) — strike-window.
+
 ## Step 11a — Pre-launch identity-surface audit
 
 Run the §20 checklist in `docs/runbook/opsec.md` end-to-end before going live: group title + description (§20.1), bot username + display name + about (§20.2), backup-channel mirror env (§20.3), edit-rate posture (§20.4). Then run the §21 mirror posture check (bot is channel admin with post permission; `mirror_log` is being written). Each item maps to a classifier-targeting signal isolated by the 2026-04-27 survivor/dead Suncoast comparison. Re-run quarterly and after any group migration (§4 of the OPSEC runbook).
