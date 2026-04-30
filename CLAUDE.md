@@ -1,6 +1,6 @@
 # VouchVault — Claude guide
 
-Telegram reputation bot, v9 shape. **Members post vouches as normal group messages** (free text, no wizard, no templated bot output). Bot mirrors every group message into a backup channel via `forwardMessage` for takedown resilience. Members DM `/search @username` to search the legacy archive (S3 + S4); admins get the full audit (private NEGs + `private_note`). `/lookup` is kept as a routing alias only — copy uses `/search`. Admin commands manage the group, freeze accounts, replay legacy data, run lexicon moderation.
+Telegram reputation bot, v9 shape. **Members post vouches as normal group messages** (free text, no wizard, no templated bot output). Bot mirrors every group message into a backup channel via `forwardMessage` for takedown resilience. Members DM `/lookup @username` to search the legacy V3 archive; admins get the full audit (private NEGs + `private_note`). Admin commands manage the group, freeze accounts, replay legacy data, run lexicon moderation.
 
 ## Commands
 
@@ -14,10 +14,10 @@ Telegram reputation bot, v9 shape. **Members post vouches as normal group messag
 
 - `src/core/` — pure logic: helpers, parsers, storage, validators. Renamed from `src/mastra/` (commit 62fb7b1) — never reintroduce the old path.
 - `src/server.ts` — webhook entry. Wraps `processTelegramUpdate` in a 25s race so a slow handler can't trigger Telegram's retry loop. Also exposes `/healthz` and `/readyz`.
-- `src/telegramBot.ts` — Telegram update handlers, command routing, member-post mirror, DM `/search` (alias `/lookup`), admin commands. **No DM wizard** (deleted in v9 phase 3).
+- `src/telegramBot.ts` — Telegram update handlers, command routing, member-post mirror, DM `/lookup`, admin commands. **No DM wizard** (deleted in v9 phase 3).
 - `src/core/tools/telegramTools.ts` — every outbound Telegram call. Don't add new send logic elsewhere.
 - `src/core/mirrorPublish.ts` + `src/core/mirrorStore.ts` — v9 backup-channel mirror: pure decision/config helpers + DB writes for `mirror_log`.
-- `src/core/lookupRateLimit.ts` — per-user token bucket for member DM `/search` (and the `/lookup` alias).
+- `src/core/lookupRateLimit.ts` — per-user token bucket for member DM `/lookup`.
 - `src/core/logger.ts`, `src/core/typedTelegramErrors.ts`, `src/core/withTelegramRetry.ts` — observability + Telegram I/O scaffolding (see sections below).
 - `src/core/chatGoneHandler.ts`, `src/core/memberVelocity.ts` — takedown-resilience: chat-gone admin paging + brigade-detection alert (see "Takedown resilience" below).
 - `migrations/` — drizzle-kit SQL. Append a new file; do not edit historical migrations.
@@ -45,13 +45,13 @@ These functions render copy anchored to v9 (member-post + bot-mirror architectur
 - `buildBotDescriptionText` — `src/core/archive.ts`
 - `buildBotShortDescription` — `src/core/archive.ts`
 
-Tests in `src/core/archiveUx.test.ts` cover these byte-stable. They describe the v9 flow: members post in group, DM `/search @user` to search legacy, native group search for new content. **Any return to "submit a vouch via DM wizard" wording is a regression** — the wizard was deleted in v9 phase 3.
+Tests in `src/core/archiveUx.test.ts` cover these byte-stable. They describe the v9 flow: members post in group, DM `/lookup @user` to search legacy, native group search for new content. **Any return to "submit a vouch via DM wizard" wording is a regression** — the wizard was deleted in v9 phase 3.
 
 ## Group post format
 
 There is no canonical bot-output format anymore. v9 deleted the templated `POS Vouch > @target` publish path. Members post vouches as plain group messages in their own words.
 
-Legacy entries (V1 / V3 / V4) live in the DB only (`status='published'`, `published_message_id IS NULL`) — never sent to Telegram. They surface only via `/search @username` (alias `/lookup`), rendered by `buildLookupText` in `src/core/archive.ts`. Body text is intentionally not echoed; only reviewer + result + tag + date — solicitation language never reaches bot output.
+Legacy V3 entries live in the DB only (`status='published'`, `published_message_id IS NULL`) — never sent to Telegram. They surface only via `/lookup @username`, rendered by `buildLookupText` in `src/core/archive.ts`.
 
 Date format for rendered dates is `dd/mm/yyyy` (`fmtDate`). JSON checkpoints, review-skip records, and `lastProcessedOriginalDate` keep ISO `yyyy-mm-dd` — do not unify the two.
 
@@ -112,7 +112,7 @@ Spec: `docs/superpowers/specs/2026-04-27-vouchvault-v9-simplification-design.md`
 - **v9 backup-channel mirror.** `maybeMirrorToBackupChannel` in `src/telegramBot.ts` calls `forwardTelegramMessage` for every member-posted message in `TELEGRAM_ALLOWED_CHAT_IDS`, into `TELEGRAM_CHANNEL_ID`. Idempotent via `mirror_log`. Gated by `VV_MIRROR_ENABLED=true`. Channel becomes a durable replica for takedown recovery.
 - **Legacy import is DB-only.** `scripts/replayLegacyTelegramExport.ts` writes legacy V3 entries to the DB; **no Telegram sends**. Rows land with `status='published'` and `published_message_id IS NULL`. **Never reintroduce a publish step here** — this is the V3 takedown vector.
 - **Recovery tool.** `scripts/replayToTelegramAsForwards.ts` (`npm run replay:to-telegram`) uses Bot API `forwardMessages` to replay the backup channel into a fresh recovery group after a takedown. Throttled to ≤25 msgs/sec, idempotent via `replay_log`. Operator-only; not wired into the webhook flow.
-- **Read paths.** New content: native Telegram search (top-of-group bar). Legacy archive: `/search @user` (alias `/lookup`) works in DM for any member (POS + MIX, `private_note` hidden) and in group/DM for admins (full audit including private NEGs and `private_note`). Member DM `/search` is rate-limited to one per `LOOKUP_INTERVAL_MS` (5s) per user via `src/core/lookupRateLimit.ts`.
+- **Read paths.** New content: native Telegram search (top-of-group bar). Legacy archive: `/lookup @user` works in DM for any member (POS + MIX, `private_note` hidden) and in group/DM for admins (full audit including private NEGs and `private_note`). Member DM `/lookup` is rate-limited to one per `LOOKUP_INTERVAL_MS` (5s) per user via `src/core/lookupRateLimit.ts`.
 - `/search` and `/recent` no longer exist (removed in v8.0 commit 2). Any reference to them is stale.
 - The DM wizard, `archivePublishing.ts`, `relayPublish.ts`, `relayCapture.ts`, and the `archiveLauncher` were deleted in v9 phase 3. Don't reintroduce.
 
