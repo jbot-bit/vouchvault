@@ -30,8 +30,9 @@ import {
 //
 // v9 strips the DM wizard. Welcome / pinned-guide / bot-profile copy
 // describes the new flow: members post vouches as normal group messages;
-// DM /lookup @user searches the legacy archive. Drift in any of these
-// requires a v9 spec amendment first.
+// DM /search @user searches the legacy archive (S3 + S4). /lookup is
+// kept as a routing alias only — copy uses /search. Drift in any of
+// these requires a v9 spec amendment first.
 
 test("welcome text describes the v9 member-post flow (no wizard)", () => {
   const text = buildWelcomeText();
@@ -43,14 +44,14 @@ test("welcome text describes the v9 member-post flow (no wizard)", () => {
   assert.match(text, /There is no form to fill in/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /search bar at the top of the group/);
-  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
+  assert.match(text, /DM me <code>\/search @username<\/code>/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
   // v9: no wizard. Text must not refer to the deleted "Submit Vouch" launcher.
   assert.equal(text.includes("Submit Vouch"), false);
-  assert.equal(text.includes("/search"), false);
+  assert.equal(text.includes("/lookup"), false);
   assert.equal(text.includes("local-business"), false);
 });
 
@@ -62,13 +63,13 @@ test("pinned guide text describes the v9 member-post flow (no wizard)", () => {
   assert.match(text, /Post your vouch as a normal message in this group/);
   assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
   assert.match(text, /search bar at the top of this group/);
-  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
+  assert.match(text, /DM me <code>\/search @username<\/code>/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
   assert.match(text, /auto-removed/);
   assert.match(text, /Send <code>\/start<\/code> to me once/);
   assert.match(text, /Follow Telegram's Terms of Service/);
   assert.equal(text.includes("Submit Vouch"), false);
-  assert.equal(text.includes("/search"), false);
+  assert.equal(text.includes("/lookup"), false);
   assert.equal(text.includes("local-business"), false);
 });
 
@@ -76,7 +77,7 @@ test("bot description describes the v9 search-only role (no wizard)", () => {
   const desc = buildBotDescriptionText();
   assert.match(desc, /community vouch hub for members who personally know each other/);
   assert.match(desc, /members post vouches as normal messages in the group/);
-  assert.match(desc, /\/lookup @username/);
+  assert.match(desc, /\/search @username/);
   assert.match(desc, /I never post vouches on your behalf/);
   assert.match(desc, /Follow Telegram's Terms of Service/);
   assert.equal(desc.includes("Submit Vouch"), false);
@@ -86,7 +87,7 @@ test("bot description describes the v9 search-only role (no wizard)", () => {
   const short = buildBotShortDescription();
   assert.match(short, /Vouch Hub/);
   assert.match(short, /search community vouches/i);
-  assert.match(short, /\/lookup @username/);
+  assert.match(short, /\/search @username/);
   assert.equal(short.includes("Submit Vouch"), false);
   assert.ok(short.length <= 120);
 });
@@ -124,7 +125,8 @@ test("locked copy uses 'review' not 'verify' to avoid the marketplace ML keyword
 });
 
 test("telegram UX helpers favor threaded quiet replies", () => {
-  // v9: only /lookup remains as a group command surface; /vouch is gone.
+  // v9: only /search (alias /lookup) remains as a group command surface; /vouch is gone.
+  assert.equal(shouldSendThreadedLauncherReply("/search"), false);
   assert.equal(shouldSendThreadedLauncherReply("/lookup"), false);
   assert.deepEqual(buildThreadedGroupReplyOptions(99), {
     replyToMessageId: 99,
@@ -183,7 +185,7 @@ test("buildFrozenListText caps at 10 rows and notes the remainder", () => {
   assert.match(text, /<b>@user1<\/b>/);
   assert.match(text, /<b>@user10<\/b>/);
   assert.doesNotMatch(text, /<b>@user11<\/b>/);
-  assert.match(text, /…and 3 more — refine with \/lookup @x/);
+  assert.match(text, /…and 3 more — refine with \/search @x/);
 });
 
 test("buildLookupText renders admin-only note when present, HTML-escaped", () => {
@@ -282,7 +284,7 @@ test("fmtDateTime renders dd/mm/yyyy HH:MM in UTC", () => {
   assert.equal(fmtDateTime(new Date(Date.UTC(2025, 10, 2, 23, 45))), "02/11/2025 23:45");
 });
 
-test("buildAdminHelpText lists every admin command (v9 — no /search, no /vouch)", () => {
+test("buildAdminHelpText lists every admin command (v9 — /search renamed from /lookup, no /vouch)", () => {
   const text = buildAdminHelpText();
   assert.match(text, /<b><u>Admin commands<\/u><\/b>/);
   for (const cmd of [
@@ -291,14 +293,14 @@ test("buildAdminHelpText lists every admin command (v9 — no /search, no /vouch
     "/frozen_list",
     "/remove_entry",
     "/recover_entry",
-    "/lookup @x",
+    "/search @x",
     "/pause",
     "/unpause",
   ]) {
     assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
   }
-  // /search was removed in v8.0 commit 2 and stays gone in v9.
-  assert.doesNotMatch(text, /\/search/);
+  // /vouch was removed in v9 phase 3 and stays gone.
+  assert.doesNotMatch(text, /\/vouch/);
 });
 
 test("buildLookupBotShortDescription is the locked copy", () => {
