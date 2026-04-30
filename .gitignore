@@ -13,6 +13,8 @@ Export/
 imports/
 *.legacy-import-checkpoint.json
 *.legacy-import-review.json
+# Sensitive third-party group export (e.g. result_tbc.json)
+result_tbc.json
 
 # Local environment files
 .env
