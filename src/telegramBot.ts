@@ -23,6 +23,10 @@ import {
   removeMember as removeSc45Member,
   upsertMember as upsertSc45Member,
 } from "./core/sc45MembersStore.ts";
+import {
+  runForgeryCheckOnEdit,
+  runForgeryCheckOnMessage,
+} from "./core/forgeryRunner.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
@@ -646,6 +650,18 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     }
   }
 
+  // Inline-cards phase 1: forgery detector. Run BEFORE the mirror so a
+  // forged card never lands in the backup channel. Detector short-
+  // circuits when from.is_bot or no card-shape body, so this is cheap.
+  if (!moderationDeleted) {
+    try {
+      const { enforced } = await runForgeryCheckOnMessage(message, botId ?? undefined, logger);
+      if (enforced) return; // delete + audit handled inside; no further processing
+    } catch (error) {
+      logger?.warn?.({ error }, "[forgery] runner threw (non-fatal)");
+    }
+  }
+
   // Inline-cards phase 0: first-post auto-add to sc45_members registry.
   // LRU cache short-circuits the DB on hot users; cold users get one
   // upsert. Skip bot-authored messages and messages routed via_bot.
@@ -986,6 +1002,12 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
             botTelegramId: botId,
             logger,
           });
+        }
+        // Inline-cards phase 1: forgery edit-watcher.
+        try {
+          await runForgeryCheckOnEdit(edited, botId ?? undefined, logger);
+        } catch (error) {
+          logger?.warn?.({ error }, "[forgery] edit runner threw (non-fatal)");
         }
       }
     } else {
