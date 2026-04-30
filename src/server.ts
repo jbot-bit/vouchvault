@@ -12,6 +12,7 @@ import {
 } from "./core/tools/telegramTools.ts";
 import { TelegramRateLimitError } from "./core/typedTelegramErrors.ts";
 import { processTelegramUpdate } from "./telegramBot.ts";
+import { startVouchMonitor } from "./vouchMonitor.ts";
 
 // Constant-time compare for the webhook secret. Plain `!==` leaks length and
 // prefix-match timing to an attacker who can measure response latency. The
@@ -345,6 +346,11 @@ async function main() {
     hardCeilingMs: 8_000,
     logger,
   });
+
+  // Sibling forwarder bot. Self-skips silently if VOUCH_MONITOR_BOT_TOKEN
+  // / VOUCH_MONITOR_SOURCE_CHAT_ID / VOUCH_MONITOR_DEST_CHAT_ID aren't
+  // all set. Long-polling — no extra HTTP route, no extra deploy.
+  startVouchMonitor(logger);
 }
 
 main().catch((error) => {

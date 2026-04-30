@@ -518,11 +518,11 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
-  if (command === "/lookup") {
-    // v9 phase 2: DM /lookup opens to all members. Admins get the full
+  if (command === "/search" || command === "/lookup") {
+    // v9 phase 2: DM /search opens to all members. Admins get the full
     // audit (private NEGs + private_note); members get the public view
     // (POS + MIX only, private_note hidden). Members are rate-limited
-    // to one lookup per LOOKUP_INTERVAL_MS.
+    // to one lookup per LOOKUP_INTERVAL_MS. /lookup kept as alias.
     const fromId = message.from?.id;
     const isAdminCaller = isAdmin(fromId);
     if (!isAdminCaller && typeof fromId === "number") {
@@ -658,11 +658,11 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
 
   // Forum-mode: preserve topic context for every bot reply. Bot API:
   // https://core.telegram.org/bots/api#sendmessage (message_thread_id).
-  // Without this, replies to /lookup in a topic land in General.
+  // Without this, replies to /search in a topic land in General.
   const messageThreadId =
     typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
 
-  if (command === "/lookup") {
+  if (command === "/search" || command === "/lookup") {
     if (!isAdmin(message.from?.id)) {
       await recordAdminAction({
         adminTelegramId: message.from?.id ?? 0,

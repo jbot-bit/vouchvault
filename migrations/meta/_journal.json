@@ -57,6 +57,55 @@
       "when": 1782950400000,
       "tag": "0007_processed_updates_updated_at_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782950400001,
+      "tag": "0008_add_private_note",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782950400002,
+      "tag": "0009_impenetrable_v6",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1782950400003,
+      "tag": "0010_replay_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782950400004,
+      "tag": "0011_vouch_entries_channel_published_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1782950400005,
+      "tag": "0012_vouch_drafts_body_text",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1782950400006,
+      "tag": "0013_invite_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1782950400007,
+      "tag": "0014_mirror_log",
+      "breakpoints": true
     }
   ]
 }

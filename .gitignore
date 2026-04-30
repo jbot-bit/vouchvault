@@ -26,3 +26,8 @@ imports/
 # OS/editor noise
 Thumbs.db
 .DS_Store
+
+# Telethon userbot session + forward-progress state (scripts/userbot_forward.py)
+scripts/userbot.session
+scripts/userbot.session-journal
+scripts/userbot_forward_state.json

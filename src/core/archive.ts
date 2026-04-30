@@ -321,8 +321,9 @@ function rulesLineShort(): string {
 }
 
 // v9 locked-text. Members post vouches as normal group messages; the bot
-// is a search + moderation tool, not a publisher. DM /lookup @user
-// searches the legacy archive. Native in-group search covers new posts.
+// is a search + moderation tool, not a publisher. DM /search @user
+// searches the legacy archive (S3 + S4). Native in-group search covers
+// new SC45 posts. /lookup is kept as an alias for muscle memory.
 
 export function buildWelcomeText(): string {
   return [
@@ -334,7 +335,7 @@ export function buildWelcomeText(): string {
     "Post your vouch as a normal message in the group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Use the search bar at the top of the group to look up anyone's @username. To search the legacy archive, DM me <code>/lookup @username</code>.",
+    "Use the search bar at the top of the group to look up anyone's @username. To search the legacy archive, DM me <code>/search @username</code>.",
     "",
     "<b><u>Chat moderation</u></b>",
     "Posts that look like buy/sell arrangements are auto-removed. Contact an admin if you think this happened in error.",
@@ -354,7 +355,7 @@ export function buildPinnedGuideText(): string {
     "Post your vouch as a normal message in this group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
     "",
     "<b><u>Check before you deal</u></b>",
-    "Use the search bar at the top of this group to look up anyone's @username. DM me <code>/lookup @username</code> to search the legacy archive.",
+    "Use the search bar at the top of this group to look up anyone's @username. DM me <code>/search @username</code> to search the legacy archive.",
     "",
     "<b><u>Chat moderation</u></b>",
     "Posts that look like buy/sell arrangements are auto-removed. Contact an admin if you think this happened in error.",
@@ -368,14 +369,14 @@ export function buildBotDescriptionText(): string {
   return [
     "A community vouch hub for members who personally know each other. Search the archive and read community vouches.",
     "",
-    "How it works: members post vouches as normal messages in the group. DM me /lookup @username to search the legacy archive. I never post vouches on your behalf.",
+    "How it works: members post vouches as normal messages in the group. DM me /search @username to search the legacy archive. I never post vouches on your behalf.",
     "",
     rulesLineShort(),
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch Hub — search community vouches. DM /lookup @username to look up the legacy archive.";
+  return "Vouch Hub — search community vouches. DM /search @username to look up the legacy archive.";
 }
 
 const SAFE_LIMIT = 3900;
@@ -408,8 +409,11 @@ export function buildLookupText(input: {
     privateNote?: string | null;
   }>;
 }): string {
-  // /lookup is admin-only. Renders the per-entry audit list including the
-  // private_note for NEG entries. Note text is HTML-escaped at the boundary.
+  // /search (alias /lookup): in DM, members get sanitised public view; admins
+  // get the full audit list including the private_note for NEG entries. In
+  // group, admin-only. Note text is HTML-escaped at the boundary. Body text
+  // of legacy entries is intentionally never echoed — only reviewer + result
+  // + tags + date — so solicitation language never reaches bot output.
   const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
   const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
 
@@ -503,7 +507,7 @@ export function buildAdminHelpText(): string {
     "/frozen_list — show frozen profiles",
     "/remove_entry &lt;id&gt; — delete an entry",
     "/recover_entry &lt;id&gt; — clear stuck publishing",
-    "/lookup @x — full audit list",
+    "/search @x — full audit list (alias: /lookup)",
     "/pause — pause new vouches",
     "/unpause — resume vouches",
   ].join("\n");
@@ -526,7 +530,7 @@ export function buildFrozenListText(
   }
   if (rows.length > 10) {
     lines.push("");
-    lines.push(`…and ${rows.length - 10} more — refine with /lookup @x`);
+    lines.push(`…and ${rows.length - 10} more — refine with /search @x`);
   }
   // Defensive char-ceiling pass — caps at 4096 even if pathological reasons
   // push the visible 10-row block over budget (10 × ~200-char reason ≈ 2500
