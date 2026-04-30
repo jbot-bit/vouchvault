@@ -18,6 +18,11 @@ import { runChatModeration } from "./core/chatModeration.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
 import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
 import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
+import { sharedSeenCache, statusIsActive } from "./core/sc45Members.ts";
+import {
+  removeMember as removeSc45Member,
+  upsertMember as upsertSc45Member,
+} from "./core/sc45MembersStore.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
@@ -603,6 +608,7 @@ async function maybeMirrorToBackupChannel(
       groupMessageId,
       channelChatId: config.channelChatId,
       channelMessageId: result.message_id,
+      viaBotId: typeof message?.via_bot?.id === "number" ? message.via_bot.id : null,
     });
   } catch (error) {
     logger?.warn?.(
@@ -637,6 +643,27 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     });
     if (mod.deleted) {
       moderationDeleted = true;
+    }
+  }
+
+  // Inline-cards phase 0: first-post auto-add to sc45_members registry.
+  // LRU cache short-circuits the DB on hot users; cold users get one
+  // upsert. Skip bot-authored messages and messages routed via_bot.
+  const fromId = message?.from?.id;
+  const isBotSender = message?.from?.is_bot === true;
+  const hasViaBot = message?.via_bot != null;
+  if (
+    !moderationDeleted &&
+    typeof fromId === "number" &&
+    !isBotSender &&
+    !hasViaBot &&
+    !sharedSeenCache.recentlySeen(fromId)
+  ) {
+    try {
+      await upsertSc45Member({ userId: fromId, status: "member" });
+      sharedSeenCache.markSeen(fromId);
+    } catch (error) {
+      logger?.warn?.({ fromId, error }, "[Group] sc45_members first-post upsert failed");
     }
   }
 
@@ -780,6 +807,25 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
   const newStatus = update?.new_chat_member?.status;
   if (typeof chatId !== "number") {
     return;
+  }
+
+  // Inline-cards phase 0: SC45 member registry. Best-effort upsert/remove
+  // based on the new status. Failures log but don't throw.
+  const targetUserId = update?.new_chat_member?.user?.id;
+  if (typeof targetUserId === "number" && typeof newStatus === "string") {
+    try {
+      if (statusIsActive(newStatus)) {
+        await upsertSc45Member({ userId: targetUserId, status: newStatus });
+        sharedSeenCache.markSeen(targetUserId);
+      } else {
+        await removeSc45Member(targetUserId);
+      }
+    } catch (error) {
+      logger?.warn?.(
+        { chatId, userId: targetUserId, newStatus, error },
+        "[Group] sc45_members upsert/remove failed",
+      );
+    }
   }
 
   const transition = classifyChatMemberTransition(oldStatus, newStatus);
