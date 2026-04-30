@@ -27,6 +27,7 @@ export async function recordMirror(input: {
   groupMessageId: number;
   channelChatId: number;
   channelMessageId: number;
+  viaBotId?: number | null;
 }): Promise<void> {
   await db
     .insert(mirrorLog)
@@ -35,6 +36,7 @@ export async function recordMirror(input: {
       groupMessageId: input.groupMessageId,
       channelChatId: input.channelChatId,
       channelMessageId: input.channelMessageId,
+      viaBotId: input.viaBotId ?? null,
     })
     .onConflictDoNothing({
       target: [mirrorLog.groupChatId, mirrorLog.groupMessageId],

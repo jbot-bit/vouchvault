@@ -71,3 +71,35 @@ test("burst-then-wait: 10 rapid calls denied, 11th after interval allowed", () =
   }
   assert.deepEqual(limiter.tryConsume(1, 1100), { allowed: true });
 });
+
+test("namespaces are independent: dm + inline + group_lookup buckets do not share quota", () => {
+  const limiter = createLookupRateLimiter(1000);
+  limiter.tryConsume(1, 0, "dm");
+  assert.deepEqual(limiter.tryConsume(1, 0, "inline"), { allowed: true });
+  assert.deepEqual(limiter.tryConsume(1, 0, "group_lookup"), { allowed: true });
+  assert.equal(limiter.tryConsume(1, 100, "dm").allowed, false);
+});
+
+test("default namespace is dm — backward compatible", () => {
+  const limiter = createLookupRateLimiter(1000);
+  limiter.tryConsume(1, 0);
+  assert.equal(limiter.tryConsume(1, 100, "dm").allowed, false);
+});
+
+test("reset(userId, namespace) clears just that namespace bucket", () => {
+  const limiter = createLookupRateLimiter(1000);
+  limiter.tryConsume(1, 0, "dm");
+  limiter.tryConsume(1, 0, "inline");
+  limiter.reset(1, "dm");
+  assert.equal(limiter.tryConsume(1, 100, "dm").allowed, true);
+  assert.equal(limiter.tryConsume(1, 100, "inline").allowed, false);
+});
+
+test("reset(userId) without namespace clears all namespaces for that user", () => {
+  const limiter = createLookupRateLimiter(1000);
+  limiter.tryConsume(1, 0, "dm");
+  limiter.tryConsume(1, 0, "inline");
+  limiter.reset(1);
+  assert.equal(limiter.tryConsume(1, 100, "dm").allowed, true);
+  assert.equal(limiter.tryConsume(1, 100, "inline").allowed, true);
+});

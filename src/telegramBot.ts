@@ -18,6 +18,21 @@ import { runChatModeration } from "./core/chatModeration.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
 import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
 import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
+import { sharedSeenCache, statusIsActive } from "./core/sc45Members.ts";
+import {
+  removeMember as removeSc45Member,
+  upsertMember as upsertSc45Member,
+} from "./core/sc45MembersStore.ts";
+import {
+  runForgeryCheckOnEdit,
+  runForgeryCheckOnMessage,
+} from "./core/forgeryRunner.ts";
+import {
+  runChosenInlineResult,
+  runInlineQuery,
+} from "./core/inlineRunner.ts";
+import { purgeForgeries, renderForgeriesPage } from "./core/forgeriesAdmin.ts";
+import { fetchForgeriesPage } from "./core/forgeriesStore.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
@@ -37,6 +52,7 @@ import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
 import {
   answerTelegramCallbackQuery,
   deleteTelegramMessage,
+  editTelegramMessage,
   forwardTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
@@ -495,6 +511,88 @@ async function handleAdminCommand(input: {
     );
     return;
   }
+
+  if (input.command === "/forgeries") {
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      denied: false,
+    });
+    const page = Math.max(0, Number.parseInt(input.args[0] ?? "0", 10) || 0);
+    const { rows, total, page: clampedPage } = await fetchForgeriesPage(page);
+    const out = renderForgeriesPage({ rows, page: clampedPage, total });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: out.text,
+        parseMode: "HTML",
+        replyMarkup: out.replyMarkup,
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  if (input.command === "/purge_forgeries") {
+    const confirm = input.args[0] === "confirm";
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      reason: confirm ? "confirm" : "dry-run",
+      denied: false,
+    });
+    const ourBotId = (await getTelegramBotId(input.logger)) ?? undefined;
+    const result = await purgeForgeries({
+      ourBotId,
+      confirm,
+      fetchBatch: async (offset, limit) =>
+        fetchMirrorBatchForSweep(offset, limit),
+      deleteMessage: async (chatId, messageId) => {
+        try {
+          await deleteTelegramMessage({ chatId, messageId }, input.logger);
+        } catch (error) {
+          input.logger?.warn?.({ chatId, messageId, error }, "[purge_forgeries] delete failed");
+          throw error;
+        }
+      },
+    });
+    const summary = confirm
+      ? `<b>Purge complete</b>\nscanned: ${result.scanned}\ndeleted: ${result.deleted}\nerrors: ${result.errors}`
+      : `<b>Purge dry-run</b>\nscanned: ${result.scanned}\nwould delete: ${result.candidates}\nrun <code>/purge_forgeries confirm</code> to act.`;
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: summary,
+        parseMode: "HTML",
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+      },
+      input.logger,
+    );
+    return;
+  }
+}
+
+async function fetchMirrorBatchForSweep(
+  _offset: number,
+  _limit: number,
+): Promise<
+  Array<{
+    groupChatId: number;
+    groupMessageId: number;
+    viaBotId: number | null;
+    text: string | null;
+  }>
+> {
+  // mirror_log doesn't store the source text; the runtime detector already
+  // catches new forgeries. v1 sweep returns empty so /purge_forgeries is a
+  // safety mechanism for the day someone backfills text via a future
+  // migration. When that lands, replace this with a real query.
+  return [];
 }
 
 async function handlePrivateMessage(message: any, logger?: LoggerLike) {
@@ -553,7 +651,9 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
-    command === "/admin_help"
+    command === "/admin_help" ||
+    command === "/forgeries" ||
+    command === "/purge_forgeries"
   ) {
     await handleAdminCommand({
       command,
@@ -603,6 +703,7 @@ async function maybeMirrorToBackupChannel(
       groupMessageId,
       channelChatId: config.channelChatId,
       channelMessageId: result.message_id,
+      viaBotId: typeof message?.via_bot?.id === "number" ? message.via_bot.id : null,
     });
   } catch (error) {
     logger?.warn?.(
@@ -640,6 +741,39 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     }
   }
 
+  // Inline-cards phase 1: forgery detector. Run BEFORE the mirror so a
+  // forged card never lands in the backup channel. Detector short-
+  // circuits when from.is_bot or no card-shape body, so this is cheap.
+  if (!moderationDeleted) {
+    try {
+      const { enforced } = await runForgeryCheckOnMessage(message, botId ?? undefined, logger);
+      if (enforced) return; // delete + audit handled inside; no further processing
+    } catch (error) {
+      logger?.warn?.({ error }, "[forgery] runner threw (non-fatal)");
+    }
+  }
+
+  // Inline-cards phase 0: first-post auto-add to sc45_members registry.
+  // LRU cache short-circuits the DB on hot users; cold users get one
+  // upsert. Skip bot-authored messages and messages routed via_bot.
+  const fromId = message?.from?.id;
+  const isBotSender = message?.from?.is_bot === true;
+  const hasViaBot = message?.via_bot != null;
+  if (
+    !moderationDeleted &&
+    typeof fromId === "number" &&
+    !isBotSender &&
+    !hasViaBot &&
+    !sharedSeenCache.recentlySeen(fromId)
+  ) {
+    try {
+      await upsertSc45Member({ userId: fromId, status: "member" });
+      sharedSeenCache.markSeen(fromId);
+    } catch (error) {
+      logger?.warn?.({ fromId, error }, "[Group] sc45_members first-post upsert failed");
+    }
+  }
+
   // v9 phase 1: backup-channel mirror via forwardMessage. Best-effort,
   // non-blocking — a forward failure logs but does not stop downstream
   // command processing. Idempotent via mirror_log unique on
@@ -663,29 +797,33 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
 
   if (command === "/lookup") {
-    if (!isAdmin(message.from?.id)) {
-      await recordAdminAction({
-        adminTelegramId: message.from?.id ?? 0,
-        adminUsername: message.from?.username ?? null,
-        command,
-        targetChatId: chatId,
-        targetUsername: args[0] ?? null,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildAdminOnlyText(),
-          ...buildReplyOptions(message.message_id, true, messageThreadId),
-        },
-        logger,
-      );
-      return;
+    // Inline-cards phase 2: members can run /lookup in-group (member
+    // flavour — no admin-only NEGs / private_note). Admins still get
+    // the full audit. Per-user inline-namespace rate limit applies to
+    // member calls only.
+    const callerId = message.from?.id;
+    const isAdminCaller = isAdmin(callerId);
+    if (!isAdminCaller) {
+      if (typeof callerId === "number") {
+        const rl = memberLookupLimiter.tryConsume(callerId, undefined, "inline");
+        if (!rl.allowed) {
+          const retrySec = Math.max(1, Math.round(rl.retryAfterMs / 1000));
+          await sendTelegramMessage(
+            {
+              chatId,
+              text: `Slow down a sec — try again in ${retrySec}s.`,
+              ...buildReplyOptions(message.message_id, true, messageThreadId),
+            },
+            logger,
+          );
+          return;
+        }
+      }
     }
     await handleLookupCommand({
       chatId,
       rawUsername: args[0],
-      viewerScope: "admin",
+      viewerScope: isAdminCaller ? "admin" : "member",
       replyToMessageId: message.message_id,
       messageThreadId,
       disableNotification: true,
@@ -702,7 +840,9 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
-    command === "/admin_help"
+    command === "/admin_help" ||
+    command === "/forgeries" ||
+    command === "/purge_forgeries"
   ) {
     await handleAdminCommand({
       command,
@@ -782,6 +922,25 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
     return;
   }
 
+  // Inline-cards phase 0: SC45 member registry. Best-effort upsert/remove
+  // based on the new status. Failures log but don't throw.
+  const targetUserId = update?.new_chat_member?.user?.id;
+  if (typeof targetUserId === "number" && typeof newStatus === "string") {
+    try {
+      if (statusIsActive(newStatus)) {
+        await upsertSc45Member({ userId: targetUserId, status: newStatus });
+        sharedSeenCache.markSeen(targetUserId);
+      } else {
+        await removeSc45Member(targetUserId);
+      }
+    } catch (error) {
+      logger?.warn?.(
+        { chatId, userId: targetUserId, newStatus, error },
+        "[Group] sc45_members upsert/remove failed",
+      );
+    }
+  }
+
   const transition = classifyChatMemberTransition(oldStatus, newStatus);
   if (transition === "ignore") {
     return;
@@ -823,10 +982,37 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
 }
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
-  // v9: no wizard means no callback surfaces from this bot.
-  // Acknowledge any stray callback so the inline button stops
-  // showing the loading spinner; do nothing else.
   const chatId = callbackQuery.message?.chat?.id;
+  const messageId = callbackQuery.message?.message_id;
+  const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
+  const fromId = callbackQuery.from?.id;
+
+  // Inline-cards phase 3: /forgeries pagination.
+  if (data.startsWith("vc:p:") && isAdmin(fromId) && typeof chatId === "number" && typeof messageId === "number") {
+    const page = Math.max(0, Number.parseInt(data.slice("vc:p:".length), 10) || 0);
+    try {
+      const { rows, total, page: clampedPage } = await fetchForgeriesPage(page);
+      const out = renderForgeriesPage({ rows, page: clampedPage, total });
+      await editTelegramMessage(
+        {
+          chatId,
+          messageId,
+          text: out.text,
+          parseMode: "HTML",
+          replyMarkup: out.replyMarkup,
+        },
+        logger,
+      );
+    } catch (error) {
+      logger?.warn?.({ error }, "[forgeries] callback re-render failed");
+    }
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+    }
+    return;
+  }
+
+  // v9: no other callback surfaces from this bot. Ack to clear spinner.
   if (callbackQuery.id) {
     await answerTelegramCallbackQuery(
       { callbackQueryId: callbackQuery.id, chatId },
@@ -920,6 +1106,18 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
           }
         }
       }
+    } else if (payload.inline_query) {
+      try {
+        await runInlineQuery(payload.inline_query, logger);
+      } catch (error) {
+        logger.warn({ error }, "[inline] runInlineQuery threw (non-fatal)");
+      }
+    } else if (payload.chosen_inline_result) {
+      try {
+        await runChosenInlineResult(payload.chosen_inline_result, logger);
+      } catch (error) {
+        logger.warn({ error }, "[inline] runChosenInlineResult threw (non-fatal)");
+      }
     } else if (payload.edited_message) {
       // Edited messages in any allowed non-private chat go through the
       // same chat-moderation path as fresh messages. A clean message
@@ -941,6 +1139,12 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
             logger,
           });
         }
+        // Inline-cards phase 1: forgery edit-watcher.
+        try {
+          await runForgeryCheckOnEdit(edited, botId ?? undefined, logger);
+        } catch (error) {
+          logger?.warn?.({ error }, "[forgery] edit runner threw (non-fatal)");
+        }
       }
     } else {
       logger.info("Ignored unsupported Telegram update");
@@ -955,7 +1159,9 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
         payload.callback_query ||
           payload.message ||
           payload.my_chat_member ||
-          payload.chat_member,
+          payload.chat_member ||
+          payload.inline_query ||
+          payload.chosen_inline_result,
       ),
     };
   } catch (error) {

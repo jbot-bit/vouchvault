@@ -1,9 +1,7 @@
 // v9 phase 2: per-user rate-limit for member DM /lookup.
-//
-// Members get one lookup per LOOKUP_INTERVAL_MS. Burst beyond that is
-// denied with a `retryAfterMs` so the bot can reply with a polite
-// hold-on message instead of silently dropping. Admins are not rate-
-// limited (the gate is on the member-flavoured DM path only).
+// Inline-cards phase 2: namespace-aware to share across read surfaces
+// (DM lookup, in-group /lookup, inline mode) without burning the same
+// quota twice.
 //
 // In-memory only — process-local. Sufficient for single-replica deploys
 // (Railway is one container per service). If we ever move to multi-
@@ -17,31 +15,48 @@ export type LookupRateLimitResult =
   | { allowed: true }
   | { allowed: false; retryAfterMs: number };
 
+export type LookupNamespace = "dm" | "inline" | "group_lookup";
+
 export type LookupRateLimiter = {
-  tryConsume(userId: number, now?: number): LookupRateLimitResult;
-  reset(userId?: number): void;
+  tryConsume(
+    userId: number,
+    now?: number,
+    namespace?: LookupNamespace,
+  ): LookupRateLimitResult;
+  reset(userId?: number, namespace?: LookupNamespace): void;
 };
+
+function key(userId: number, namespace: LookupNamespace): string {
+  return `${namespace}:${userId}`;
+}
 
 export function createLookupRateLimiter(
   intervalMs: number = LOOKUP_INTERVAL_MS,
 ): LookupRateLimiter {
-  // userId → next-allowed-at timestamp
-  const nextAllowedAt = new Map<number, number>();
+  const nextAllowedAt = new Map<string, number>();
 
   return {
-    tryConsume(userId, now = Date.now()) {
-      const next = nextAllowedAt.get(userId) ?? 0;
+    tryConsume(userId, now = Date.now(), namespace = "dm") {
+      const k = key(userId, namespace);
+      const next = nextAllowedAt.get(k) ?? 0;
       if (now < next) {
         return { allowed: false, retryAfterMs: next - now };
       }
-      nextAllowedAt.set(userId, now + intervalMs);
+      nextAllowedAt.set(k, now + intervalMs);
       return { allowed: true };
     },
-    reset(userId) {
+    reset(userId, namespace) {
       if (userId == null) {
         nextAllowedAt.clear();
+        return;
+      }
+      if (namespace) {
+        nextAllowedAt.delete(key(userId, namespace));
       } else {
-        nextAllowedAt.delete(userId);
+        // Clear all namespaces for this user.
+        for (const ns of ["dm", "inline", "group_lookup"] as const) {
+          nextAllowedAt.delete(key(userId, ns));
+        }
       }
     },
   };

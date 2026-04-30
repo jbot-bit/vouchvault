@@ -175,6 +175,7 @@ export const mirrorLog = pgTable(
     channelChatId: bigint("channel_chat_id", { mode: "number" }).notNull(),
     channelMessageId: bigint("channel_message_id", { mode: "number" }).notNull(),
     forwardedAt: timestamp("forwarded_at", { withTimezone: true }).notNull().defaultNow(),
+    viaBotId: bigint("via_bot_id", { mode: "number" }),
   },
   (table) => {
     return {
@@ -221,6 +222,58 @@ export const adminAuditLog = pgTable("admin_audit_log", {
 // Bot API spec (snapshot 11344): expire_date is Unix-seconds integer.
 // We store as TIMESTAMPTZ in the DB for human readability — conversion
 // happens at the API boundary in inviteLinks.ts.
+// Inline-cards phase 0 (migrations/0015): SC45 member registry.
+// Populated from chat_member events + first-post auto-add in handleGroupMessage.
+// Used by inlineQueryHandler to gate inline lookups to known members only.
+export const sc45Members = pgTable("sc45_members", {
+  userId: bigint("user_id", { mode: "number" }).primaryKey(),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenStatus: text("last_seen_status").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Inline-cards phase 1 (migrations/0015): forgery-strike audit table.
+// Each forgery detection records one row keyed by (user_id, detected_at)
+// for the N-strikes-in-7d freeze escalation.
+export const forgeryStrikes = pgTable(
+  "forgery_strikes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: bigint("user_id", { mode: "number" }).notNull(),
+    chatId: bigint("chat_id", { mode: "number" }).notNull(),
+    messageId: bigint("message_id", { mode: "number" }).notNull(),
+    kind: text("kind").notNull(),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    contentHash: text("content_hash").notNull(),
+    deleted: boolean("deleted").notNull().default(false),
+  },
+  (table) => {
+    return {
+      userRecentIdx: index("forgery_strikes_user_recent").on(table.userId, table.detectedAt),
+    };
+  },
+);
+
+// Inline-cards phase 2 (migrations/0015): chosen_inline_results capture.
+// Populated when a member inserts a vouch card from inline mode.
+// Stores the content hash so a future v2 edit-watcher can compare
+// against the original card body. v1 writes only; nothing reads.
+export const chosenInlineResults = pgTable(
+  "chosen_inline_results",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    userId: bigint("user_id", { mode: "number" }).notNull(),
+    targetUsername: text("target_username").notNull(),
+    contentHash: text("content_hash").notNull(),
+    chosenAt: timestamp("chosen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => {
+    return {
+      userRecentIdx: index("chosen_inline_results_recent").on(table.userId, table.chosenAt),
+    };
+  },
+);
+
 export const inviteLinks = pgTable("invite_links", {
   id: bigserial("id", { mode: "number" }).primaryKey(),
   link: text("link").notNull().unique(),
