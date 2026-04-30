@@ -31,6 +31,8 @@ import {
   runChosenInlineResult,
   runInlineQuery,
 } from "./core/inlineRunner.ts";
+import { purgeForgeries, renderForgeriesPage } from "./core/forgeriesAdmin.ts";
+import { fetchForgeriesPage } from "./core/forgeriesStore.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
@@ -50,6 +52,7 @@ import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
 import {
   answerTelegramCallbackQuery,
   deleteTelegramMessage,
+  editTelegramMessage,
   forwardTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
@@ -508,6 +511,88 @@ async function handleAdminCommand(input: {
     );
     return;
   }
+
+  if (input.command === "/forgeries") {
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      denied: false,
+    });
+    const page = Math.max(0, Number.parseInt(input.args[0] ?? "0", 10) || 0);
+    const { rows, total, page: clampedPage } = await fetchForgeriesPage(page);
+    const out = renderForgeriesPage({ rows, page: clampedPage, total });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: out.text,
+        parseMode: "HTML",
+        replyMarkup: out.replyMarkup,
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  if (input.command === "/purge_forgeries") {
+    const confirm = input.args[0] === "confirm";
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      reason: confirm ? "confirm" : "dry-run",
+      denied: false,
+    });
+    const ourBotId = (await getTelegramBotId(input.logger)) ?? undefined;
+    const result = await purgeForgeries({
+      ourBotId,
+      confirm,
+      fetchBatch: async (offset, limit) =>
+        fetchMirrorBatchForSweep(offset, limit),
+      deleteMessage: async (chatId, messageId) => {
+        try {
+          await deleteTelegramMessage({ chatId, messageId }, input.logger);
+        } catch (error) {
+          input.logger?.warn?.({ chatId, messageId, error }, "[purge_forgeries] delete failed");
+          throw error;
+        }
+      },
+    });
+    const summary = confirm
+      ? `<b>Purge complete</b>\nscanned: ${result.scanned}\ndeleted: ${result.deleted}\nerrors: ${result.errors}`
+      : `<b>Purge dry-run</b>\nscanned: ${result.scanned}\nwould delete: ${result.candidates}\nrun <code>/purge_forgeries confirm</code> to act.`;
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: summary,
+        parseMode: "HTML",
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+      },
+      input.logger,
+    );
+    return;
+  }
+}
+
+async function fetchMirrorBatchForSweep(
+  _offset: number,
+  _limit: number,
+): Promise<
+  Array<{
+    groupChatId: number;
+    groupMessageId: number;
+    viaBotId: number | null;
+    text: string | null;
+  }>
+> {
+  // mirror_log doesn't store the source text; the runtime detector already
+  // catches new forgeries. v1 sweep returns empty so /purge_forgeries is a
+  // safety mechanism for the day someone backfills text via a future
+  // migration. When that lands, replace this with a real query.
+  return [];
 }
 
 async function handlePrivateMessage(message: any, logger?: LoggerLike) {
@@ -566,7 +651,9 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
-    command === "/admin_help"
+    command === "/admin_help" ||
+    command === "/forgeries" ||
+    command === "/purge_forgeries"
   ) {
     await handleAdminCommand({
       command,
@@ -753,7 +840,9 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
-    command === "/admin_help"
+    command === "/admin_help" ||
+    command === "/forgeries" ||
+    command === "/purge_forgeries"
   ) {
     await handleAdminCommand({
       command,
@@ -893,10 +982,37 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
 }
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
-  // v9: no wizard means no callback surfaces from this bot.
-  // Acknowledge any stray callback so the inline button stops
-  // showing the loading spinner; do nothing else.
   const chatId = callbackQuery.message?.chat?.id;
+  const messageId = callbackQuery.message?.message_id;
+  const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
+  const fromId = callbackQuery.from?.id;
+
+  // Inline-cards phase 3: /forgeries pagination.
+  if (data.startsWith("vc:p:") && isAdmin(fromId) && typeof chatId === "number" && typeof messageId === "number") {
+    const page = Math.max(0, Number.parseInt(data.slice("vc:p:".length), 10) || 0);
+    try {
+      const { rows, total, page: clampedPage } = await fetchForgeriesPage(page);
+      const out = renderForgeriesPage({ rows, page: clampedPage, total });
+      await editTelegramMessage(
+        {
+          chatId,
+          messageId,
+          text: out.text,
+          parseMode: "HTML",
+          replyMarkup: out.replyMarkup,
+        },
+        logger,
+      );
+    } catch (error) {
+      logger?.warn?.({ error }, "[forgeries] callback re-render failed");
+    }
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery({ callbackQueryId: callbackQuery.id, chatId }, logger);
+    }
+    return;
+  }
+
+  // v9: no other callback surfaces from this bot. Ack to clear spinner.
   if (callbackQuery.id) {
     await answerTelegramCallbackQuery(
       { callbackQueryId: callbackQuery.id, chatId },
