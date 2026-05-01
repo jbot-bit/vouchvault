@@ -7,6 +7,8 @@ import {
   buildLookupText,
   buildPolicyText,
   buildWelcomeText,
+  LOOKUP_GROUP_PREVIEW_ENTRIES,
+  LOOKUP_PREVIEW_ENTRIES,
   MAINTENANCE_EVERY_N_UPDATES,
   FREEZE_REASONS,
   formatUsername,
@@ -139,10 +141,14 @@ async function handleLookupCommand(input: {
   // "admin" → full audit (private NEGs + private_note included).
   // "member" → public view (POS + MIX only, private_note hidden).
   viewerScope: "admin" | "member";
-  // "preview" → first LOOKUP_PREVIEW_ENTRIES + "see all" / "see NEG" buttons.
+  // "preview" → first N entries (5 in DM, 3 in group) + buttons.
   // "all" → up to MAX_LOOKUP_ENTRIES, no button.
   // "neg" → admin-only NEG-filter view (callback target).
   mode?: "preview" | "all" | "neg";
+  // Group surface uses 3-entry preview + URL deep-link button to the
+  // bot DM (so the rest doesn't spam the group). When true, the
+  // "See all" button becomes a t.me/<bot>?start=search_<user> URL.
+  inGroup?: boolean;
   replyToMessageId?: number | null;
   messageThreadId?: number | null;
   disableNotification?: boolean;
@@ -206,10 +212,12 @@ async function handleLookupCommand(input: {
     },
     "[Search] query executed",
   );
+  const previewLimit = input.inGroup ? LOOKUP_GROUP_PREVIEW_ENTRIES : LOOKUP_PREVIEW_ENTRIES;
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@+/, "") || null;
   const replyMarkup = buildLookupReplyMarkup({
     targetUsername,
     totalShown:
-      mode === "preview" ? Math.min(visibleEntries.length, 5) : visibleEntries.length,
+      mode === "preview" ? Math.min(visibleEntries.length, previewLimit) : visibleEntries.length,
     totalAvailable: counts.total,
     mode,
     // NEG-button: admin-only, only shown when target has at least one
@@ -217,6 +225,9 @@ async function handleLookupCommand(input: {
     // (member-view counts.negative is forced to 0).
     negCount: input.viewerScope === "admin" ? rawCounts.negative : 0,
     isAdmin: input.viewerScope === "admin",
+    // Group context: deep-link "See all" into the bot DM so the full
+    // result lands privately, not in the group.
+    inGroupBotUsername: input.inGroup && botUsername ? botUsername : undefined,
   });
   await sendTelegramMessage(
     {
@@ -227,6 +238,7 @@ async function handleLookupCommand(input: {
         freezeReason: profile?.freezeReason ?? null,
         counts,
         mode,
+        previewLimit,
         entries: visibleEntries.map((entry) => ({
           id: entry.id,
           reviewerUsername: entry.reviewerUsername,
@@ -647,6 +659,35 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
   const { command, args } = getCommandParts(text);
 
   if (command === "/start" || command === "/help") {
+    // Deep-link payload: /start search_<username> routes straight to
+    // /search. This is what the group "See all in DM" button hits when
+    // an admin clicks it — Telegram opens the DM and auto-sends
+    // /start with the encoded payload.
+    const payload = args[0]?.trim();
+    if (command === "/start" && payload && payload.startsWith("search_")) {
+      const target = payload.slice("search_".length);
+      if (/^[a-z0-9_]{5,32}$/i.test(target)) {
+        const isAdminCaller = isAdmin(fromId);
+        if (!isAdminCaller && typeof fromId === "number") {
+          const limited = memberLookupLimiter.tryConsume(fromId);
+          if (!limited.allowed) {
+            const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+            await sendTelegramMessage(
+              { chatId, text: `Hold on — try again in ${seconds}s.` },
+              logger,
+            );
+            return;
+          }
+        }
+        await handleLookupCommand({
+          chatId,
+          rawUsername: target,
+          viewerScope: isAdminCaller ? "admin" : "member",
+          logger,
+        });
+        return;
+      }
+    }
     await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
     return;
   }
@@ -890,6 +931,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       chatId,
       rawUsername: args[0],
       viewerScope: "admin",
+      inGroup: true,
       replyToMessageId: message.message_id,
       messageThreadId,
       disableNotification: true,
