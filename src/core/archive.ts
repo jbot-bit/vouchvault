@@ -301,16 +301,15 @@ function fmtStatusLine(
 }
 
 function rulesLine(): string {
-  // Multi-bullet rules block. Used by welcome and pinned guide. Documents
-  // the scope a Telegram T&S reviewer would see if they arrive at the chat
-  // profile from a hostile report.
+  // Tight 4-line rules block. Welcome and pinned guide both embed this.
+  // Documents the scope a Telegram T&S reviewer would see if they arrive
+  // at the chat profile from a hostile report.
   return [
     "<b>Rules</b>",
-    "• Telegram ToS applies. No illegal activity, no scams.",
-    "• Vouch only members you actually know.",
-    "• No personal opinions, no rating individuals, no minors.",
-    "• You are responsible for your vouches.",
-    "• Report ToS violations to @notoscam — the official channel.",
+    "• Telegram ToS — no illegal, no scams",
+    "• Vouch only people you know personally",
+    "• No personal opinions, no rating, no minors",
+    "• Report ToS violations to @notoscam",
   ].join("\n");
 }
 
@@ -346,17 +345,15 @@ export function buildWelcomeText(): string {
   return [
     "<b>SC45</b>",
     "",
-    "DM <code>/search @username</code> to search community vouches.",
-    "DM <code>/policy</code> for data handling. DM <code>/forgetme</code> to delete vouches you've written.",
+    "🔍 Search vouches → <code>/search @username</code>",
+    "🗑 Delete yours → <code>/forgetme</code>",
+    "📄 Data + policy → <code>/policy</code>",
     "",
-    "<b><u>How to vouch</u></b>",
-    "Post a normal message in the group — mention the @username, say what happened, keep it factual.",
+    "<b>How to vouch</b>",
+    "Post in the group. Tag the @, say what happened. Keep it factual.",
     "",
-    "<b><u>Check before you interact</u></b>",
-    "Use the group's search bar for new vouches. For the legacy archive, DM <code>/search @username</code>.",
-    "",
-    "<b><u>Moderation</u></b>",
-    "Commercial-shaped posts are auto-removed. Send <code>/start</code> once so I can DM you if a post of yours is removed.",
+    "<b>Moderation</b>",
+    "Commercial-shaped posts auto-delete. Hit <code>/start</code> once so I can ping you if yours gets removed.",
     "",
     rulesLine(),
   ].join("\n");
@@ -366,17 +363,15 @@ export function buildPinnedGuideText(): string {
   return [
     "<b>SC45</b>",
     "",
-    "DM <code>/search @username</code> to search community vouches.",
-    "DM <code>/policy</code> for data handling. DM <code>/forgetme</code> to delete vouches you've written.",
+    "🔍 Search vouches → DM me <code>/search @username</code>",
+    "🗑 Delete yours → DM <code>/forgetme</code>",
+    "📄 Data + policy → DM <code>/policy</code>",
     "",
-    "<b><u>How to vouch</u></b>",
-    "Post a normal message in this group — mention the @username, say what happened, keep it factual.",
+    "<b>How to vouch</b>",
+    "Post in this group. Tag the @, say what happened. Keep it factual.",
     "",
-    "<b><u>Check before you interact</u></b>",
-    "Use this group's search bar for new vouches. For the legacy archive, DM <code>/search @username</code>.",
-    "",
-    "<b><u>Moderation</u></b>",
-    "Commercial-shaped posts are auto-removed. Send <code>/start</code> once so I can DM you if a post of yours is removed.",
+    "<b>Moderation</b>",
+    "Commercial-shaped posts auto-delete. DM me <code>/start</code> once so I can ping you if yours gets removed.",
     "",
     rulesLine(),
   ].join("\n");
