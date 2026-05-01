@@ -1,0 +1,64 @@
+# =============================================================
+# VouchVault — Railway env vars (paste into Raw Editor)
+# =============================================================
+# How to use:
+#   Railway → vouchvault service → Variables tab → "Raw Editor"
+#   → paste this whole block → Save.
+#
+# Replace every <<FILL_IN: ...>> with a real value before saving.
+# Lines starting with # are comments and are ignored by Railway.
+# =============================================================
+
+# --- Postgres (do NOT change — Railway resolves the reference) ---
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+
+# --- Telegram bot identity ---
+# From @BotFather → /newbot (or /token if existing). Looks like:
+#   1234567890:ABCdefGhIJklmNOpqrSTUvwxYZ-1234567890
+TELEGRAM_BOT_TOKEN=<<FILL_IN: bot token from @BotFather>>
+
+# Optional but recommended — your bot's @username (without the @).
+# If unset, bot calls getMe at boot to discover it.
+TELEGRAM_BOT_USERNAME=<<FILL_IN: e.g. VouchVaultBot>>
+
+# --- Chat wiring ---
+# SC45 live group chat id (already known from auto-memory).
+TELEGRAM_ALLOWED_CHAT_IDS=-1003728299216
+
+# Your Telegram numeric user id (NOT @username). Get it by DMing
+# @userinfobot on Telegram — it replies with your id.
+TELEGRAM_ADMIN_IDS=<<FILL_IN: your Telegram numeric user id>>
+
+# --- Webhook security ---
+# Pre-generated random 32-byte hex. Safe to use as-is, or replace
+# with your own (`openssl rand -hex 32`).
+TELEGRAM_WEBHOOK_SECRET_TOKEN=40d4a25303a521eaad47fea3288887ac34b82bc748c24099a5939c9e972680ff
+
+# Public URL of THIS Railway service. Generate it via:
+#   Service Settings → Networking → Generate Domain
+# Then paste the *.up.railway.app URL here (no trailing slash).
+PUBLIC_BASE_URL=<<FILL_IN: https://your-service.up.railway.app>>
+
+# --- Runtime ---
+NODE_ENV=production
+NIXPACKS_NODE_VERSION=22
+LOG_LEVEL=info
+
+# --- v9 backup-channel mirror (recommended ON) ---
+# Create a private Telegram channel ("SC45 Archive"), add the bot as
+# admin with "post messages" permission, then put the channel id here.
+# Channel ids start with -100 (negative, ~16 digits).
+VV_MIRROR_ENABLED=true
+TELEGRAM_CHANNEL_ID=<<FILL_IN: -100xxxxxxxxxx (SC45 backup channel id)>>
+
+# --- @vouchmonitorbot forwarder (optional — leave blank to disable) ---
+# Mirrors an external vouch group (e.g. Queensland Vouch Forwards) into
+# SC45 via long-poll. Self-skips if any of the three are unset.
+VOUCH_MONITOR_BOT_TOKEN=
+VOUCH_MONITOR_SOURCE_CHAT_ID=
+VOUCH_MONITOR_DEST_CHAT_ID=
+
+# --- Legacy import (only needed if you replay V1/V3 export JSON) ---
+# Comma-separated @usernames whose legacy posts should be skipped
+# (the OLD group's bot handle, not VouchVault).
+LEGACY_BOT_SENDERS=
