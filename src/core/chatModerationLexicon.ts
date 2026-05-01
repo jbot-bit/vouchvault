@@ -16,20 +16,32 @@ export const MODERATION_COMMAND = "chat_moderation:delete";
 export const PHRASES: ReadonlyArray<string> = [
   "any deals", "any plug", "any plugs", "any1 got", "any1 selling",
   "anyone got", "anyone holding", "anyone selling",
-  "best price", "briar", "buying", "come thru",
-  "delivery service", "dm me", "drop loc", "drop off", "drop spot",
+  "asking price", "back of dm", "back of pm",
+  "best price", "briar", "btc only", "buying",
+  "cash app", "come thru", "crypto only",
+  "delivery service", "dm me", "dms open", "drop loc", "drop off", "drop spot",
   "drop the loc", "drop ya loc", "drop your loc",
-  "f2f", "free delivery", "free sample", "front", "front me", "fronting",
-  "go halves", "going halves", "going rate", "got some", "got the",
+  "eth only", "f2f", "first one free", "free delivery", "free sample",
+  "front", "front me", "fronting",
+  "go halves", "going halves", "going rate", "got insta", "got kik",
+  "got snap", "got some", "got the", "got wickr",
   "hit me up", "hmu", "holding", "how much",
-  "in stock", "inbox me", "kik me", "lay it on tic",
-  "matrix me", "meet up", "my rate", "owe me", "p2p",
-  "pick up spot", "pickup", "pickup spot", "pm me",
-  "selling", "session", "signal me", "snap me", "snapchat me",
-  "sold", "split a", "stocked", "tab me", "tab up", "the plug",
+  "in stock", "inbox me", "inbox open", "kik me",
+  "lay it on tic", "lmk if anyone",
+  "matrix me", "meet up", "menu attached", "menu drop", "menu in dm",
+  "menu in pm", "monero only", "my rate",
+  "open dms", "open for biz", "open for business", "owe me",
+  "p2p", "paypal me", "pick up spot", "pickup", "pickup spot",
+  "plug recs", "pm me", "price list", "price on", "prices in dm",
+  "prices in pm",
+  "selling", "session", "shoutout for plug", "signal me",
+  "snap me", "snapchat me", "sold", "split a", "stock list",
+  "stocked", "tab me", "tab up", "the plug",
   "threema", "tic", "tick", "tox me",
+  "vendor recs", "venmo me",
   "what for", "what u sell", "what's the price",
   "wickr", "wickr me", "wtb", "wts", "wtt",
+  "xmr only",
 ];
 
 // Format-perfect artefacts + vouch-shape patterns. Empirical scan:
@@ -90,7 +102,46 @@ const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   // "got any food") don't share the noun set.
   {
     name: "got_any_supply",
-    re: /\bgot\s+any\s+(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|dabs|edibles|rosin|shatter|blow|yay|yayo|heroin|smack|dope|speed|blues)\b/i,
+    re: /\bgot\s+any\s+(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|dabs|edibles|rosin|shatter|blow|yay|yayo|heroin|smack|dope|speed|blues|bars|kpins|rock|rocks|crack)\b/i,
+  },
+  // Numeric quantity request: "need 1g", "after 3.5g", "chasing 7g",
+  // "wtb half oz", "cop a teener". Buy-verb + amount + drug-quantity
+  // unit. Doesn't require the drug name itself — the unit set is
+  // closed and rare in legit chat. Two paths:
+  //   (a) numeric + unit ("3.5g", "1 oz", "5 tabs")
+  //   (b) standalone slang quantity-word ("teener", "an eighth", "a half oz")
+  {
+    name: "buy_numeric_quantity",
+    re: /\b(?:need|after|chasing|cop+(?:ing)?|score|sort|wtb|grab|grabbing)\s+(?:an?\s+|some\s+)?(?:\d+(?:\.\d+)?\s*(?:g|gs|grams?|ozs?|ounces?|qp|hp|teener|ball|ballz|caps?|tabs?|pills?|bars?)|(?:half|quarter|eighth|teen|teener|ball|ballz|hp|qp)(?:\s+(?:oz|ounce|ozs?))?)\b/i,
+  },
+  // Solicitation invitation: "DMs open", "inbox is open", "open for biz".
+  // Even a polite "open for business" reads as a sales availability
+  // signal in this group context.
+  {
+    name: "open_for_biz",
+    re: /\b(?:dms?|dm\s?'s|inbox|pm\s?'s|pms)\s+(?:(?:are|is|now)\s+)?open\b|\bopen\s+for\s+(?:biz|business|orders|the\s+night)\b/i,
+  },
+  // Off-platform comm-handle request: "got insta?", "got snap?",
+  // "got kik?". Question-form ask for a non-Telegram handle.
+  // 'telegram' deliberately excluded — vouches normally reference @s.
+  {
+    name: "got_handle_request",
+    re: /\bgot\s+(?:an?\s+|your\s+|ya\s+)?(?:insta|instagram|snap|snapchat|kik|wickr|tox|matrix|session|threema|signal)\b/i,
+  },
+  // Menu / price-list / stock-list shape: explicit sales catalogue
+  // language. "menu in dm", "stock list available", "prices in pm",
+  // "menu drops at 7". Each phrasing is in PHRASES too; the regex
+  // catches conjugations + ordering variants the literal phrases miss.
+  {
+    name: "menu_shape",
+    re: /\b(?:menu|stock\s*list|price\s*list|prices?)\s+(?:in\s+(?:dm|pm|inbox)|drops?|attached|available|on\s+request|coming|today)\b/i,
+  },
+  // Off-platform payment names. "cash app", "venmo", "paypal me",
+  // "send via venmo". These appear as PHRASES too but the regex
+  // catches "$X via venmo" and similar embedded shapes.
+  {
+    name: "offplatform_payment",
+    re: /\b(?:cash\s*app|venmo|paypal|zelle|cashapp)\s+(?:me|only|to|payment|preferred)\b|\b(?:via|through|using)\s+(?:cash\s*app|venmo|paypal|zelle|cashapp)\b/i,
   },
 ];
 
@@ -102,9 +153,9 @@ const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
 // Drug-name list: edit as new slang surfaces. Re-run
 // `npm run measure:lexicon-fp` after every edit to confirm the FP gate
 // still passes.
-const BUY_STEM = /\b(?:anyone|any\s*1|who(?:'s|s)?|chasing|looking for|need|wtb|after\s*(?:some)?|cop(?:ping)?|score|scoring|sort\s+(?:me|out)?|where\s+(?:to|can\s+i)\s+(?:get|find|cop)|tryna\s+(?:get|cop|find))\b[^@\n]{0,50}\b(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|oz|qp|hp|gram|d9|dispo|dabs|edibles|rosin|shatter|blow|yay|yayo|heroin|smack|dope|speed|blues|moonrocks|hash|hashish|bricks|halves|quarters|eighths)\b/i;
+const BUY_STEM = /\b(?:anyone|any\s*1|who(?:'s|s)?|chasing|looking for|need|wtb|after\s*(?:some)?|cop(?:ping)?|score|scoring|sort\s+(?:me|out)?|where\s+(?:to|can\s+i)\s+(?:get|find|cop)|tryna\s+(?:get|cop|find)|lmk\s+(?:if|who|where))\b[^@\n]{0,50}\b(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|oz|qp|hp|gram|d9|dispo|dabs|edibles|rosin|shatter|blow|yay|yayo|heroin|smack|dope|speed|blues|moonrocks|hash|hashish|bricks|halves|quarters|eighths|bars|kpins|rock|rocks|crack|tar|boof|fent|fentanyl)\b/i;
 
-const SOLICIT_CONTACT_CTA = /\b(?:pm|dm|hmu|hit me|inbox|message me)\b/i;
+const SOLICIT_CONTACT_CTA = /\b(?:pm|dm|hmu|hit me|inbox|message me|lmk|let me know|shoutout|shout out)\b/i;
 
 const LEET_MAP: Record<string, string> = {
   "0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
