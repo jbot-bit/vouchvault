@@ -8,12 +8,14 @@ import {
   buildAdminHelpText,
   buildBotDescriptionText,
   buildBotShortDescription,
+  buildDbStatsText,
   buildFrozenListText,
   buildLookupBotDescription,
   buildLookupBotShortDescription,
   buildLookupText,
   buildModerationWarnText,
   buildPinnedGuideText,
+  buildPolicyText,
   buildWelcomeText,
   fmtDate,
   fmtDateTime,
@@ -33,82 +35,65 @@ import {
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text describes the v9 member-post flow (no wizard)", () => {
+test("welcome text is SC45-branded and points at /search, /policy, /forgetme", () => {
   const text = buildWelcomeText();
-  assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
-  assert.match(text, /Vouch for members you personally know/);
-  assert.match(text, /community helps each other find trustworthy people to interact with/);
+  assert.match(text, /<b>SC45<\/b>/);
+  assert.match(text, /DM <code>\/search @username<\/code> to search community vouches/);
+  assert.match(text, /DM <code>\/policy<\/code> for data handling/);
+  assert.match(text, /DM <code>\/forgetme<\/code> to delete vouches you've written/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
-  assert.match(text, /Post your vouch as a normal message in the group/);
-  assert.match(text, /There is no form to fill in/);
+  assert.match(text, /Post a normal message in the group/);
   assert.match(text, /<b><u>Check before you interact<\/u><\/b>/);
-  assert.match(text, /search bar at the top of the group/);
-  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
-  assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
-  assert.match(text, /auto-removed/);
-  assert.match(text, /Send <code>\/start<\/code> to me once/);
-  assert.match(text, /Follow Telegram's Terms of Service/);
-  // v9: no wizard. Text must not refer to the deleted "Submit Vouch" launcher.
+  assert.match(text, /group's search bar/);
+  assert.match(text, /<b><u>Moderation<\/u><\/b>/);
+  assert.match(text, /Commercial-shaped posts are auto-removed/);
+  assert.match(text, /Send <code>\/start<\/code> once/);
+  assert.match(text, /Telegram ToS applies/);
+  assert.match(text, /@notoscam/);
+  assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
-  assert.equal(text.includes("/search"), false);
-  assert.equal(text.includes("local-business"), false);
 });
 
-test("pinned guide text describes the v9 member-post flow (no wizard)", () => {
+test("pinned guide text is SC45-branded with the same surface", () => {
   const text = buildPinnedGuideText();
-  assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
-  assert.match(text, /Vouch for members you personally know/);
+  assert.match(text, /<b>SC45<\/b>/);
+  assert.match(text, /DM <code>\/search @username<\/code> to search community vouches/);
+  assert.match(text, /DM <code>\/forgetme<\/code> to delete vouches you've written/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
-  assert.match(text, /Post your vouch as a normal message in this group/);
-  assert.match(text, /<b><u>Check before you interact<\/u><\/b>/);
-  assert.match(text, /search bar at the top of this group/);
-  assert.match(text, /DM me <code>\/lookup @username<\/code>/);
-  assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
-  assert.match(text, /auto-removed/);
-  assert.match(text, /Send <code>\/start<\/code> to me once/);
-  assert.match(text, /Follow Telegram's Terms of Service/);
+  assert.match(text, /Post a normal message in this group/);
+  assert.match(text, /this group's search bar/);
+  assert.match(text, /Commercial-shaped posts are auto-removed/);
+  assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
-  assert.equal(text.includes("/search"), false);
-  assert.equal(text.includes("local-business"), false);
 });
 
-test("bot description describes the v9 search-only role (no wizard)", () => {
+test("bot description is concise, SC45-branded, ≤512 chars", () => {
   const desc = buildBotDescriptionText();
-  assert.match(desc, /community vouch hub for members who personally know each other/);
-  assert.match(desc, /members post vouches as normal messages in the group/);
-  assert.match(desc, /\/lookup @username/);
-  assert.match(desc, /I never post vouches on your behalf/);
-  assert.match(desc, /Follow Telegram's Terms of Service/);
+  assert.match(desc, /^SC45 vouch lookup\./);
+  assert.match(desc, /DM \/search @username/);
+  assert.match(desc, /DM \/policy/);
+  assert.match(desc, /DM \/forgetme/);
+  assert.match(desc, /Read-only/);
+  assert.match(desc, /Members post vouches in the group/);
+  assert.equal(desc.includes("Vouch Hub"), false);
   assert.equal(desc.includes("Submit Vouch"), false);
-  assert.equal(desc.includes("local-business"), false);
-  assert.ok(desc.length <= 512);
+  assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
 
   const short = buildBotShortDescription();
-  assert.match(short, /Vouch Hub/);
-  assert.match(short, /search community vouches/i);
-  assert.match(short, /\/lookup @username/);
-  assert.equal(short.includes("Submit Vouch"), false);
+  assert.equal(short, "SC45 — DM /search @username to search community vouches.");
   assert.ok(short.length <= 120);
 });
 
-test("rules block contains the four bullets in welcome and pinned guide", () => {
+test("rules block contains the five bullets in welcome and pinned guide", () => {
   const surfaces = [buildWelcomeText(), buildPinnedGuideText()];
   for (const text of surfaces) {
     assert.match(text, /<b>Rules<\/b>/);
-    assert.match(text, /Follow Telegram's Terms of Service/);
-    assert.match(text, /Vouch only for members you actually know personally/);
-    assert.match(text, /No personal opinions about people, no rating individuals, no vouching minors/);
-    assert.match(text, /You are responsible for the accuracy of your own vouches/);
+    assert.match(text, /Telegram ToS applies\. No illegal activity, no scams\./);
+    assert.match(text, /Vouch only members you actually know\./);
+    assert.match(text, /No personal opinions, no rating individuals, no minors\./);
+    assert.match(text, /You are responsible for your vouches\./);
+    assert.match(text, /Report ToS violations to @notoscam — the official channel\./);
   }
-});
-
-test("bot description carries the compact rules line (≤512 chars limit)", () => {
-  const desc = buildBotDescriptionText();
-  assert.match(desc, /Follow Telegram's Terms of Service/);
-  assert.match(desc, /Vouch only members you know personally/);
-  assert.match(desc, /You are responsible for your vouches/);
-  assert.equal(desc.includes("<b>Rules</b>"), false);
-  assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
 });
 
 test("locked copy uses 'review' not 'verify' to avoid the marketplace ML keyword cluster", () => {
@@ -183,7 +168,7 @@ test("buildFrozenListText caps at 10 rows and notes the remainder", () => {
   assert.match(text, /<b>@user1<\/b>/);
   assert.match(text, /<b>@user10<\/b>/);
   assert.doesNotMatch(text, /<b>@user11<\/b>/);
-  assert.match(text, /…and 3 more — refine with \/lookup @x/);
+  assert.match(text, /…and 3 more — refine with \/search @x/);
 });
 
 test("buildLookupText renders admin-only note when present, HTML-escaped", () => {
@@ -282,7 +267,7 @@ test("fmtDateTime renders dd/mm/yyyy HH:MM in UTC", () => {
   assert.equal(fmtDateTime(new Date(Date.UTC(2025, 10, 2, 23, 45))), "02/11/2025 23:45");
 });
 
-test("buildAdminHelpText lists every admin command (v9 — no /search, no /vouch)", () => {
+test("buildAdminHelpText lists every admin command (v9 — /search primary, /lookup alias)", () => {
   const text = buildAdminHelpText();
   assert.match(text, /<b><u>Admin commands<\/u><\/b>/);
   for (const cmd of [
@@ -291,42 +276,104 @@ test("buildAdminHelpText lists every admin command (v9 — no /search, no /vouch
     "/frozen_list",
     "/remove_entry",
     "/recover_entry",
-    "/lookup @x",
+    "/search @x",
     "/pause",
     "/unpause",
+    "/dbstats",
   ]) {
     assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
   }
-  // /search was removed in v8.0 commit 2 and stays gone in v9.
-  assert.doesNotMatch(text, /\/search/);
+  assert.match(text, /alias: \/lookup/);
 });
 
 test("buildLookupBotShortDescription is the locked copy", () => {
   assert.equal(
     buildLookupBotShortDescription(),
-    "Search vouches by @username. Read-only lookup bot for the Vouch Hub community.",
+    "SC45 — read-only search. DM /search @username.",
   );
 });
 
 test("buildLookupBotDescription is the locked copy", () => {
   const text = buildLookupBotDescription();
-  assert.match(text, /Read-only lookup for the Vouch Hub community\./);
-  assert.match(text, /search bar at the top of the group/);
-  assert.match(text, /never post vouches/);
+  assert.match(text, /^SC45 read-only search\./);
+  assert.match(text, /DM \/search @username/);
+  assert.match(text, /doesn't write or DM on its own/);
 });
 
 test("buildAdminBotShortDescription is the locked copy", () => {
   assert.equal(
     buildAdminBotShortDescription(),
-    "Admin tooling for the Vouch Hub. Restricted access — operator commands only.",
+    "SC45 admin tooling. Restricted — operator commands only.",
   );
 });
 
 test("buildAdminBotDescription is the locked copy", () => {
   const text = buildAdminBotDescription();
-  assert.match(text, /Operator-only admin bot/);
-  assert.match(text, /freeze\/unfreeze\/audit/);
-  assert.match(text, /chat-moderation/);
+  assert.match(text, /SC45 operator-only admin bot/);
+  assert.match(text, /Freeze\/unfreeze\/audit/);
+  assert.match(text, /chat moderation/);
+});
+
+test("buildPolicyText covers store/delete/Telegram-policies/abuse with no external URL", () => {
+  const text = buildPolicyText();
+  assert.match(text, /<b>Policy \+ data handling<\/b>/);
+  assert.match(text, /automated read-only lookup tool/);
+  assert.match(text, /<b>What I store:<\/b>/);
+  assert.match(text, /<b>Deletion:<\/b> DM <code>\/forgetme<\/code>/);
+  assert.match(text, /https:\/\/telegram\.org\/tos/);
+  assert.match(text, /https:\/\/telegram\.org\/privacy/);
+  assert.match(text, /https:\/\/telegram\.org\/tos\/bots/);
+  assert.match(text, /@notoscam/);
+  // No operator-hosted URL surface — group-pinnable, DM-deliverable only.
+  assert.equal(text.includes("Full policy:"), false);
+});
+
+test("buildDbStatsText shows status breakdown + sample rows when data is present", () => {
+  const text = buildDbStatsText({
+    statusCounts: [
+      { status: "published", count: 1383 },
+      { status: "pending", count: 2 },
+    ],
+    profileCount: 942,
+    sampleTargets: ["bobbiz", "alice", "carol"],
+    sampleProfiles: ["bobbiz", "alice"],
+    nonLowercaseTargets: 0,
+    atPrefixedTargets: 0,
+  });
+  assert.match(text, /<b>DB stats<\/b>/);
+  assert.match(text, /<b>vouch_entries:<\/b> 1385 total/);
+  assert.match(text, /published: 1383/);
+  assert.match(text, /pending: 2/);
+  assert.match(text, /<b>business_profiles:<\/b> 942/);
+  assert.match(text, /<code>bobbiz<\/code>/);
+  assert.equal(text.includes("No vouch_entries rows"), false);
+});
+
+test("buildDbStatsText flags empty DB with a clear pointer", () => {
+  const text = buildDbStatsText({
+    statusCounts: [],
+    profileCount: 0,
+    sampleTargets: [],
+    sampleProfiles: [],
+    nonLowercaseTargets: 0,
+    atPrefixedTargets: 0,
+  });
+  assert.match(text, /<b>vouch_entries:<\/b> 0 total/);
+  assert.match(text, /No vouch_entries rows/);
+  assert.match(text, /replay:legacy/);
+});
+
+test("buildDbStatsText warns about non-lowercase + @-prefixed rows", () => {
+  const text = buildDbStatsText({
+    statusCounts: [{ status: "published", count: 100 }],
+    profileCount: 50,
+    sampleTargets: ["bobbiz"],
+    sampleProfiles: ["bobbiz"],
+    nonLowercaseTargets: 7,
+    atPrefixedTargets: 3,
+  });
+  assert.match(text, /⚠ 7 entries have non-lowercase target_username/);
+  assert.match(text, /⚠ 3 entries have target_username starting with '@'/);
 });
 
 test("buildAccountTooNewText pluralises hours correctly", () => {
@@ -361,8 +408,8 @@ test("buildModerationWarnText: buy/sell branch with admin-bot username points at
     hitSource: "compound_buy_solicit",
     adminBotUsername: "VouchAdminBot",
   });
-  assert.match(text, /look like commercial arrangements/);
-  assert.match(text, /DM <code>@VouchAdminBot<\/code>/);
+  assert.match(text, /removed by automated moderation/);
+  assert.match(text, /To appeal, DM <code>@VouchAdminBot<\/code>/);
 });
 
 test("buildModerationWarnText: buy/sell branch without admin-bot username falls back to 'contact an admin'", () => {
@@ -371,7 +418,8 @@ test("buildModerationWarnText: buy/sell branch without admin-bot username falls 
     hitSource: "phrase",
     adminBotUsername: null,
   });
-  assert.match(text, /contact an admin/);
+  assert.match(text, /removed by automated moderation/);
+  assert.match(text, /To appeal, contact an admin/);
   assert.doesNotMatch(text, /DM <code>@/);
 });
 

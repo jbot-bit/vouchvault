@@ -1,8 +1,10 @@
 import {
   buildAdminHelpText,
   buildAdminOnlyText,
+  buildDbStatsText,
   buildFrozenListText,
   buildLookupText,
+  buildPolicyText,
   buildWelcomeText,
   MAINTENANCE_EVERY_N_UPDATES,
   FREEZE_REASONS,
@@ -15,12 +17,25 @@ import {
   type EntrySource,
 } from "./core/archive.ts";
 import { runChatModeration } from "./core/chatModeration.ts";
+import {
+  beginForget,
+  buildForgetCancelledText,
+  buildForgetDoneText,
+  buildForgetExpiredText,
+  buildForgetGroupRedirectText,
+  buildForgetPromptText,
+  executeForget,
+  memberForgetState,
+  tryConfirmForget,
+} from "./core/forgetMe.ts";
+import { defaultForgetDeps } from "./core/forgetMeStore.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
 import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
 import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
+  getArchiveDiagnostics,
   getArchiveEntriesForTarget,
   getArchiveEntryById,
   getBusinessProfileByUsername,
@@ -129,7 +144,7 @@ async function handleLookupCommand(input: {
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: "Lookup requires /lookup @username.",
+        text: "Search requires /search @username.",
         ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
@@ -141,6 +156,15 @@ async function handleLookupCommand(input: {
     getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES),
     getBusinessProfileByUsername(targetUsername),
   ]);
+  input.logger?.info?.(
+    {
+      targetUsername,
+      viewerScope: input.viewerScope,
+      entryCount: entries.length,
+      profileFound: profile != null,
+    },
+    "[Search] query executed",
+  );
   const visibleEntries =
     input.viewerScope === "admin"
       ? entries
@@ -477,6 +501,38 @@ async function handleAdminCommand(input: {
     return;
   }
 
+  if (input.command === "/dbstats") {
+    try {
+      const stats = await getArchiveDiagnostics();
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: false,
+      });
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildDbStatsText(stats),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    } catch (error) {
+      input.logger?.error?.({ err: error }, "[Admin] /dbstats failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `DB diagnostics failed: ${error instanceof Error ? error.message : String(error)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
+    return;
+  }
+
   if (input.command === "/admin_help") {
     await recordAdminAction({
       adminTelegramId: input.from.id,
@@ -500,11 +556,35 @@ async function handleAdminCommand(input: {
 async function handlePrivateMessage(message: any, logger?: LoggerLike) {
   const chatId = message.chat.id;
   const text = typeof message.text === "string" ? message.text.trim() : "";
+  const fromId = message.from?.id;
+  const fromUsername =
+    typeof message.from?.username === "string" ? message.from.username : null;
 
   if (!text || !text.startsWith("/")) {
-    // v9: bot has no DM wizard. Any non-command DM gets the welcome
-    // explainer so a member who messages the bot directly knows what
-    // to do.
+    // v9: bot has no DM wizard. Non-command DMs are either a /forgetme
+    // YES confirmation or stray chat — fall through to the welcome
+    // explainer when neither applies.
+    if (typeof fromId === "number" && text) {
+      const step = tryConfirmForget(memberForgetState, fromId, text);
+      if (step.kind === "execute") {
+        const total = await executeForget(
+          { userId: fromId, username: fromUsername },
+          defaultForgetDeps(),
+        );
+        await sendTelegramMessage(
+          { chatId, text: buildForgetDoneText(total) },
+          logger,
+        );
+        return;
+      }
+      if (step.kind === "expired") {
+        await sendTelegramMessage(
+          { chatId, text: buildForgetExpiredText() },
+          logger,
+        );
+        return;
+      }
+    }
     if (text) {
       await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
     }
@@ -518,7 +598,52 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
-  if (command === "/lookup") {
+  if (command === "/policy" || command === "/privacy" || command === "/tos") {
+    await sendTelegramMessage(
+      {
+        chatId,
+        text: buildPolicyText(),
+        linkPreviewOptions: { isDisabled: true },
+      },
+      logger,
+    );
+    return;
+  }
+
+  if (command === "/forgetme") {
+    if (typeof fromId !== "number") {
+      await sendTelegramMessage({ chatId, text: buildForgetGroupRedirectText() }, logger);
+      return;
+    }
+    if (args[0]?.trim().toUpperCase() === "YES") {
+      // Single-shot variant: /forgetme YES executes immediately if a
+      // prompt is pending. Without a pending prompt, falls through to
+      // the prompt step.
+      const step = tryConfirmForget(memberForgetState, fromId, "YES");
+      if (step.kind === "execute") {
+        const total = await executeForget(
+          { userId: fromId, username: fromUsername },
+          defaultForgetDeps(),
+        );
+        await sendTelegramMessage({ chatId, text: buildForgetDoneText(total) }, logger);
+        return;
+      }
+      if (step.kind === "expired") {
+        await sendTelegramMessage({ chatId, text: buildForgetExpiredText() }, logger);
+        return;
+      }
+    }
+    if (args[0]?.toLowerCase() === "cancel") {
+      memberForgetState.pendingByUser.delete(fromId);
+      await sendTelegramMessage({ chatId, text: buildForgetCancelledText() }, logger);
+      return;
+    }
+    beginForget(memberForgetState, fromId);
+    await sendTelegramMessage({ chatId, text: buildForgetPromptText() }, logger);
+    return;
+  }
+
+  if (command === "/search" || command === "/lookup") {
     // v9 phase 2: DM /lookup opens to all members. Admins get the full
     // audit (private NEGs + private_note); members get the public view
     // (POS + MIX only, private_note hidden). Members are rate-limited
@@ -553,7 +678,8 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
-    command === "/admin_help"
+    command === "/admin_help" ||
+    command === "/dbstats"
   ) {
     await handleAdminCommand({
       command,
@@ -662,7 +788,32 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   const messageThreadId =
     typeof message.message_thread_id === "number" ? message.message_thread_id : undefined;
 
-  if (command === "/lookup") {
+  if (command === "/forgetme") {
+    await sendTelegramMessage(
+      {
+        chatId,
+        text: buildForgetGroupRedirectText(),
+        ...buildReplyOptions(message.message_id, true, messageThreadId),
+      },
+      logger,
+    );
+    return;
+  }
+
+  if (command === "/policy" || command === "/privacy" || command === "/tos") {
+    await sendTelegramMessage(
+      {
+        chatId,
+        text: buildPolicyText(),
+        linkPreviewOptions: { isDisabled: true },
+        ...buildReplyOptions(message.message_id, true, messageThreadId),
+      },
+      logger,
+    );
+    return;
+  }
+
+  if (command === "/search" || command === "/lookup") {
     if (!isAdmin(message.from?.id)) {
       await recordAdminAction({
         adminTelegramId: message.from?.id ?? 0,
@@ -702,7 +853,8 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
-    command === "/admin_help"
+    command === "/admin_help" ||
+    command === "/dbstats"
   ) {
     await handleAdminCommand({
       command,

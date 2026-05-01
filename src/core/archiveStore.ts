@@ -1,4 +1,4 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, sql } from "drizzle-orm";
 
 import { db, pool } from "./storage/db.ts";
 import {
@@ -27,10 +27,15 @@ import {
 const LEGACY_DRAFT_RETENTION_HOURS = 24;
 
 export async function getBusinessProfileByUsername(username: string) {
+  // Case-insensitive + @-prefix-tolerant lookup. normalizeUsername
+  // lowercases + strips @ on the caller side, but historical /
+  // hand-inserted rows may have either issue. Match on LOWER(LTRIM(col,'@'))
+  // = lowered so /search never silently misses a row.
+  const lowered = username.replace(/^@+/, "").toLowerCase();
   const result = await db
     .select()
     .from(businessProfiles)
-    .where(eq(businessProfiles.username, username))
+    .where(sql`LOWER(LTRIM(${businessProfiles.username}, '@')) = ${lowered}`)
     .limit(1);
 
   return result[0] ?? null;
@@ -225,14 +230,65 @@ export async function markArchiveEntryRemoved(entryId: number) {
 }
 
 export async function getArchiveEntriesForTarget(targetUsername: string, limit: number) {
+  // Case-insensitive + @-prefix-tolerant. See getBusinessProfileByUsername
+  // for rationale.
+  const lowered = targetUsername.replace(/^@+/, "").toLowerCase();
   return db
     .select()
     .from(vouchEntries)
     .where(
-      and(eq(vouchEntries.targetUsername, targetUsername), eq(vouchEntries.status, "published")),
+      and(
+        sql`LOWER(LTRIM(${vouchEntries.targetUsername}, '@')) = ${lowered}`,
+        eq(vouchEntries.status, "published"),
+      ),
     )
     .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
     .limit(limit);
+}
+
+// Diagnostic: returns counts so admin can see what's actually in the DB
+// without psql access. Used by the /dbstats admin command. Read-only.
+export async function getArchiveDiagnostics() {
+  const [
+    statusCounts,
+    profileCount,
+    sampleTargets,
+    sampleProfiles,
+    nonLowercaseTargets,
+    atPrefixedTargets,
+  ] = await Promise.all([
+    db.execute<{ status: string; n: string }>(
+      sql`SELECT status, COUNT(*)::text AS n FROM vouch_entries GROUP BY status ORDER BY status`,
+    ),
+    db.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n FROM business_profiles`),
+    db.execute<{ target_username: string }>(
+      sql`SELECT DISTINCT target_username FROM vouch_entries ORDER BY target_username LIMIT 5`,
+    ),
+    db.execute<{ username: string }>(
+      sql`SELECT username FROM business_profiles ORDER BY username LIMIT 5`,
+    ),
+    db.execute<{ n: string }>(
+      sql`SELECT COUNT(*)::text AS n FROM vouch_entries WHERE target_username <> LOWER(target_username)`,
+    ),
+    db.execute<{ n: string }>(
+      sql`SELECT COUNT(*)::text AS n FROM vouch_entries WHERE target_username LIKE '@%'`,
+    ),
+  ]);
+
+  const rowsOf = <T>(r: { rows: T[] } | T[]): T[] =>
+    Array.isArray(r) ? r : (r as { rows: T[] }).rows ?? [];
+
+  return {
+    statusCounts: rowsOf(statusCounts).map((row) => ({
+      status: row.status,
+      count: Number(row.n),
+    })),
+    profileCount: Number(rowsOf(profileCount)[0]?.n ?? "0"),
+    sampleTargets: rowsOf(sampleTargets).map((row) => row.target_username),
+    sampleProfiles: rowsOf(sampleProfiles).map((row) => row.username),
+    nonLowercaseTargets: Number(rowsOf(nonLowercaseTargets)[0]?.n ?? "0"),
+    atPrefixedTargets: Number(rowsOf(atPrefixedTargets)[0]?.n ?? "0"),
+  };
 }
 
 /**
