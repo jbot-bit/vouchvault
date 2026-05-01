@@ -23,10 +23,6 @@ import process from "node:process";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { Pool } from "pg";
-import {
-  buildBotDescriptionText,
-  buildBotShortDescription,
-} from "../src/core/archive.ts";
 
 const TELEGRAM_API = "https://api.telegram.org/bot";
 
@@ -163,42 +159,63 @@ const ADMIN_COMMANDS = [
 ];
 
 async function setupBotIdentity(): Promise<void> {
-  // Identity overrides via env. If unset, fall back to spec-locked text.
-  // Telegram caps: name ≤ 64 chars, description ≤ 512, short_description ≤ 120.
-  const name = (process.env.BOT_DISPLAY_NAME?.trim() || "SC45").slice(0, 64);
-  const description = (
-    process.env.BOT_DESCRIPTION?.trim() || buildBotDescriptionText()
-  ).slice(0, 512);
-  const shortDescription = (
-    process.env.BOT_SHORT_DESCRIPTION?.trim() || buildBotShortDescription()
-  ).slice(0, 120);
+  // Identity is normally edited via @BotFather (/setname, /setdescription,
+  // /setabouttext) — auto-pushing on every deploy fights with whatever
+  // the operator just typed there. Only push when the corresponding env
+  // var is explicitly set, so an operator can choose:
+  //   (a) BotFather-only — leave envs unset, manage in Telegram UI
+  //   (b) Env-driven — set BOT_DISPLAY_NAME / BOT_DESCRIPTION /
+  //       BOT_SHORT_DESCRIPTION, code keeps them in sync each deploy
+  //
+  // Each set is GET-then-set-on-diff so even when env-driven, a redeploy
+  // doesn't burn rate-limit budget on a no-op (setMyName has a tight
+  // single-digit-per-day bucket).
+  const nameEnv = process.env.BOT_DISPLAY_NAME?.trim();
+  if (nameEnv) {
+    await setIfChanged({
+      label: "setMyName",
+      getter: { method: "getMyName", field: "name" },
+      setter: { method: "setMyName", payload: { name: nameEnv.slice(0, 64) } },
+    });
+  } else {
+    console.info("[bootstrap] BOT_DISPLAY_NAME unset — leaving BotFather name as-is");
+  }
 
-  // Each identity field is GET-then-set-on-diff so a redeploy doesn't
-  // burn Telegram rate-limit budget. setMyName has the tightest bucket
-  // (single-digit calls per day) and was previously hitting 429 on
-  // every Railway boot.
-  await setIfChanged({
-    label: "setMyName",
-    getter: { method: "getMyName", field: "name" },
-    setter: { method: "setMyName", payload: { name } },
-  });
-  await setIfChanged({
-    label: "setMyDescription",
-    getter: { method: "getMyDescription", field: "description" },
-    setter: { method: "setMyDescription", payload: { description } },
-  });
-  await setIfChanged({
-    label: "setMyShortDescription",
-    getter: { method: "getMyShortDescription", field: "short_description" },
-    setter: {
-      method: "setMyShortDescription",
-      payload: { short_description: shortDescription },
-    },
-  });
+  const descEnv = process.env.BOT_DESCRIPTION?.trim();
+  if (descEnv) {
+    await setIfChanged({
+      label: "setMyDescription",
+      getter: { method: "getMyDescription", field: "description" },
+      setter: {
+        method: "setMyDescription",
+        payload: { description: descEnv.slice(0, 512) },
+      },
+    });
+  } else {
+    console.info("[bootstrap] BOT_DESCRIPTION unset — leaving BotFather description as-is");
+  }
 
-  // Commands: setMyCommands is more lenient on rate-limit and the diff
-  // check would require deep-comparing arrays per scope. Just set them;
-  // wrap each call so a single 429 doesn't bail the rest.
+  const shortEnv = process.env.BOT_SHORT_DESCRIPTION?.trim();
+  if (shortEnv) {
+    await setIfChanged({
+      label: "setMyShortDescription",
+      getter: { method: "getMyShortDescription", field: "short_description" },
+      setter: {
+        method: "setMyShortDescription",
+        payload: { short_description: shortEnv.slice(0, 120) },
+      },
+    });
+  } else {
+    console.info(
+      "[bootstrap] BOT_SHORT_DESCRIPTION unset — leaving BotFather short description as-is",
+    );
+  }
+
+  // Commands menu: setMyCommands has a lenient rate-limit and is the
+  // hot-path that needs to match the actual code. Always set — BotFather's
+  // /setcommands works too, but commands tend to drift out of sync with
+  // code unless the bootstrap keeps them aligned. Wrap each call so a
+  // single 429 doesn't bail the rest.
   const commandSets = [
     { commands: DEFAULT_COMMANDS, scope: undefined, label: "default" },
     {
