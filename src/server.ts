@@ -112,6 +112,14 @@ async function readJsonBody(req: NodeJS.ReadableStream): Promise<any> {
 
 async function main() {
   validateBootEnv();
+  if (
+    process.env.NODE_ENV === "production" &&
+    !process.env.TELEGRAM_WEBHOOK_SECRET_TOKEN?.trim()
+  ) {
+    logger.warn(
+      "[Boot] TELEGRAM_WEBHOOK_SECRET_TOKEN unset — webhook endpoint accepts any HTTPS POST. Set the env to add header validation.",
+    );
+  }
   for (const line of describeOptInFeatures()) {
     logger.info({ feature: line }, `[Boot] ${line}`);
   }
