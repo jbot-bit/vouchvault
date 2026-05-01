@@ -35,13 +35,14 @@ export function validateBootEnv(env: Env = process.env): void {
   parseIntegerList(env, "TELEGRAM_ALLOWED_CHAT_IDS");
   parseIntegerList(env, "TELEGRAM_ADMIN_IDS");
 
-  const isProd = env.NODE_ENV === "production";
+  // Webhook secret is recommended (defense against random POSTs hitting
+  // the webhook URL) but not strictly required — Railway URLs aren't
+  // publicly discoverable, so the practical risk of running without is
+  // low. If set, validate the format. If unset in production, log a
+  // warning at the call site (server.ts) so the operator knows but the
+  // boot doesn't crash.
   const secret = env.TELEGRAM_WEBHOOK_SECRET_TOKEN?.trim();
-  if (isProd) {
-    if (!secret) throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN is required in production.");
-    if (!SECRET_TOKEN_RE.test(secret))
-      throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
-  } else if (secret && !SECRET_TOKEN_RE.test(secret)) {
+  if (secret && !SECRET_TOKEN_RE.test(secret)) {
     throw new Error("TELEGRAM_WEBHOOK_SECRET_TOKEN must be 1-256 chars [A-Za-z0-9_-].");
   }
 

@@ -46,7 +46,22 @@ test("rejects empty TELEGRAM_ADMIN_IDS", () => {
   );
 });
 
-test("rejects missing TELEGRAM_WEBHOOK_SECRET_TOKEN in production", () => {
+test("accepts production env without TELEGRAM_WEBHOOK_SECRET_TOKEN (warned at boot, not throw)", () => {
+  // Webhook secret is recommended but not strictly required — Railway
+  // URLs aren't publicly discoverable. server.ts logs a warning when
+  // running prod without the secret; validateBootEnv no longer throws.
+  assert.doesNotThrow(() =>
+    validateBootEnv({
+      DATABASE_URL: "postgres://x",
+      TELEGRAM_BOT_TOKEN: "12345:abcdef",
+      TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
+      TELEGRAM_ADMIN_IDS: "1",
+      NODE_ENV: "production",
+    }),
+  );
+});
+
+test("still rejects malformed TELEGRAM_WEBHOOK_SECRET_TOKEN if set", () => {
   assert.throws(
     () =>
       validateBootEnv({
@@ -55,8 +70,9 @@ test("rejects missing TELEGRAM_WEBHOOK_SECRET_TOKEN in production", () => {
         TELEGRAM_ALLOWED_CHAT_IDS: "-100123",
         TELEGRAM_ADMIN_IDS: "1",
         NODE_ENV: "production",
+        TELEGRAM_WEBHOOK_SECRET_TOKEN: "has spaces and !!! invalid chars",
       }),
-    /TELEGRAM_WEBHOOK_SECRET_TOKEN/i,
+    /1-256 chars/i,
   );
 });
 
