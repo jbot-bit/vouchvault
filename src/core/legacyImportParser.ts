@@ -68,7 +68,31 @@ const LEGACY_TAGS_BY_RESULT: Record<LegacyImportResult, readonly EntryTag[]> = {
   negative: ["poor_comms"],
 };
 
+// Question-shape detector. Messages like "anyone vouch @x?", "can anyone
+// vouch for @y", "any vouches @z" are REQUESTS, not vouches. They tag
+// an @ but the writer is asking the group to vouch — not vouching
+// themselves. If a message matches any of these, it's classified as
+// unclear regardless of other matches, even if it accidentally trips a
+// positive keyword. Empirically (V1+V3 review) these dominate the false-
+// positive risk for any expanded POS lexicon.
+const QUERY_PATTERNS: readonly RegExp[] = [
+  /\bany(?:one|1|body)\s+vouch(?:ed)?\b/, // "anyone vouch", "any1 vouch", "anybody vouch"
+  /\bany\s+vouch(?:es)?\b\s*\??/, // "any vouches?", "any vouches"
+  /\bcan\s+(?:any(?:one|1|body)|some(?:one|1|body)|you|u|i|we|y'?all)\s+vouch\b/, // "can anyone vouch", "can you vouch", "can u vouch me"
+  /\bwho\s+(?:can\s+)?vouch(?:es|ed)?\b/, // "who can vouch", "who vouched"
+  /\bvouch(?:es)?\s*\?\s*$/, // "@user vouches?" — bare query at end
+  /\bis\s+@?\w+\s+vouched\b/, // "is @user vouched"
+  /\bvouch\s+me\b/, // "vouch me bro" — asking to be vouched
+  /\bgot\s+(?:any\s+)?vouch(?:es)?\b\s*\??/, // "got any vouches?"
+];
+
+// "Plain @user" with no further content — treat as unclear (could be
+// reply, mention, ping, not a vouch). This catches very short messages
+// that are just an @ tag.
+const BARE_MENTION_REGEX = /^@\w+\s*[!?.,]*\s*$/;
+
 const POSITIVE_PATTERNS: readonly LegacyPattern[] = [
+  // ---- Existing markers ----
   { label: "+rep", regex: /(^|[^a-z0-9_])\+\s*rep(?=$|[^a-z0-9_])/ },
   { label: "+vouch", regex: /(^|[^a-z0-9_])\+\s*vouch(?=$|[^a-z0-9_])/ },
   { label: "legit", regex: buildLegacyKeywordPattern("legit") },
@@ -81,9 +105,47 @@ const POSITIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "mad vouch", regex: /(?<!not\s)\bmad\s+vouch\b/ },
   { label: "high vouch", regex: /(?<!not\s)\bhigh(?:ly)?\s+vouch\b/ },
   { label: "solid vouch", regex: /(?<!not\s)\bsolid\s+vouch\b/ },
+
+  // ---- Vouch-keyword expansion (synonyms + typos seen in corpus) ----
+  { label: "positive vouch", regex: /(?<!not\s)\bpositive\s+vouch\b/ },
+  { label: "massive vouch", regex: /(?<!not\s)\bmassive\s+vouch\b/ },
+  { label: "heavy vouch", regex: /(?<!not\s)\bheavy\s+vouch\b/ },
+  { label: "poss vouch (typo)", regex: /(?<!not\s)\bposs\s+vouch\b/ },
+  { label: "pov vouch (typo)", regex: /(?<!not\s)\bpov\s+vouch\b/ },
+  { label: "vouch the bro", regex: /\bvouch(?:ing)?\s+(?:the|this|that|my|our)\s+(?:bro|guy|lad|cunt|dude|bloke|geezer|legend|man|king)\b/ },
+
+  // ---- Quality-marker phrases (slang for "this person was good") ----
+  { label: "easy to deal with", regex: /\beasy\s+(?:to\s+)?deal(?:ing)?\s+(?:with|w\/)?\b/ },
+  { label: "would deal again", regex: /\bwould\s+(?:deal|buy|use|recommend|interact|engage)\s+(?:with\s+)?(?:them|him|her|again)\b/ },
+  { label: "no drama", regex: /\bno\s+(?:drama|issues|problems|hassle|fuss|bs)\b/ },
+  { label: "easy comms", regex: /\b(?:easy|smooth|good|great|fast|quick|prompt|solid)\s+comm(?:s|unication)?\b/ },
+  { label: "smashed it", regex: /\bsmashed\s+(?:it|that|out)\b/ },
+  { label: "came through", regex: /\bcame\s+(?:through|thru|in\s+clutch|correct)\b/ },
+  { label: "top job/bloke", regex: /\btop\s+(?:bloke|guy|lad|geezer|cunt|man|king|legend|dude|job|effort|notch|tier|shelf)\b/ },
+  { label: "solid bloke", regex: /\bsolid\s+(?:bloke|guy|lad|geezer|cunt|man|king|legend|dude|seller|buyer)\b/ },
+  { label: "good bloke", regex: /\bgood\s+(?:bloke|guy|lad|geezer|cunt|man|king|legend|dude|seller|buyer)\b/ },
+  { label: "nice bloke", regex: /\bnice(?:st)?\s+(?:bloke|guy|lad|geezer|cunt|man|king|legend|dude|gentleman|gent)\b/ },
+  { label: "proper bloke", regex: /\bproper\s+(?:bloke|guy|lad|geezer|cunt|man|king|legend|dude|gentleman|gent)\b/ },
+  { label: "champion", regex: /\bchamp(?:ion|y|sta)?\b/ },
+  { label: "legend", regex: /\bleg(?:end|enda?ry)\b/ },
+  { label: "smooth transaction", regex: /\b(?:smooth|easy|quick|prompt|fast)\s+(?:transaction|deal|interaction|exchange|sale|purchase|trade|trans)\b/ },
+  { label: "straight to the point", regex: /\bstraight\s+to\s+the\s+point\b/ },
+  { label: "paid upfront", regex: /\bpaid\s+(?:upfront|on\s+time|prompt(?:ly)?|quick(?:ly)?|in\s+full)\b/ },
+  { label: "on time", regex: /\b(?:on|right\s+on)\s+time\b/ },
+  { label: "respectful", regex: /\brespect(?:ful|ed|s)\b/ },
+  { label: "certi (slang)", regex: /\b(?:certi(?:fied|fy|fies)?|certy)\b/ },
+  { label: "🔥/💯 markers", regex: /(?:🔥{1,}|💯{1,}|⭐{2,}|✅(?=[^a-z]))/u },
+  { label: "10/10", regex: /\b10\s*\/\s*10\b/ },
+  { label: "a1", regex: /\ba\s*1\s+(?:biz|business|seller|buyer|service|guy|bloke|lad)\b/ },
+  { label: "5 stars", regex: /\b(?:5|five)\s*(?:\/\s*5\s*)?stars?\b/ },
+  { label: "all good/sweet", regex: /\ball\s+(?:good|sweet|gucci|g)\b/ },
+  { label: "hooked up", regex: /\bhook(?:ed|s|ing)?\s+(?:me\s+)?up\b/ },
+  { label: "saved my", regex: /\bsav(?:ed|ing|es)\s+(?:my|the|our)\s+(?:day|life|ass|skin|night)\b/ },
+  { label: "great bro/cunt/lad", regex: /\b(?:great|sound|sick|wicked|mad|massive|cracking)\s+(?:bro|bloke|guy|lad|geezer|cunt|dude|gentleman|legend|man|king|bro|cuz)\b/ },
 ];
 
 const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
+  // ---- Existing markers ----
   { label: "-rep", regex: /(^|[^a-z0-9_])-\s*rep(?=$|[^a-z0-9_])/ },
   { label: "-vouch", regex: /(^|[^a-z0-9_])-\s*vouch(?=$|[^a-z0-9_])/ },
   { label: "avoid", regex: buildLegacyKeywordPattern("avoid") },
@@ -99,6 +161,21 @@ const NEGATIVE_PATTERNS: readonly LegacyPattern[] = [
   { label: "ghost", regex: /(?<!not\s)\bghost(?:ed|ing)?\b/ },
   { label: "steer clear", regex: /(?<!not\s)\bsteer\s+clear\b/ },
   { label: "dont trust", regex: /(?<!not\s)\bdon'?t\s+trust\b/ },
+
+  // ---- Negative-vouch keyword expansion ----
+  { label: "negative vouch", regex: /\bnegative\s+vouch\b/ },
+  { label: "warned of/about", regex: /\bwarn(?:ed|ing)\s+(?:of|about|against)\b/ },
+
+  // ---- Behaviour markers (clear patterns of bad acts) ----
+  { label: "owes (money)", regex: /\bowes\s+(?:me|us|him|her|them|money|cash|multiple|several|the)\b/ },
+  { label: "took my money", regex: /\b(?:took|stole|kept)\s+(?:my|our|the)\s+(?:money|cash|coin|funds|payment|deposit)\b/ },
+  { label: "ripped me off", regex: /\b(?:ripped|rip(?:ping)?)\s+(?:me|us|him|her|them|people|ppl|multiple)\s+off\b/ },
+  { label: "never sent/delivered", regex: /\bnever\s+(?:sent|delivered|received|got|came|shipped|posted|arrived)\b/ },
+  { label: "blocked me/us", regex: /\bblock(?:ed|s)?\s+(?:me|us|him|her|them)\b/ },
+  { label: "dont deal with", regex: /\bdon'?t\s+deal\s+(?:with\b|w\/)/ },
+  { label: "fake/fraud", regex: /\b(?:fraud(?:ster|s|ulent)?|fake\s+(?:bro|guy|seller|buyer|profile|account|vouch|scammer))\b/ },
+  { label: "missing in action/funds", regex: /\bm\.?\s*i\.?\s*a\.?\b/ }, // "MIA"
+  { label: "middle man (verb)", regex: /\bmiddle\s*man(?:ned|ning|s)?\b/ },
 ];
 
 // Manual-repost wrapper used when an admin pasted historical vouches into a
@@ -307,6 +384,18 @@ export function classifyLegacyResult(text: string): {
   matchedNegative: string[];
 } {
   const normalizedText = collapseWhitespace(text.toLowerCase());
+
+  // Query-shape override: if the message is a request for vouches
+  // ("anyone vouch?", "can anyone vouch for @x") it's NOT a vouch
+  // itself even if it accidentally trips a positive keyword. Same for
+  // bare-mention messages with no body. Skip → unclear.
+  if (QUERY_PATTERNS.some((re) => re.test(normalizedText))) {
+    return { result: null, matchedPositive: [], matchedNegative: [] };
+  }
+  if (BARE_MENTION_REGEX.test(normalizedText)) {
+    return { result: null, matchedPositive: [], matchedNegative: [] };
+  }
+
   const matchedPositive = POSITIVE_PATTERNS.filter((pattern) =>
     pattern.regex.test(normalizedText),
   ).map((pattern) => pattern.label);
