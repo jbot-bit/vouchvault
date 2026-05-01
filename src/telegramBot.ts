@@ -3,6 +3,7 @@ import {
   buildAdminOnlyText,
   buildDbStatsText,
   buildFrozenListText,
+  buildInlineLookupResult,
   buildLookupReplyMarkup,
   buildLookupText,
   buildMeText,
@@ -71,6 +72,7 @@ import { buildThreadedGroupReplyOptions } from "./core/telegramUx.ts";
 import { getAllowedTelegramChatIdSet } from "./core/telegramChatConfig.ts";
 import {
   answerTelegramCallbackQuery,
+  answerTelegramInlineQuery,
   deleteTelegramMessage,
   forwardTelegramMessage,
   sendTelegramMessage,
@@ -1175,6 +1177,97 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
   );
 }
 
+async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
+  // Inline mode: any chat can type "@<bot> @username" to look up a member
+  // without leaving the chat. Read-only, member-scope view (NEG counts /
+  // existence are admin-only and never surfaced through the inline path).
+  // Member rate-limited via the same token bucket as DM /search.
+  const inlineQueryId = typeof inlineQuery?.id === "string" ? inlineQuery.id : null;
+  if (!inlineQueryId) return;
+
+  const fromId = inlineQuery.from?.id;
+  const isAdminCaller = isAdmin(fromId);
+  if (!isAdminCaller && typeof fromId === "number") {
+    const limited = memberLookupLimiter.tryConsume(fromId);
+    if (!limited.allowed) {
+      // Rate-limited: return zero results so the dropdown stays empty
+      // rather than showing stale data. cache_time=0 so the next attempt
+      // (after the bucket refills) actually re-queries.
+      await answerTelegramInlineQuery(
+        { inlineQueryId, results: [], cacheTime: 0, isPersonal: true },
+        logger,
+      );
+      return;
+    }
+  }
+
+  const rawQuery = typeof inlineQuery.query === "string" ? inlineQuery.query.trim() : "";
+  const targetUsername = normalizeUsername(rawQuery);
+  if (!targetUsername) {
+    // Empty / malformed query — return zero results. Telegram shows the
+    // "no results" placeholder; cache briefly per-user so a member typing
+    // doesn't burn DB queries on every keystroke.
+    await answerTelegramInlineQuery(
+      { inlineQueryId, results: [], cacheTime: 5, isPersonal: true },
+      logger,
+    );
+    return;
+  }
+
+  // Reserved target (bot self / @telegram / @notoscam etc.) — short-circuit.
+  // Build a single result so the user sees the explanation rather than an
+  // empty dropdown. Counts are zero by construction.
+  if (isReservedTarget(targetUsername)) {
+    const result = buildInlineLookupResult({
+      targetUsername,
+      positive: 0,
+      mixed: 0,
+      total: 0,
+      lastAt: null,
+      isFrozen: false,
+    });
+    await answerTelegramInlineQuery(
+      { inlineQueryId, results: [result], cacheTime: 60, isPersonal: true },
+      logger,
+    );
+    return;
+  }
+
+  const [counts, profile] = await Promise.all([
+    getArchiveCountsForTarget(targetUsername),
+    getBusinessProfileByUsername(targetUsername),
+  ]);
+  // Member-scope: total = POS+MIX, NEG counts and existence stripped.
+  const visibleTotal = counts.positive + counts.mixed;
+  const result = buildInlineLookupResult({
+    targetUsername,
+    positive: counts.positive,
+    mixed: counts.mixed,
+    total: visibleTotal,
+    lastAt: counts.lastAt,
+    isFrozen: profile?.isFrozen ?? false,
+  });
+  await answerTelegramInlineQuery(
+    {
+      inlineQueryId,
+      results: [result],
+      // 60s cache balances responsiveness against unnecessary DB load.
+      cacheTime: 60,
+      isPersonal: true,
+    },
+    logger,
+  );
+  logger?.info?.(
+    {
+      targetUsername,
+      visibleTotal,
+      isFrozen: profile?.isFrozen ?? false,
+      isAdminCaller,
+    },
+    "[Inline] query answered",
+  );
+}
+
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
   const chatId = callbackQuery.message?.chat?.id;
   const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
@@ -1371,6 +1464,8 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
   try {
     if (payload.callback_query) {
       await handleCallbackQuery(payload.callback_query, logger);
+    } else if (payload.inline_query) {
+      await handleInlineQuery(payload.inline_query, logger);
     } else if (payload.my_chat_member) {
       await handleMyChatMember(payload.my_chat_member, logger);
     } else if (payload.chat_member) {
@@ -1451,6 +1546,7 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
     return {
       handled: Boolean(
         payload.callback_query ||
+          payload.inline_query ||
           payload.message ||
           payload.my_chat_member ||
           payload.chat_member,

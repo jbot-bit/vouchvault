@@ -244,6 +244,34 @@ export async function createTelegramInviteLink(
   );
 }
 
+// Bot API: https://core.telegram.org/bots/api#answerinlinequery
+// Inline-mode response. results array carries InlineQueryResult* objects;
+// cache_time controls how long Telegram caches the response per query.
+// is_personal=true forces per-user caching (we want this since the
+// rate-limit + member-vs-admin scope both depend on the caller).
+export async function answerTelegramInlineQuery(
+  input: {
+    inlineQueryId: string;
+    results: ReadonlyArray<Record<string, unknown>>;
+    cacheTime?: number;
+    isPersonal?: boolean;
+  },
+  logger?: any,
+): Promise<unknown> {
+  return withTelegramRetry(() =>
+    callTelegramAPI(
+      "answerInlineQuery",
+      {
+        inline_query_id: input.inlineQueryId,
+        results: input.results,
+        cache_time: input.cacheTime,
+        is_personal: input.isPersonal,
+      },
+      logger,
+    ),
+  );
+}
+
 export async function answerTelegramCallbackQuery(
   input: {
     callbackQueryId: string;

@@ -1094,6 +1094,92 @@ export function buildModStatsText(input: {
   return lines.join("\n");
 }
 
+// Inline mode: condensed one-liner used as the InputTextMessageContent
+// when a member picks an inline result. Member-scope only — NEG count
+// and existence is admin-only and must never appear here. Empty / reserved
+// targets get a clear "no result" copy instead of a silent dropdown.
+export function buildInlineSummaryText(input: {
+  targetUsername: string;
+  // Always pass POS+MIX only; caller should not pass NEG counts.
+  positive: number;
+  mixed: number;
+  total: number;
+  lastAt: Date | null;
+  isFrozen: boolean;
+}): string {
+  if (isReservedTarget(input.targetUsername)) {
+    return `${formatUsername(input.targetUsername)} — read-only lookup tool, not a person.`;
+  }
+  if (input.total === 0) {
+    return `${formatUsername(input.targetUsername)} — no vouches yet.`;
+  }
+  const noun = input.total === 1 ? "vouch" : "vouches";
+  const breakdown: string[] = [];
+  if (input.positive > 0) breakdown.push(`✅ ${input.positive} POS`);
+  if (input.mixed > 0) breakdown.push(`⚖️ ${input.mixed} MIX`);
+  let line = `${formatUsername(input.targetUsername)} — ${input.total} ${noun}`;
+  if (breakdown.length > 0) line += ` (${breakdown.join(" · ")})`;
+  if (input.isFrozen) line += " · ⚠️ frozen — caution when transacting";
+  if (input.lastAt) {
+    const days = Math.floor((Date.now() - input.lastAt.getTime()) / (24 * 60 * 60 * 1000));
+    const ago =
+      days <= 0
+        ? "today"
+        : days === 1
+        ? "1d ago"
+        : days < 60
+        ? `${days}d ago`
+        : `${Math.floor(days / 30)}mo ago`;
+    line += ` · last ${ago}`;
+  }
+  return line;
+}
+
+// Inline-result title shown in the dropdown preview. Telegram clients
+// truncate aggressively so keep it tight.
+export function buildInlineSummaryTitle(input: {
+  targetUsername: string;
+  positive: number;
+  mixed: number;
+  total: number;
+  isFrozen: boolean;
+}): string {
+  if (isReservedTarget(input.targetUsername)) {
+    return `${formatUsername(input.targetUsername)} — not a person`;
+  }
+  if (input.total === 0) {
+    return `${formatUsername(input.targetUsername)} — no vouches`;
+  }
+  const noun = input.total === 1 ? "vouch" : "vouches";
+  const frozen = input.isFrozen ? " · ⚠ frozen" : "";
+  return `${formatUsername(input.targetUsername)} — ${input.total} ${noun}${frozen}`;
+}
+
+// InlineQueryResultArticle constructor. id must be unique per (query, result);
+// a deterministic id derived from the normalized handle is fine because
+// Telegram caches by (query, user, id).
+export function buildInlineLookupResult(input: {
+  targetUsername: string;
+  positive: number;
+  mixed: number;
+  total: number;
+  lastAt: Date | null;
+  isFrozen: boolean;
+}): Record<string, unknown> {
+  const description = buildInlineSummaryText(input);
+  return {
+    type: "article",
+    id: `vv:${input.targetUsername}`.slice(0, 64),
+    title: buildInlineSummaryTitle(input),
+    description,
+    input_message_content: {
+      message_text: description,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    },
+  };
+}
+
 export function buildFrozenListText(
   rows: Array<{ username: string; freezeReason: string | null; frozenAt: Date | null }>,
 ): string {
