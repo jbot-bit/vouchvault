@@ -104,11 +104,23 @@ function resolveBaseUrl(): string | null {
 }
 
 async function setupWebhook(): Promise<void> {
+  // Diagnostic: log what each source provides so a "webhook not registering"
+  // boot can be triaged from logs alone. PUBLIC_BASE_URL is operator-set;
+  // RAILWAY_PUBLIC_DOMAIN is auto-populated by Railway when the service
+  // has a public domain. If both are empty, the service has no public
+  // entry point — fix is to enable Networking → Generate Domain.
+  console.info("[bootstrap] webhook resolve:", {
+    PUBLIC_BASE_URL_set: Boolean(process.env.PUBLIC_BASE_URL?.trim()),
+    RAILWAY_PUBLIC_DOMAIN: process.env.RAILWAY_PUBLIC_DOMAIN ?? null,
+  });
   const baseUrl = resolveBaseUrl();
   if (!baseUrl) {
-    console.warn("[bootstrap] PUBLIC_BASE_URL not set — skipping setWebhook");
+    console.warn(
+      "[bootstrap] no baseUrl — set PUBLIC_BASE_URL or enable Railway public networking",
+    );
     return;
   }
+  console.info("[bootstrap] webhook target:", `${baseUrl}/webhooks/telegram/action`);
   const payload: Record<string, unknown> = {
     url: `${baseUrl}/webhooks/telegram/action`,
     allowed_updates: [
