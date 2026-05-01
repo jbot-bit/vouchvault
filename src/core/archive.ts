@@ -101,16 +101,28 @@ export function validatePrivateNote(input: string): ValidatePrivateNoteResult {
 export const MAX_LOOKUP_ENTRIES = 15;
 export const LOOKUP_PREVIEW_ENTRIES = 5;
 
-// callback_data format for "expand to all" button.
-// "lk:a:<lower-username>" — "a" = all. Username is the canonical lowercase
-// stripped form (max 32 chars + "lk:a:" 5 chars = 37 bytes < 64).
+// callback_data format for inline-keyboard buttons.
+// "lk:a:<user>" — show all entries (admin or member view, mode=all).
+// "lk:n:<user>" — show only NEG entries (admin-only, mode=neg).
+// Username is canonical lowercase, @-stripped, ≤32 chars. Prefix 5 chars,
+// total ≤37 bytes (< 64 cap).
 export function buildLookupExpandCallback(username: string): string {
   return `lk:a:${username.replace(/^@+/, "").toLowerCase().slice(0, 32)}`;
+}
+
+export function buildLookupNegCallback(username: string): string {
+  return `lk:n:${username.replace(/^@+/, "").toLowerCase().slice(0, 32)}`;
 }
 
 export function parseLookupExpandCallback(data: string): string | null {
   if (!data.startsWith("lk:a:")) return null;
   const u = data.slice("lk:a:".length);
+  return /^[a-z0-9_]{5,32}$/.test(u) ? u : null;
+}
+
+export function parseLookupNegCallback(data: string): string | null {
+  if (!data.startsWith("lk:n:")) return null;
+  const u = data.slice("lk:n:".length);
   return /^[a-z0-9_]{5,32}$/.test(u) ? u : null;
 }
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
@@ -481,9 +493,10 @@ export function buildLookupText(input: {
     privateNote?: string | null;
     bodyText?: string | null;
   }>;
-  // "preview" → show first LOOKUP_PREVIEW_ENTRIES + "see all" hint trailer
+  // "preview" → show first LOOKUP_PREVIEW_ENTRIES (with "see all" + "see NEG" buttons)
   // "all" → show all entries (capped by Telegram char ceiling)
-  mode?: "preview" | "all";
+  // "neg" → show ONLY negative entries (admin-only callback)
+  mode?: "preview" | "all" | "neg";
 }): string {
   const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
   const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
@@ -583,7 +596,11 @@ export function buildLookupText(input: {
       : null;
 
   const visibleEntries =
-    mode === "preview" ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES) : input.entries;
+    mode === "preview"
+      ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES)
+      : mode === "neg"
+      ? input.entries.filter((e) => e.result === "negative")
+      : input.entries;
   const lines = [heading, statusLine, summaryLine];
   for (const line of freshnessLines) lines.push(line);
   if (authoredLine) lines.push(authoredLine);
@@ -607,27 +624,54 @@ export function buildLookupText(input: {
   return withCeiling(lines, 0);
 }
 
-// Returns the inline-keyboard for /search responses, or null if no
-// expand button should be shown (preview mode + total fits in preview,
-// or already in all mode).
+// Returns the inline-keyboard for /search responses. Two possible buttons:
+//   📋 See all N vouches — when in preview mode and there are more entries to show
+//   ⚠️ See N NEG — admin-only when target has any negative entries
+// Buttons stack in a single column. Returns null if neither button applies.
 export function buildLookupReplyMarkup(input: {
   targetUsername: string;
   totalShown: number;
   totalAvailable: number;
-  mode: "preview" | "all";
+  mode: "preview" | "all" | "neg";
+  // Admin-only NEG-view button. Set negCount > 0 + isAdmin true to render.
+  negCount?: number;
+  isAdmin?: boolean;
 }): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } | null {
-  if (input.mode === "all") return null;
-  if (input.totalAvailable <= input.totalShown) return null;
-  return {
-    inline_keyboard: [
-      [
-        {
-          text: `📋 See all ${input.totalAvailable} vouches`,
-          callback_data: buildLookupExpandCallback(input.targetUsername),
-        },
-      ],
-    ],
-  };
+  const buttons: Array<Array<{ text: string; callback_data: string }>> = [];
+
+  // "See all" — only in preview mode, only when not all entries are shown,
+  // and not in NEG-only view.
+  if (
+    input.mode === "preview" &&
+    input.totalAvailable > input.totalShown
+  ) {
+    buttons.push([
+      {
+        text: `📋 See all ${input.totalAvailable} vouches`,
+        callback_data: buildLookupExpandCallback(input.targetUsername),
+      },
+    ]);
+  }
+
+  // "See NEGs" — admin-only. NEG existence is private from members per
+  // the v9 design; admins get a quick-access button when target has any.
+  // Hidden when already in NEG view to avoid a no-op button.
+  if (
+    input.isAdmin === true &&
+    typeof input.negCount === "number" &&
+    input.negCount > 0 &&
+    input.mode !== "neg"
+  ) {
+    const noun = input.negCount === 1 ? "NEG" : "NEGs";
+    buttons.push([
+      {
+        text: `⚠️ See ${input.negCount} ${noun}`,
+        callback_data: buildLookupNegCallback(input.targetUsername),
+      },
+    ]);
+  }
+
+  return buttons.length > 0 ? { inline_keyboard: buttons } : null;
 }
 
 export function buildAdminOnlyText(): string {

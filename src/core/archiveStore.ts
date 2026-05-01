@@ -229,19 +229,26 @@ export async function markArchiveEntryRemoved(entryId: number) {
   return rows[0]!;
 }
 
-export async function getArchiveEntriesForTarget(targetUsername: string, limit: number) {
+export async function getArchiveEntriesForTarget(
+  targetUsername: string,
+  limit: number,
+  resultFilter?: EntryResult,
+) {
   // Case-insensitive + @-prefix-tolerant. See getBusinessProfileByUsername
-  // for rationale.
+  // for rationale. resultFilter narrows to a single result class — used
+  // by the admin "See N NEG" button.
   const lowered = targetUsername.replace(/^@+/, "").toLowerCase();
+  const conditions = [
+    sql`LOWER(LTRIM(${vouchEntries.targetUsername}, '@')) = ${lowered}`,
+    eq(vouchEntries.status, "published"),
+  ];
+  if (resultFilter) {
+    conditions.push(eq(vouchEntries.result, resultFilter));
+  }
   return db
     .select()
     .from(vouchEntries)
-    .where(
-      and(
-        sql`LOWER(LTRIM(${vouchEntries.targetUsername}, '@')) = ${lowered}`,
-        eq(vouchEntries.status, "published"),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(desc(vouchEntries.createdAt), desc(vouchEntries.id))
     .limit(limit);
 }

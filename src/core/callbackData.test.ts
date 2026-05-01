@@ -1,7 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildLookupExpandCallback, parseLookupExpandCallback } from "./archive.ts";
+import {
+  buildLookupExpandCallback,
+  buildLookupNegCallback,
+  parseLookupExpandCallback,
+  parseLookupNegCallback,
+} from "./archive.ts";
 
 // Telegram caps callback_data at 64 bytes UTF-8. Any new callback prefix
 // must be added here to keep the ceiling check honest.
@@ -9,6 +14,8 @@ const KNOWN_CALLBACKS: string[] = [
   // Worst-case: 32-char username (Telegram max) — the longest payload.
   buildLookupExpandCallback("a".repeat(32)),
   buildLookupExpandCallback("bobbiz"),
+  buildLookupNegCallback("a".repeat(32)),
+  buildLookupNegCallback("bobbiz"),
 ];
 
 test("every callback data string is <= 64 bytes", () => {
@@ -24,9 +31,23 @@ test("lookup-expand callback round-trips username (lowercase, @-stripped)", () =
   assert.equal(parseLookupExpandCallback(cb), "bobbiz");
 });
 
+test("lookup-neg callback round-trips username", () => {
+  const cb = buildLookupNegCallback("@CoastContra");
+  assert.equal(cb, "lk:n:coastcontra");
+  assert.equal(parseLookupNegCallback(cb), "coastcontra");
+});
+
 test("parseLookupExpandCallback rejects invalid payloads", () => {
   assert.equal(parseLookupExpandCallback("lk:a:"), null);
   assert.equal(parseLookupExpandCallback("lk:a:bad-username"), null);
   assert.equal(parseLookupExpandCallback("lk:a:abc"), null); // too short
   assert.equal(parseLookupExpandCallback("not-our-prefix"), null);
+  // NEG-callback shouldn't parse as expand (and vice versa).
+  assert.equal(parseLookupExpandCallback("lk:n:bobbiz"), null);
+});
+
+test("parseLookupNegCallback rejects invalid payloads", () => {
+  assert.equal(parseLookupNegCallback("lk:n:"), null);
+  assert.equal(parseLookupNegCallback("lk:n:bad-username"), null);
+  assert.equal(parseLookupNegCallback("lk:a:bobbiz"), null);
 });

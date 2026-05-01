@@ -13,6 +13,7 @@ import {
   isFreezeReason,
   normalizeUsername,
   parseLookupExpandCallback,
+  parseLookupNegCallback,
   parseSelectedTags,
   MAX_LOOKUP_ENTRIES,
   type EntryResult,
@@ -138,9 +139,10 @@ async function handleLookupCommand(input: {
   // "admin" → full audit (private NEGs + private_note included).
   // "member" → public view (POS + MIX only, private_note hidden).
   viewerScope: "admin" | "member";
-  // "preview" → first LOOKUP_PREVIEW_ENTRIES + "see all" button.
+  // "preview" → first LOOKUP_PREVIEW_ENTRIES + "see all" / "see NEG" buttons.
   // "all" → up to MAX_LOOKUP_ENTRIES, no button.
-  mode?: "preview" | "all";
+  // "neg" → admin-only NEG-filter view (callback target).
+  mode?: "preview" | "all" | "neg";
   replyToMessageId?: number | null;
   messageThreadId?: number | null;
   disableNotification?: boolean;
@@ -161,7 +163,11 @@ async function handleLookupCommand(input: {
 
   const mode = input.mode ?? "preview";
   const [entries, profile, rawCounts, authoredCount] = await Promise.all([
-    getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES),
+    getArchiveEntriesForTarget(
+      targetUsername,
+      MAX_LOOKUP_ENTRIES,
+      mode === "neg" ? "negative" : undefined,
+    ),
     getBusinessProfileByUsername(targetUsername),
     getArchiveCountsForTarget(targetUsername),
     getAuthoredCountForReviewer(targetUsername),
@@ -206,6 +212,11 @@ async function handleLookupCommand(input: {
       mode === "preview" ? Math.min(visibleEntries.length, 5) : visibleEntries.length,
     totalAvailable: counts.total,
     mode,
+    // NEG-button: admin-only, only shown when target has at least one
+    // negative entry. rawCounts.negative is the unfiltered ground truth
+    // (member-view counts.negative is forced to 0).
+    negCount: input.viewerScope === "admin" ? rawCounts.negative : 0,
+    isAdmin: input.viewerScope === "admin",
   });
   await sendTelegramMessage(
     {
@@ -1049,6 +1060,35 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       rawUsername: expandUsername,
       viewerScope: isAdminCaller ? "admin" : "member",
       mode: "all",
+      logger,
+    });
+    return;
+  }
+
+  // /search "See N NEG" button — admin-only. Re-renders with mode="neg",
+  // showing only negative entries. Members can't trip this even if they
+  // somehow get the callback_data string because we re-check admin here.
+  const negUsername = parseLookupNegCallback(data);
+  if (negUsername && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    if (!isAdmin(fromId)) {
+      await sendTelegramMessage(
+        { chatId, text: "<b>Admin only.</b>", parseMode: "HTML" },
+        logger,
+      );
+      return;
+    }
+    await handleLookupCommand({
+      chatId,
+      rawUsername: negUsername,
+      viewerScope: "admin",
+      mode: "neg",
       logger,
     });
     return;
