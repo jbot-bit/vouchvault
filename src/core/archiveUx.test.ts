@@ -316,7 +316,7 @@ test("buildLookupText all mode renders every entry passed in", () => {
   assert.match(text, /<b>#8<\/b>/);
 });
 
-test("buildLookupText surfaces freshness line: last date + recent count + distinct reviewers", () => {
+test("buildLookupText surfaces rich freshness: tenure + recent windows + reviewer diversity", () => {
   const text = buildLookupText({
     targetUsername: "bobbiz",
     isFrozen: false,
@@ -329,14 +329,16 @@ test("buildLookupText surfaces freshness line: last date + recent count + distin
       firstAt: new Date(Date.UTC(2022, 0, 15)),
       lastAt: new Date(Date.UTC(2026, 3, 1)),
       recentCount: 3,
+      recentCount30d: 1,
       distinctReviewers: 28,
+      distinctReviewers12mo: 3,
     },
     entries: [],
   });
   assert.match(text, /<b>50 vouches<\/b>/);
-  assert.match(text, /Last: 01\/04\/2026/);
-  assert.match(text, /Recent \(12mo\): 3/);
-  assert.match(text, /28 distinct reviewers/);
+  assert.match(text, /Active 15\/01\/2022 → 01\/04\/2026/);
+  assert.match(text, /Recent — 12mo: 3, 30d: 1/);
+  assert.match(text, /28 distinct reviewers \(3 in last 12mo\)/);
 });
 
 test("buildLookupText surfaces authored count as a footnote line when > 0", () => {

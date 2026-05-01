@@ -183,7 +183,9 @@ async function handleLookupCommand(input: {
           firstAt: rawCounts.firstAt,
           lastAt: rawCounts.lastAt,
           recentCount: rawCounts.recentCount,
+          recentCount30d: rawCounts.recentCount30d,
           distinctReviewers: rawCounts.distinctReviewers,
+          distinctReviewers12mo: rawCounts.distinctReviewers12mo,
           authoredCount,
         };
   input.logger?.info?.(
