@@ -96,8 +96,18 @@ function parseAusDate(s: string): Date | null {
   return new Date(utcMs);
 }
 
+// Strip community-tag suffixes that members append to their Telegram
+// display names. Same operator may appear as "Bridee Peebles SC" in
+// one period and "Bridee Peebles" in another; strip so the slug is
+// stable across that drift.
+function stripCommunitySuffix(displayName: string): string {
+  return displayName
+    .replace(/\s+(SC|SCnew|SC\d+|sc|scnew)\s*$/i, "")
+    .trim();
+}
+
 function syntheticReviewer(displayName: string): { username: string; fromId: number } {
-  const cleaned = displayName.trim();
+  const cleaned = stripCommunitySuffix(displayName.trim());
   const hash = createHash("sha1").update(cleaned, "utf8").digest("hex");
   // Stable 10-char suffix; lowercase to match normalizeUsername.
   const username = `fwd_${hash.slice(0, 10)}`;
@@ -169,13 +179,26 @@ function main() {
       }
 
       const { username, fromId } = syntheticReviewer(displayNameRaw);
+      // Slugify the display name into a Telegram @-shape so the legacy
+      // import uses it as reviewer_username. SC/SCnew suffix stripped
+      // first (see stripCommunitySuffix). Falls back to the synthetic
+      // fwd_<hash> when the display name has no usable letters.
+      const slug = stripCommunitySuffix(displayNameRaw)
+        .toLowerCase()
+        .normalize("NFKD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z0-9_]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "")
+        .slice(0, 32);
+      const fromForExport = /^[a-z][a-z0-9_]{4,31}$/.test(slug) ? slug : username;
 
       messages.push({
         id,
         type: "message",
         date: date.toISOString().slice(0, 19),
         date_unixtime: String(Math.floor(date.getTime() / 1000)),
-        from: displayNameRaw, // export-level display, not @
+        from: fromForExport,
         from_id: `user${fromId}`,
         text,
       });
