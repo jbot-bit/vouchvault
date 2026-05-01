@@ -38,17 +38,15 @@ import {
 test("welcome text is SC45-branded and points at /search, /policy, /forgetme", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>SC45<\/b>/);
-  assert.match(text, /DM <code>\/search @username<\/code> to search community vouches/);
-  assert.match(text, /DM <code>\/policy<\/code> for data handling/);
-  assert.match(text, /DM <code>\/forgetme<\/code> to delete vouches you've written/);
-  assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
-  assert.match(text, /Post a normal message in the group/);
-  assert.match(text, /<b><u>Check before you interact<\/u><\/b>/);
-  assert.match(text, /group's search bar/);
-  assert.match(text, /<b><u>Moderation<\/u><\/b>/);
-  assert.match(text, /Commercial-shaped posts are auto-removed/);
-  assert.match(text, /Send <code>\/start<\/code> once/);
-  assert.match(text, /Telegram ToS applies/);
+  assert.match(text, /<code>\/search @username<\/code>/);
+  assert.match(text, /<code>\/policy<\/code>/);
+  assert.match(text, /<code>\/forgetme<\/code>/);
+  assert.match(text, /<b>How to vouch<\/b>/);
+  assert.match(text, /Tag the @, say what happened/);
+  assert.match(text, /<b>Moderation<\/b>/);
+  assert.match(text, /auto-delete/);
+  assert.match(text, /Hit <code>\/start<\/code> once/);
+  assert.match(text, /Telegram ToS/);
   assert.match(text, /@notoscam/);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
@@ -57,12 +55,12 @@ test("welcome text is SC45-branded and points at /search, /policy, /forgetme", (
 test("pinned guide text is SC45-branded with the same surface", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>SC45<\/b>/);
-  assert.match(text, /DM <code>\/search @username<\/code> to search community vouches/);
-  assert.match(text, /DM <code>\/forgetme<\/code> to delete vouches you've written/);
-  assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
-  assert.match(text, /Post a normal message in this group/);
-  assert.match(text, /this group's search bar/);
-  assert.match(text, /Commercial-shaped posts are auto-removed/);
+  assert.match(text, /DM me <code>\/search @username<\/code>/);
+  assert.match(text, /DM <code>\/forgetme<\/code>/);
+  assert.match(text, /<b>How to vouch<\/b>/);
+  assert.match(text, /Post in this group/);
+  assert.match(text, /<b>Moderation<\/b>/);
+  assert.match(text, /auto-delete/);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
 });
@@ -84,15 +82,14 @@ test("bot description is concise, SC45-branded, ≤512 chars", () => {
   assert.ok(short.length <= 120);
 });
 
-test("rules block contains the five bullets in welcome and pinned guide", () => {
+test("rules block contains the four bullets in welcome and pinned guide", () => {
   const surfaces = [buildWelcomeText(), buildPinnedGuideText()];
   for (const text of surfaces) {
     assert.match(text, /<b>Rules<\/b>/);
-    assert.match(text, /Telegram ToS applies\. No illegal activity, no scams\./);
-    assert.match(text, /Vouch only members you actually know\./);
-    assert.match(text, /No personal opinions, no rating individuals, no minors\./);
-    assert.match(text, /You are responsible for your vouches\./);
-    assert.match(text, /Report ToS violations to @notoscam — the official channel\./);
+    assert.match(text, /Telegram ToS — no illegal, no scams/);
+    assert.match(text, /Vouch only people you know personally/);
+    assert.match(text, /No personal opinions, no rating, no minors/);
+    assert.match(text, /Report ToS violations to @notoscam/);
   }
 });
 
