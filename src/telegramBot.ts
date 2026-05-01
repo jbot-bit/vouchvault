@@ -41,6 +41,7 @@ import {
   getArchiveDiagnostics,
   getArchiveEntriesForTarget,
   getArchiveEntryById,
+  getAuthoredCountForReviewer,
   getBusinessProfileByUsername,
   listFrozenProfiles,
   markArchiveEntryRemoved,
@@ -159,10 +160,11 @@ async function handleLookupCommand(input: {
   }
 
   const mode = input.mode ?? "preview";
-  const [entries, profile, rawCounts] = await Promise.all([
+  const [entries, profile, rawCounts, authoredCount] = await Promise.all([
     getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES),
     getBusinessProfileByUsername(targetUsername),
     getArchiveCountsForTarget(targetUsername),
+    getAuthoredCountForReviewer(targetUsername),
   ]);
   // Member view filters out NEGs in both display AND counts (the
   // existence of NEGs is itself private — admins only).
@@ -172,12 +174,17 @@ async function handleLookupCommand(input: {
       : entries.filter((entry) => entry.result !== "negative");
   const counts =
     input.viewerScope === "admin"
-      ? rawCounts
+      ? { ...rawCounts, authoredCount }
       : {
           total: rawCounts.positive + rawCounts.mixed,
           positive: rawCounts.positive,
           mixed: rawCounts.mixed,
           negative: 0,
+          firstAt: rawCounts.firstAt,
+          lastAt: rawCounts.lastAt,
+          recentCount: rawCounts.recentCount,
+          distinctReviewers: rawCounts.distinctReviewers,
+          authoredCount,
         };
   input.logger?.info?.(
     {

@@ -246,6 +246,23 @@ export async function getArchiveEntriesForTarget(targetUsername: string, limit: 
     .limit(limit);
 }
 
+// Count of vouches AUTHORED by a member (where they're the reviewer,
+// not the target). Surfaced as a footnote in /search so the reader can
+// see how active the member has been as a reviewer of others.
+// Case-insensitive on reviewer_username.
+export async function getAuthoredCountForReviewer(username: string): Promise<number> {
+  const lowered = username.replace(/^@+/, "").toLowerCase();
+  const result = await db.execute<{ n: number }>(
+    sql`SELECT COUNT(*)::int AS n FROM vouch_entries
+        WHERE status = 'published'
+          AND LOWER(reviewer_username) = ${lowered}`,
+  );
+  const rows: ReadonlyArray<{ n: number }> = Array.isArray(result)
+    ? result
+    : (result as { rows: Array<{ n: number }> }).rows ?? [];
+  return Number(rows[0]?.n ?? 0);
+}
+
 // Per-target summary counts. Powers the summary line at the top of
 // /search response: total + breakdown by result + freshness window.
 // Case-insensitive + @-prefix-tolerant. The "recent" bucket uses a

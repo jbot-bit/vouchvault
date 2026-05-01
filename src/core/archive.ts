@@ -464,6 +464,10 @@ export function buildLookupText(input: {
     lastAt?: Date | null;
     recentCount?: number;
     distinctReviewers?: number;
+    // Vouches AUTHORED by this user (where they're the reviewer of
+    // someone else). Lets the reader see how active they've been
+    // reviewing others.
+    authoredCount?: number;
   };
   entries: Array<{
     id: number;
@@ -484,9 +488,19 @@ export function buildLookupText(input: {
   const mode = input.mode ?? "preview";
 
   if (input.counts.total === 0) {
-    return [heading, statusLine, "", `No vouches for ${fmtUser(input.targetUsername)}.`].join(
-      "\n",
-    );
+    const lines = [heading, statusLine, "", `No vouches for ${fmtUser(input.targetUsername)}.`];
+    if (
+      typeof input.counts.authoredCount === "number" &&
+      input.counts.authoredCount > 0
+    ) {
+      const noun = input.counts.authoredCount === 1 ? "vouch" : "vouches";
+      lines.push(
+        `<i>Authored: ${input.counts.authoredCount} ${noun} by ${fmtUser(
+          input.targetUsername,
+        )} about other members</i>`,
+      );
+    }
+    return lines.join("\n");
   }
 
   // Summary lines.
@@ -525,10 +539,21 @@ export function buildLookupText(input: {
   }
   const freshnessLine = freshnessParts.length > 0 ? freshnessParts.join(" · ") : null;
 
+  // Authored line: separate from "vouches FOR them" so the trust signal
+  // stays the headline. Only shown when non-zero so members with no
+  // outgoing vouches don't get a confusing "Authored: 0".
+  const authoredLine =
+    typeof input.counts.authoredCount === "number" && input.counts.authoredCount > 0
+      ? `<i>Authored: ${input.counts.authoredCount} vouch${
+          input.counts.authoredCount === 1 ? "" : "es"
+        } by ${fmtUser(input.targetUsername)} about other members</i>`
+      : null;
+
   const visibleEntries =
     mode === "preview" ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES) : input.entries;
   const lines = [heading, statusLine, summaryLine];
   if (freshnessLine) lines.push(freshnessLine);
+  if (authoredLine) lines.push(authoredLine);
   lines.push("");
   for (const entry of visibleEntries) {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";

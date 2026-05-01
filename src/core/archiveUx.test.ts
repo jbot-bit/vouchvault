@@ -339,6 +339,53 @@ test("buildLookupText surfaces freshness line: last date + recent count + distin
   assert.match(text, /28 distinct reviewers/);
 });
 
+test("buildLookupText surfaces authored count as a footnote line when > 0", () => {
+  const text = buildLookupText({
+    targetUsername: "coastcontra",
+    isFrozen: false,
+    freezeReason: null,
+    counts: {
+      total: 23,
+      positive: 23,
+      mixed: 0,
+      negative: 0,
+      authoredCount: 35,
+    },
+    entries: [],
+  });
+  assert.match(text, /<i>Authored: 35 vouches by <b>@coastcontra<\/b> about other members<\/i>/);
+});
+
+test("buildLookupText omits authored line when authoredCount is 0 or unset", () => {
+  const t1 = buildLookupText({
+    targetUsername: "alice",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 5, positive: 5, mixed: 0, negative: 0, authoredCount: 0 },
+    entries: [],
+  });
+  assert.equal(t1.includes("Authored:"), false);
+  const t2 = buildLookupText({
+    targetUsername: "alice",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 5, positive: 5, mixed: 0, negative: 0 },
+    entries: [],
+  });
+  assert.equal(t2.includes("Authored:"), false);
+});
+
+test("buildLookupText authored line pluralisation: 1 vouch (singular)", () => {
+  const text = buildLookupText({
+    targetUsername: "alice",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 0, positive: 0, mixed: 0, negative: 0, authoredCount: 1 },
+    entries: [],
+  });
+  assert.match(text, /Authored: 1 vouch by /);
+});
+
 test("buildLookupText omits freshness line when no aggregate stats given", () => {
   const text = buildLookupText({
     targetUsername: "bobbiz",
