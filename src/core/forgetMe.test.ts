@@ -6,21 +6,40 @@ import {
   buildForgetCancelledText,
   buildForgetDoneText,
   buildForgetExpiredText,
+  buildForgetFinalConfirmMarkup,
+  buildForgetFinalConfirmText,
   buildForgetGroupRedirectText,
   buildForgetPromptText,
   createForgetState,
   executeForget,
   FORGET_CONFIRM_TTL_MS,
+  FORGET_FINAL_TTL_MS,
   tryConfirmForget,
+  tryFinalizeForget,
   type ForgetDeps,
 } from "./forgetMe.ts";
 
-test("buildForgetPromptText names the deletion scope and the YES window", () => {
+test("buildForgetPromptText names the deletion scope and the YES window (stage 1 of 2)", () => {
   const text = buildForgetPromptText();
-  assert.match(text, /<b>Forget me — confirm<\/b>/);
+  assert.match(text, /<b>Forget me — step 1 of 2<\/b>/);
   assert.match(text, /every vouch <b>you authored<\/b>/);
   assert.match(text, /Vouches other members wrote <b>about<\/b> you stay/);
   assert.match(text, /Reply <code>YES<\/code> within 5 minutes/);
+});
+
+test("buildForgetFinalConfirmText is stage 2 with cannot-be-undone language", () => {
+  const text = buildForgetFinalConfirmText();
+  assert.match(text, /step 2 of 2/);
+  assert.match(text, /Tap <b>✅ Confirm delete<\/b>/);
+  assert.match(text, /<b>This cannot be undone\.<\/b>/);
+});
+
+test("buildForgetFinalConfirmMarkup carries fg:y + fg:n callbacks", () => {
+  const markup = buildForgetFinalConfirmMarkup();
+  assert.equal(markup.inline_keyboard.length, 1);
+  assert.equal(markup.inline_keyboard[0]!.length, 2);
+  assert.equal(markup.inline_keyboard[0]![0]!.callback_data, "fg:y");
+  assert.equal(markup.inline_keyboard[0]![1]!.callback_data, "fg:n");
 });
 
 test("buildForgetDoneText pluralises 'row' correctly", () => {
@@ -34,19 +53,24 @@ test("buildForgetExpiredText + cancelled + group-redirect copy", () => {
   assert.match(buildForgetGroupRedirectText(), /DM me to use \/forgetme/);
 });
 
-test("beginForget records pending state and returns prompt", () => {
+test("beginForget records awaitingYes pending state and returns prompt", () => {
   const state = createForgetState();
   const step = beginForget(state, 42, 1_000);
   assert.deepEqual(step, { kind: "prompt" });
-  assert.equal(state.pendingByUser.get(42), 1_000 + FORGET_CONFIRM_TTL_MS);
+  const pending = state.pendingByUser.get(42);
+  assert.equal(pending?.stage, "awaitingYes");
+  assert.equal(pending?.expiresAt, 1_000 + FORGET_CONFIRM_TTL_MS);
 });
 
-test("tryConfirmForget with YES inside the window executes and clears state", () => {
+test("tryConfirmForget with YES inside the window advances to awaitingFinal (does NOT execute)", () => {
   const state = createForgetState();
   beginForget(state, 42, 1_000);
   const step = tryConfirmForget(state, 42, "yes", 1_000 + 60_000);
-  assert.deepEqual(step, { kind: "execute" });
-  assert.equal(state.pendingByUser.has(42), false);
+  assert.deepEqual(step, { kind: "awaitingFinal" });
+  // State persists with new stage + refreshed TTL.
+  const pending = state.pendingByUser.get(42);
+  assert.equal(pending?.stage, "awaitingFinal");
+  assert.equal(pending?.expiresAt, 1_000 + 60_000 + FORGET_FINAL_TTL_MS);
 });
 
 test("tryConfirmForget with YES after the window returns expired and clears state", () => {
@@ -57,18 +81,70 @@ test("tryConfirmForget with YES after the window returns expired and clears stat
   assert.equal(state.pendingByUser.has(42), false);
 });
 
-test("tryConfirmForget with non-YES reply ignores", () => {
+test("tryConfirmForget with non-YES reply ignores and keeps awaitingYes state", () => {
   const state = createForgetState();
   beginForget(state, 42, 1_000);
   const step = tryConfirmForget(state, 42, "no", 1_000 + 60_000);
   assert.deepEqual(step, { kind: "ignore" });
-  assert.equal(state.pendingByUser.has(42), true);
+  assert.equal(state.pendingByUser.get(42)?.stage, "awaitingYes");
 });
 
 test("tryConfirmForget with no pending state ignores", () => {
   const state = createForgetState();
   const step = tryConfirmForget(state, 42, "YES", 1_000);
   assert.deepEqual(step, { kind: "ignore" });
+});
+
+test("tryConfirmForget cannot bypass stage 2 — typing YES twice does not execute", () => {
+  const state = createForgetState();
+  beginForget(state, 42, 1_000);
+  // First YES → advances to awaitingFinal.
+  assert.deepEqual(
+    tryConfirmForget(state, 42, "YES", 1_000 + 1_000),
+    { kind: "awaitingFinal" },
+  );
+  // Second YES while awaitingFinal must NOT execute — execution
+  // requires the button tap (tryFinalizeForget). This is the
+  // double-confirm guarantee.
+  assert.deepEqual(
+    tryConfirmForget(state, 42, "YES", 1_000 + 2_000),
+    { kind: "ignore" },
+  );
+  // State remains awaitingFinal — the user still has a button to tap.
+  assert.equal(state.pendingByUser.get(42)?.stage, "awaitingFinal");
+});
+
+test("tryFinalizeForget executes when awaitingFinal within the window", () => {
+  const state = createForgetState();
+  beginForget(state, 42, 1_000);
+  tryConfirmForget(state, 42, "YES", 1_000 + 60_000);
+  const step = tryFinalizeForget(state, 42, 1_000 + 60_000 + 1_000);
+  assert.deepEqual(step, { kind: "execute" });
+  assert.equal(state.pendingByUser.has(42), false);
+});
+
+test("tryFinalizeForget returns expired when stage-2 window has passed", () => {
+  const state = createForgetState();
+  beginForget(state, 42, 1_000);
+  tryConfirmForget(state, 42, "YES", 1_000 + 1_000);
+  // 1_000 (begin) + 1_000 (yes) → final TTL starts at 2_000.
+  const step = tryFinalizeForget(state, 42, 2_000 + FORGET_FINAL_TTL_MS + 1);
+  assert.deepEqual(step, { kind: "expired" });
+  assert.equal(state.pendingByUser.has(42), false);
+});
+
+test("tryFinalizeForget without stage 1 ignores (button tap with no pending YES)", () => {
+  const state = createForgetState();
+  const step = tryFinalizeForget(state, 42, 1_000);
+  assert.deepEqual(step, { kind: "ignore" });
+});
+
+test("tryFinalizeForget while still awaitingYes ignores (button can't skip stage 1)", () => {
+  const state = createForgetState();
+  beginForget(state, 42, 1_000);
+  const step = tryFinalizeForget(state, 42, 1_000 + 1_000);
+  assert.deepEqual(step, { kind: "ignore" });
+  assert.equal(state.pendingByUser.get(42)?.stage, "awaitingYes");
 });
 
 test("executeForget calls all delete deps in order, audits, sums rowcounts", async () => {
