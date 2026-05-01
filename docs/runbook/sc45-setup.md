@@ -94,7 +94,7 @@ After env changes: `npm run bootstrap` (idempotent) + `npm run telegram:webhook`
 2. `/readyz` returns 200 (validates DB + Telegram getMe).
 3. DM the bot `/start` → SC45 welcome appears, lists `/lookup`, `/policy`, `/forgetme`.
 4. DM `/lookup @somerealmember` → entries returned, **case-insensitive** (try `@SOMEREAL` and `@somereal` — both must work). The case fix is in `getArchiveEntriesForTarget` + `getBusinessProfileByUsername` (LOWER on both sides).
-5. DM `/policy` → policy message with Telegram-side links + `@notoscam`.
+5. DM `/policy` → policy message with Telegram-side links (no reporting-channel pointer — see `docs/policies/README.md` "Reporting abuse").
 6. DM `/forgetme` → confirmation prompt; reply `YES` → deletion succeeds (use a throwaway test account; this is destructive). Verify only reviewer-side rows are removed; vouches written about the test account stay.
 7. Post a commercial-shaped message in the group as a non-admin → auto-deleted, DM warn arrives with "removed by automated moderation" wording.
 8. Post a normal vouch in the group → not deleted, mirrored to backup channel (check `mirror_log` row exists).

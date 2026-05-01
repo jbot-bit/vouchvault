@@ -51,3 +51,41 @@ export async function getLastMirrorAt(): Promise<Date | null> {
   const row = result[0]!;
   return row.forwardedAt;
 }
+
+export async function getMirrorDiagnostics(): Promise<{
+  total: number;
+  last24h: number;
+  last1h: number;
+  lastForwardedAt: Date | null;
+}> {
+  const cutoff24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const cutoff1h = new Date(Date.now() - 60 * 60 * 1000);
+  const result = await db.execute<{
+    total: string;
+    last24h: string;
+    last1h: string;
+    last_at: string | null;
+  }>(
+    sql`SELECT
+          COUNT(*)::text AS total,
+          COUNT(*) FILTER (WHERE forwarded_at >= ${cutoff24h})::text AS last24h,
+          COUNT(*) FILTER (WHERE forwarded_at >= ${cutoff1h})::text AS last1h,
+          MAX(forwarded_at) AS last_at
+        FROM mirror_log`,
+  );
+  const rows: ReadonlyArray<{
+    total: string;
+    last24h: string;
+    last1h: string;
+    last_at: string | null;
+  }> = Array.isArray(result)
+    ? result
+    : (result as { rows: any[] }).rows ?? [];
+  const r = rows[0];
+  return {
+    total: Number(r?.total ?? "0"),
+    last24h: Number(r?.last24h ?? "0"),
+    last1h: Number(r?.last1h ?? "0"),
+    lastForwardedAt: r?.last_at ? new Date(r.last_at) : null,
+  };
+}

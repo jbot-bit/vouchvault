@@ -47,7 +47,7 @@ This bot operates on Telegram and is bound by Telegram's terms. Read these:
 
 ## Reporting abuse
 
-Report Telegram ToS violations to [`@notoscam`](https://t.me/notoscam) — Telegram's official channel. Operator contact for bot-specific concerns: _[insert contact handle]_.
+Use Telegram's native reporting UI (long-press the message → Report) for ToS violations. Operator contact for bot-specific concerns: _[insert contact handle]_.
 
 ## Changes
 

@@ -4,6 +4,8 @@ import assert from "node:assert/strict";
 import {
   buildLookupExpandCallback,
   buildLookupNegCallback,
+  buildRemoveEntryCancelCallback,
+  buildRemoveEntryConfirmCallback,
   parseLookupExpandCallback,
   parseLookupNegCallback,
 } from "./archive.ts";
@@ -16,6 +18,9 @@ const KNOWN_CALLBACKS: string[] = [
   buildLookupExpandCallback("bobbiz"),
   buildLookupNegCallback("a".repeat(32)),
   buildLookupNegCallback("bobbiz"),
+  // Worst-case entry id: 32-bit signed int max ≈ 10 chars.
+  buildRemoveEntryConfirmCallback(2147483647),
+  buildRemoveEntryCancelCallback(2147483647),
 ];
 
 test("every callback data string is <= 64 bytes", () => {

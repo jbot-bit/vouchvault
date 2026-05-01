@@ -48,7 +48,9 @@ test("welcome text is SC45-branded and points at /search, /policy, /forgetme", (
   assert.match(text, /auto-delete/);
   assert.match(text, /Hit <code>\/start<\/code> once/);
   assert.match(text, /Telegram ToS/);
-  assert.match(text, /@notoscam/);
+  // @notoscam was removed — surfacing it in bot copy invites reports
+  // against the bot itself. Members report through Telegram's native UI.
+  assert.equal(text.includes("@notoscam"), false);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
 });
@@ -83,14 +85,15 @@ test("bot description is concise, SC45-branded, ≤512 chars", () => {
   assert.ok(short.length <= 120);
 });
 
-test("rules block contains the four bullets in welcome and pinned guide", () => {
+test("rules block contains the three bullets in welcome and pinned guide", () => {
   const surfaces = [buildWelcomeText(), buildPinnedGuideText()];
   for (const text of surfaces) {
     assert.match(text, /<b>Rules<\/b>/);
     assert.match(text, /Telegram ToS — no illegal, no scams/);
     assert.match(text, /Vouch only people you know personally/);
     assert.match(text, /No personal opinions, no rating, no minors/);
-    assert.match(text, /Report ToS violations to @notoscam/);
+    // @notoscam line removed: bot copy shouldn't direct members to report.
+    assert.equal(text.includes("@notoscam"), false);
   }
 });
 
@@ -310,7 +313,7 @@ test("buildLookupText shows Frozen status with reason and 'No vouches' when zero
 
   assert.match(text, /<b><u>@icebox<\/u><\/b>/);
   assert.match(text, /Status: Frozen — <i>scam attempt<\/i>/);
-  assert.match(text, /No vouches for <b>@icebox<\/b>\./);
+  assert.match(text, /No vouches yet for <b>@icebox<\/b>/);
 });
 
 test("buildLookupText falls back to 'no reason given' when frozen with null reason", () => {
@@ -645,6 +648,8 @@ test("buildAdminHelpText lists every admin command (v9 — /search primary, /loo
     "/pause",
     "/unpause",
     "/dbstats",
+    "/mirrorstats",
+    "/modstats",
   ]) {
     assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
   }
@@ -725,7 +730,7 @@ test("env override falls back to default when env is empty / whitespace", () => 
   }
 });
 
-test("buildPolicyText covers store/delete/Telegram-policies/abuse with no external URL", () => {
+test("buildPolicyText covers store/delete/Telegram-policies with no external URL", () => {
   const text = buildPolicyText();
   assert.match(text, /<b>Policy \+ data handling<\/b>/);
   assert.match(text, /automated read-only lookup tool/);
@@ -734,7 +739,8 @@ test("buildPolicyText covers store/delete/Telegram-policies/abuse with no extern
   assert.match(text, /https:\/\/telegram\.org\/tos/);
   assert.match(text, /https:\/\/telegram\.org\/privacy/);
   assert.match(text, /https:\/\/telegram\.org\/tos\/bots/);
-  assert.match(text, /@notoscam/);
+  // @notoscam removed — bot copy doesn't direct members to report.
+  assert.equal(text.includes("@notoscam"), false);
   // No operator-hosted URL surface — group-pinnable, DM-deliverable only.
   assert.equal(text.includes("Full policy:"), false);
 });

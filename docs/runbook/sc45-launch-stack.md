@@ -87,6 +87,7 @@ Set-and-forget once deployed. No new features needed for ongoing operation.
 - [ ] Smoke test `/forgetme` on a throwaway account → confirmation prompt → YES → deletion confirmed; vouches authored ABOUT the throwaway by other members stay.
 - [ ] Smoke test commercial-shape post → auto-removed → DM warn arrives with "removed by automated moderation" wording.
 - [ ] Smoke test normal vouch post → not removed → mirror_log row written → backup channel shows the forwarded message.
+- [ ] BotFather `/setinline` → enable inline mode → set placeholder to `@username` (e.g. `@bobbiz`). Smoke test by typing `@<bot> @somerealmember` in any chat — a single result with the trust headline must appear within ~1s. Inline mode is read-only + member-scope (NEG counts never surfaced); same 5s/user rate limit as DM /search.
 
 ## Recovery
 

@@ -128,6 +128,30 @@ export function parseLookupNegCallback(data: string): string | null {
   const u = data.slice("lk:n:".length);
   return /^[a-z0-9_]{5,32}$/.test(u) ? u : null;
 }
+
+// /remove_entry confirm-button callback_data.
+// "re:y:<id>" — confirm destructive remove.
+// "re:n:<id>" — cancel. id is the vouch_entries.id (positive integer);
+// callers Math.floor + Number.isSafeInteger before building.
+export function buildRemoveEntryConfirmCallback(entryId: number): string {
+  return `re:y:${Math.trunc(entryId)}`;
+}
+
+export function buildRemoveEntryCancelCallback(entryId: number): string {
+  return `re:n:${Math.trunc(entryId)}`;
+}
+
+export function parseRemoveEntryConfirmCallback(data: string): number | null {
+  if (!data.startsWith("re:y:")) return null;
+  const n = Number(data.slice("re:y:".length));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+export function parseRemoveEntryCancelCallback(data: string): number | null {
+  if (!data.startsWith("re:n:")) return null;
+  const n = Number(data.slice("re:n:".length));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
@@ -336,6 +360,7 @@ function fmtStatusLine(
   isFrozen: boolean,
   freezeReason: string | null,
   hasCaution: boolean = false,
+  viewerScope: "admin" | "member" = "admin",
 ): string {
   if (isFrozen) {
     // Frozen wins over Caution. If the stored reason matches a current enum
@@ -345,7 +370,9 @@ function fmtStatusLine(
       freezeReason && isFreezeReason(freezeReason)
         ? FREEZE_REASON_LABELS[freezeReason]
         : (freezeReason ?? "no reason given");
-    return `Status: Frozen — <i>${escapeHtml(label)}</i>`;
+    // Member view appends a plain-language hint; admin view stays terse.
+    const hint = viewerScope === "member" ? " (caution when transacting)" : "";
+    return `Status: Frozen — <i>${escapeHtml(label)}</i>${hint}`;
   }
   if (hasCaution) return "Status: Caution";
   return "Status: Active";
@@ -356,7 +383,6 @@ const DEFAULT_RULES_TEXT = [
   "• Telegram ToS — no illegal, no scams",
   "• Vouch only people you know personally",
   "• No personal opinions, no rating, no minors",
-  "• Report ToS violations to @notoscam",
 ].join("\n");
 
 function rulesLine(): string {
@@ -389,8 +415,6 @@ export function buildPolicyText(): string {
     "• Terms of Service — https://telegram.org/tos",
     "• Privacy Policy — https://telegram.org/privacy",
     "• Bot Terms — https://telegram.org/tos/bots",
-    "",
-    "<b>Report abuse:</b> Telegram ToS violations → @notoscam (the official channel).",
   ].join("\n");
 }
 
@@ -525,13 +549,39 @@ export function buildLookupText(input: {
   // Override how many entries the preview shows. Default 5 (DM); group
   // surface uses 3 to keep replies compact.
   previewLimit?: number;
+  // "admin" → renders frozen status terse. "member" → appends "(caution
+  // when transacting)" so the freeze tag is interpretable. Defaults to
+  // "admin" so untouched callers keep their existing copy.
+  viewerScope?: "admin" | "member";
 }): string {
   const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
-  const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
+  const viewerScope = input.viewerScope ?? "admin";
+  const statusLine = fmtStatusLine(
+    input.isFrozen,
+    input.freezeReason,
+    false,
+    viewerScope,
+  );
   const mode = input.mode ?? "preview";
 
+  // Reserved-target short-circuit: vouching the bot itself or a
+  // Telegram-reserved handle (telegram, botfather, etc.) is rejected
+  // upstream; here we explain why a /search for one returns nothing.
+  if (isReservedTarget(input.targetUsername)) {
+    return [
+      heading,
+      "",
+      "I'm a read-only lookup tool, not a person — you can't vouch for me.",
+    ].join("\n");
+  }
+
   if (input.counts.total === 0) {
-    const lines = [heading, statusLine, "", `No vouches for ${fmtUser(input.targetUsername)}.`];
+    const lines = [
+      heading,
+      statusLine,
+      "",
+      `No vouches yet for ${fmtUser(input.targetUsername)}. They might be new, or no one's posted about them. If you've worked with them, post a vouch in the group.`,
+    ];
     if (
       typeof input.counts.authoredCount === "number" &&
       input.counts.authoredCount > 0
@@ -854,13 +904,280 @@ export function buildAdminHelpText(): string {
     "/freeze @x [reason] — block new entries",
     "/unfreeze @x — allow entries again",
     "/frozen_list — show frozen profiles",
-    "/remove_entry &lt;id&gt; — delete an entry",
+    "/remove_entry &lt;id&gt; — delete an entry (with confirm)",
     "/recover_entry &lt;id&gt; — clear stuck publishing",
     "/search @x — full audit list (alias: /lookup)",
     "/pause — pause new vouches",
     "/unpause — resume vouches",
     "/dbstats — DB diagnostics (entry counts, status breakdown)",
+    "/mirrorstats — backup-channel mirror health",
+    "/modstats — chat-moderation deletion stats",
   ].join("\n");
+}
+
+// /me self-summary. Caller's own counts only — never accepts a target
+// argument (that's just /search). Empty state when the caller has no
+// vouches yet.
+export function buildMeText(input: {
+  username: string;
+  counts: {
+    total: number;
+    positive: number;
+    mixed: number;
+    negative: number;
+    firstAt: Date | null;
+    lastAt: Date | null;
+  };
+  authoredCount: number;
+}): string {
+  const heading = `<b><u>Your vouches</u></b>`;
+  const handle = fmtUser(input.username);
+  if (input.counts.total === 0 && input.authoredCount === 0) {
+    return [
+      heading,
+      "",
+      `No vouches recorded for ${handle} yet.`,
+      "",
+      "If members have worked with you, they can post a vouch as a normal message in the group.",
+    ].join("\n");
+  }
+
+  const lines: string[] = [heading, "", `Handle: ${handle}`];
+  if (input.counts.total > 0) {
+    const breakdown: string[] = [];
+    if (input.counts.positive > 0) breakdown.push(`✅ ${input.counts.positive} POS`);
+    if (input.counts.mixed > 0) breakdown.push(`⚖️ ${input.counts.mixed} MIX`);
+    // NEG count intentionally omitted — NEG existence is private.
+    const noun = input.counts.total === 1 ? "vouch" : "vouches";
+    const visibleTotal = input.counts.positive + input.counts.mixed;
+    lines.push(
+      `Received: <b>${visibleTotal} ${noun}</b>${
+        breakdown.length > 0 ? ` — ${breakdown.join(" · ")}` : ""
+      }`,
+    );
+    if (input.counts.firstAt && input.counts.lastAt) {
+      const days = Math.floor(
+        (Date.now() - input.counts.lastAt.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      const ago =
+        days <= 0
+          ? "today"
+          : days === 1
+          ? "1 day ago"
+          : days < 60
+          ? `${days} days ago`
+          : `${Math.floor(days / 30)} months ago`;
+      lines.push(
+        `Active ${fmtDate(input.counts.firstAt)} → ${fmtDate(input.counts.lastAt)} (last ${ago})`,
+      );
+    }
+  } else {
+    lines.push("Received: 0 vouches");
+  }
+  if (input.authoredCount > 0) {
+    const noun = input.authoredCount === 1 ? "vouch" : "vouches";
+    lines.push(`Authored: <b>${input.authoredCount} ${noun}</b> about other members`);
+  }
+  return lines.join("\n");
+}
+
+// /remove_entry confirmation prompt — destructive action, render the
+// entry summary so the admin can double-check before tapping Confirm.
+export function buildRemoveEntryConfirmText(input: {
+  entryId: number;
+  reviewerUsername: string;
+  targetUsername: string;
+  result: EntryResult;
+  createdAt: Date;
+  bodyText?: string | null;
+}): string {
+  const lines = [
+    "<b>Confirm remove</b>",
+    "",
+    `<b>#${input.entryId}</b> — ${fmtResult(input.result)}`,
+    `By ${fmtUser(input.reviewerUsername)} → ${fmtUser(input.targetUsername)} • ${fmtDate(
+      input.createdAt,
+    )}`,
+  ];
+  if (input.bodyText && input.bodyText.trim().length > 0) {
+    lines.push(`<i>${escapeHtml(truncateBody(input.bodyText))}</i>`);
+  }
+  lines.push("");
+  lines.push("This deletes the entry from /search and (best-effort) the group post.");
+  return lines.join("\n");
+}
+
+export function buildRemoveEntryConfirmMarkup(entryId: number): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Confirm", callback_data: buildRemoveEntryConfirmCallback(entryId) },
+        { text: "❌ Cancel", callback_data: buildRemoveEntryCancelCallback(entryId) },
+      ],
+    ],
+  };
+}
+
+// /mirrorstats — operator-visibility text built from mirror_log diagnostics.
+// Health indicator picks one of three states based on most-recent
+// forwarded_at vs. now and the VV_MIRROR_ENABLED config flag.
+export function buildMirrorStatsText(input: {
+  enabled: boolean;
+  total: number;
+  last24h: number;
+  last1h: number;
+  lastForwardedAt: Date | null;
+}): string {
+  let health: string;
+  if (!input.enabled) {
+    health = "✗ disabled (VV_MIRROR_ENABLED unset)";
+  } else if (input.last1h > 0) {
+    health = "✓ active in last hour";
+  } else if (input.last24h > 0) {
+    health = "✓ active in last 24h";
+  } else {
+    health = "⚠ no activity in last 24h";
+  }
+  const lines = [
+    "<b>Mirror stats</b>",
+    "",
+    `Status: ${health}`,
+    `Total mirrored: ${input.total}`,
+    `Last 24h: ${input.last24h}`,
+    `Last 1h: ${input.last1h}`,
+  ];
+  if (input.lastForwardedAt) {
+    lines.push(`Most recent: ${fmtDateTime(input.lastForwardedAt)}`);
+  } else {
+    lines.push("Most recent: never");
+  }
+  return lines.join("\n");
+}
+
+// /modstats — chat-moderation deletion volume + top offenders. Reads from
+// admin_audit_log filtered to command='chat_moderation:delete'.
+export function buildModStatsText(input: {
+  countToday: number;
+  count7d: number;
+  topReviewers: Array<{ username: string | null; count: number }>;
+  topHitSources: Array<{ source: string; count: number }>;
+}): string {
+  const lines = [
+    "<b>Moderation stats</b>",
+    "",
+    `Deletions today: ${input.countToday}`,
+    `Deletions last 7d: ${input.count7d}`,
+  ];
+  if (input.topReviewers.length > 0) {
+    lines.push("");
+    lines.push("<b>Top deleted senders (7d):</b>");
+    for (const row of input.topReviewers) {
+      const handle = row.username
+        ? fmtUser(row.username)
+        : "<i>(no username)</i>";
+      lines.push(`  • ${handle} — ${row.count}`);
+    }
+  }
+  if (input.topHitSources.length > 0) {
+    lines.push("");
+    lines.push("<b>Top hit sources (7d):</b>");
+    for (const row of input.topHitSources) {
+      lines.push(`  • <code>${escapeHtml(row.source)}</code> — ${row.count}`);
+    }
+  }
+  if (input.count7d === 0) {
+    lines.push("");
+    lines.push("<i>No moderation deletions in the last 7 days.</i>");
+  }
+  return lines.join("\n");
+}
+
+// Inline mode: condensed one-liner used as the InputTextMessageContent
+// when a member picks an inline result. Member-scope only — NEG count
+// and existence is admin-only and must never appear here. Empty / reserved
+// targets get a clear "no result" copy instead of a silent dropdown.
+export function buildInlineSummaryText(input: {
+  targetUsername: string;
+  // Always pass POS+MIX only; caller should not pass NEG counts.
+  positive: number;
+  mixed: number;
+  total: number;
+  lastAt: Date | null;
+  isFrozen: boolean;
+}): string {
+  if (isReservedTarget(input.targetUsername)) {
+    return `${formatUsername(input.targetUsername)} — read-only lookup tool, not a person.`;
+  }
+  if (input.total === 0) {
+    return `${formatUsername(input.targetUsername)} — no vouches yet.`;
+  }
+  const noun = input.total === 1 ? "vouch" : "vouches";
+  const breakdown: string[] = [];
+  if (input.positive > 0) breakdown.push(`✅ ${input.positive} POS`);
+  if (input.mixed > 0) breakdown.push(`⚖️ ${input.mixed} MIX`);
+  let line = `${formatUsername(input.targetUsername)} — ${input.total} ${noun}`;
+  if (breakdown.length > 0) line += ` (${breakdown.join(" · ")})`;
+  if (input.isFrozen) line += " · ⚠️ frozen — caution when transacting";
+  if (input.lastAt) {
+    const days = Math.floor((Date.now() - input.lastAt.getTime()) / (24 * 60 * 60 * 1000));
+    const ago =
+      days <= 0
+        ? "today"
+        : days === 1
+        ? "1d ago"
+        : days < 60
+        ? `${days}d ago`
+        : `${Math.floor(days / 30)}mo ago`;
+    line += ` · last ${ago}`;
+  }
+  return line;
+}
+
+// Inline-result title shown in the dropdown preview. Telegram clients
+// truncate aggressively so keep it tight.
+export function buildInlineSummaryTitle(input: {
+  targetUsername: string;
+  positive: number;
+  mixed: number;
+  total: number;
+  isFrozen: boolean;
+}): string {
+  if (isReservedTarget(input.targetUsername)) {
+    return `${formatUsername(input.targetUsername)} — not a person`;
+  }
+  if (input.total === 0) {
+    return `${formatUsername(input.targetUsername)} — no vouches`;
+  }
+  const noun = input.total === 1 ? "vouch" : "vouches";
+  const frozen = input.isFrozen ? " · ⚠ frozen" : "";
+  return `${formatUsername(input.targetUsername)} — ${input.total} ${noun}${frozen}`;
+}
+
+// InlineQueryResultArticle constructor. id must be unique per (query, result);
+// a deterministic id derived from the normalized handle is fine because
+// Telegram caches by (query, user, id).
+export function buildInlineLookupResult(input: {
+  targetUsername: string;
+  positive: number;
+  mixed: number;
+  total: number;
+  lastAt: Date | null;
+  isFrozen: boolean;
+}): Record<string, unknown> {
+  const description = buildInlineSummaryText(input);
+  return {
+    type: "article",
+    id: `vv:${input.targetUsername}`.slice(0, 64),
+    title: buildInlineSummaryTitle(input),
+    description,
+    input_message_content: {
+      message_text: description,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    },
+  };
 }
 
 export function buildFrozenListText(

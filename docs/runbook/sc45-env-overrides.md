@@ -44,10 +44,10 @@ Post vouches in the group. Tag the @, say what happened.
 
 ## What's NOT env-overridable (and why)
 
-- `/policy` text — security-sensitive copy that lists what's stored + the deletion path. Keep it locked in code so an env-edit can't accidentally drop the deletion-pointer or the abuse channel.
+- `/policy` text — security-sensitive copy that lists what's stored + the deletion path. Keep it locked in code so an env-edit can't accidentally drop the deletion-pointer.
 - `/forgetme` confirmation prompt — same rationale.
 - Moderation-warn text — needs to remain plain so it doesn't leak group identity to a takedown reporter.
-- Rules block COULD be overridden via `BOT_RULES_TEXT` but be careful: keep the `@notoscam` line for ToS-compliance posture.
+- Rules block CAN be overridden via `BOT_RULES_TEXT`. Do **not** add an `@notoscam` (or any other reporting-channel) line — surfacing a report channel in bot copy invites reports against the bot itself.
 
 ## See also
 
