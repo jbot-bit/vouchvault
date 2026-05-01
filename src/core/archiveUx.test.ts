@@ -12,6 +12,7 @@ import {
   buildFrozenListText,
   buildLookupBotDescription,
   buildLookupBotShortDescription,
+  buildLookupReplyMarkup,
   buildLookupText,
   buildModerationWarnText,
   buildPinnedGuideText,
@@ -294,6 +295,81 @@ test("buildLookupText preview mode renders only first 5 of 8 entries", () => {
   assert.match(text, /<b>#1<\/b>/);
   assert.match(text, /<b>#5<\/b>/);
   assert.equal(text.includes("<b>#6</b>"), false);
+});
+
+test("buildLookupReplyMarkup: shows See-all button in preview mode when total > shown", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 5,
+    totalAvailable: 23,
+    mode: "preview",
+  });
+  assert.ok(m, "should return markup");
+  assert.equal(m!.inline_keyboard.length, 1);
+  assert.match(m!.inline_keyboard[0]![0]!.text, /📋 See all 23 vouches/);
+  assert.equal(m!.inline_keyboard[0]![0]!.callback_data, "lk:a:bobbiz");
+});
+
+test("buildLookupReplyMarkup: no buttons when preview shows all entries", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 3,
+    totalAvailable: 3,
+    mode: "preview",
+  });
+  assert.equal(m, null);
+});
+
+test("buildLookupReplyMarkup: admin gets See-NEG button when negCount > 0", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 5,
+    totalAvailable: 23,
+    mode: "preview",
+    negCount: 1,
+    isAdmin: true,
+  });
+  assert.ok(m);
+  assert.equal(m!.inline_keyboard.length, 2);
+  assert.match(m!.inline_keyboard[0]![0]!.text, /See all 23/);
+  assert.match(m!.inline_keyboard[1]![0]!.text, /⚠️ See 1 NEG/);
+  assert.equal(m!.inline_keyboard[1]![0]!.callback_data, "lk:n:bobbiz");
+});
+
+test("buildLookupReplyMarkup: NEG plural label", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 5,
+    totalAvailable: 5,
+    mode: "preview",
+    negCount: 3,
+    isAdmin: true,
+  });
+  assert.match(m!.inline_keyboard[0]![0]!.text, /⚠️ See 3 NEGs/);
+});
+
+test("buildLookupReplyMarkup: members never see NEG button (privacy)", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 5,
+    totalAvailable: 5,
+    mode: "preview",
+    negCount: 3,
+    isAdmin: false,
+  });
+  assert.equal(m, null);
+});
+
+test("buildLookupReplyMarkup: no NEG button when already in neg mode", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 1,
+    totalAvailable: 1,
+    mode: "neg",
+    negCount: 1,
+    isAdmin: true,
+  });
+  assert.equal(m, null);
 });
 
 test("buildLookupText all mode renders every entry passed in", () => {
