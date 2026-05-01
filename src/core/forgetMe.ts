@@ -12,26 +12,14 @@ export const FORGET_FINAL_TTL_MS = 5 * 60 * 1000;
 
 export function buildForgetPromptText(): string {
   return [
-    "<b>Forget me — step 1 of 2</b>",
+    "Wipes every vouch you wrote and your account. Vouches others wrote about you stay.",
     "",
-    "This will permanently delete:",
-    "• every vouch <b>you authored</b>,",
-    "• your draft state, first-seen record, and stored profile.",
-    "",
-    "Vouches other members wrote <b>about</b> you stay — they're those members' words, not your data, and removing them would let bad actors wipe negative feedback about themselves.",
-    "",
-    "This cannot be undone. Reply <code>YES</code> within 5 minutes to continue to the final confirmation.",
+    "Reply <code>YES</code> within 5 min.",
   ].join("\n");
 }
 
 export function buildForgetFinalConfirmText(): string {
-  return [
-    "<b>Forget me — step 2 of 2</b>",
-    "",
-    "Last chance. Tap <b>✅ Confirm delete</b> below to permanently delete every vouch you authored.",
-    "",
-    "<b>This cannot be undone.</b>",
-  ].join("\n");
+  return "Last chance. Tap Confirm.";
 }
 
 export function buildForgetFinalConfirmMarkup(): {
@@ -40,28 +28,28 @@ export function buildForgetFinalConfirmMarkup(): {
   return {
     inline_keyboard: [
       [
-        { text: "✅ Confirm delete", callback_data: "fg:y" },
-        { text: "❌ Cancel", callback_data: "fg:n" },
+        { text: "Confirm", callback_data: "fg:y" },
+        { text: "Cancel", callback_data: "fg:n" },
       ],
     ],
   };
 }
 
 export function buildForgetCancelledText(): string {
-  return "Cancelled. Your data is unchanged.";
+  return "Cancelled.";
 }
 
 export function buildForgetDoneText(deletedCount: number): string {
   const noun = deletedCount === 1 ? "row" : "rows";
-  return `Done — deleted ${deletedCount} ${noun} tied to your account. If anyone vouches you again later, /forgetme again.`;
+  return `Wiped ${deletedCount} ${noun}.`;
 }
 
 export function buildForgetExpiredText(): string {
-  return "Confirmation window expired. DM /forgetme again to start over.";
+  return "Expired. /forgetme to start over.";
 }
 
 export function buildForgetGroupRedirectText(): string {
-  return "DM me to use /forgetme — this command only works in direct messages.";
+  return "DM me to use /forgetme.";
 }
 
 export type ForgetStage = "awaitingYes" | "awaitingFinal";

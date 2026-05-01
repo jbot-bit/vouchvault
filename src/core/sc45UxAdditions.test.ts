@@ -54,7 +54,7 @@ test("buildLookupText member-scope appends caution hint to frozen status", () =>
   assert.equal(adminText.includes("caution when transacting"), false);
 });
 
-test("buildLookupText empty state suggests posting in the group, not 'no vouches'", () => {
+test("buildLookupText empty state is short and clear", () => {
   const text = buildLookupText({
     targetUsername: "newuser",
     isFrozen: false,
@@ -62,8 +62,8 @@ test("buildLookupText empty state suggests posting in the group, not 'no vouches
     counts: { total: 0, positive: 0, mixed: 0, negative: 0 },
     entries: [],
   });
-  assert.match(text, /No vouches yet for/);
-  assert.match(text, /post a vouch in the group/);
+  assert.match(text, /Nothing on/);
+  assert.match(text, /@newuser/);
 });
 
 test("buildLookupText short-circuits reserved targets (bot self / telegram-reserved)", () => {
@@ -74,10 +74,9 @@ test("buildLookupText short-circuits reserved targets (bot self / telegram-reser
     counts: { total: 0, positive: 0, mixed: 0, negative: 0 },
     entries: [],
   });
-  assert.match(text, /read-only lookup tool/);
-  assert.match(text, /can't vouch for me/);
+  assert.match(text, /Can't vouch the bot/);
   // Empty-state copy must not bleed through.
-  assert.equal(text.includes("No vouches yet"), false);
+  assert.equal(text.includes("Nothing on"), false);
 });
 
 test("buildMeText shows zero state when caller has no record", () => {
@@ -93,9 +92,8 @@ test("buildMeText shows zero state when caller has no record", () => {
     },
     authoredCount: 0,
   });
-  assert.match(text, /Your vouches/);
-  assert.match(text, /No vouches recorded/);
-  assert.match(text, /post a vouch as a normal message/);
+  assert.match(text, /Nothing on/);
+  assert.match(text, /@newbie/);
 });
 
 test("buildMeText shows received + authored counts when present", () => {
@@ -111,12 +109,10 @@ test("buildMeText shows received + authored counts when present", () => {
     },
     authoredCount: 3,
   });
-  assert.match(text, /Received:/);
   assert.match(text, /5 vouches/);
   assert.match(text, /4 POS/);
   assert.match(text, /1 MIX/);
-  assert.match(text, /Authored:/);
-  assert.match(text, /3 vouches/);
+  assert.match(text, /Wrote 3 vouches/);
 });
 
 test("buildMeText never surfaces NEG counts to the caller", () => {

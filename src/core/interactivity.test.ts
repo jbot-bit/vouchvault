@@ -36,10 +36,10 @@ test("/me reply markup: row 1 = inline-search switch, row 2 = forget callback", 
 
 test("buildSearchPromptText + markup: button is the inline-mode trigger", () => {
   const text = buildSearchPromptText();
-  assert.match(text, /<b>Search a member<\/b>/);
+  assert.match(text, /<code>\/search @username<\/code>/);
   const markup = buildSearchPromptReplyMarkup();
   const btn = markup.inline_keyboard[0]![0]!;
-  assert.match(btn.text, /username/);
+  assert.match(btn.text, /Search/);
   assert.equal(typeof btn.switch_inline_query_current_chat, "string");
 });
 
