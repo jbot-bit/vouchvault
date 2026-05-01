@@ -428,7 +428,7 @@ const DEFAULT_WELCOME_TEXT = [
   "<code>/forgetme</code> — wipe yours.",
   "<code>/policy</code> — what's stored.",
   "",
-  "Vouch by posting in the group. Tag the @, say what happened.",
+  "Vouch by posting in the group. Tag the @, say what happened, mark it <b>pos / neg / neutral</b>. Vouch back is expected.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
@@ -439,7 +439,7 @@ const DEFAULT_PINNED_GUIDE_TEXT = [
   "<code>/forgetme</code> — wipe yours.",
   "<code>/policy</code> — data handling.",
   "",
-  "Vouch by posting in this group. Tag the @, say what happened.",
+  "Vouch by posting in this group. Tag the @, say what happened, mark it <b>pos / neg / neutral</b>. Vouch back is expected.",
 ].join("\n");
 
 export function buildWelcomeText(): string {
