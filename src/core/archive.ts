@@ -328,16 +328,16 @@ export function buildWelcomeText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
+    "Vouch for members you personally know. The community helps each other find trustworthy people to interact with.",
     "",
     "<b><u>How to vouch</u></b>",
     "Post your vouch as a normal message in the group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
     "",
-    "<b><u>Check before you deal</u></b>",
+    "<b><u>Check before you interact</u></b>",
     "Use the search bar at the top of the group to look up anyone's @username. To search the legacy archive, DM me <code>/lookup @username</code>.",
     "",
     "<b><u>Chat moderation</u></b>",
-    "Posts that look like buy/sell arrangements are auto-removed. Contact an admin if you think this happened in error.",
+    "Posts that look like commercial arrangements are auto-removed. Contact an admin if you think this happened in error.",
     "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
     "",
     rulesLine(),
@@ -348,16 +348,16 @@ export function buildPinnedGuideText(): string {
   return [
     "<b>Welcome to the Vouch Hub</b>",
     "",
-    "Vouch for members you personally know. The community helps each other find trustworthy people to deal with.",
+    "Vouch for members you personally know. The community helps each other find trustworthy people to interact with.",
     "",
     "<b><u>How to vouch</u></b>",
     "Post your vouch as a normal message in this group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
     "",
-    "<b><u>Check before you deal</u></b>",
+    "<b><u>Check before you interact</u></b>",
     "Use the search bar at the top of this group to look up anyone's @username. DM me <code>/lookup @username</code> to search the legacy archive.",
     "",
     "<b><u>Chat moderation</u></b>",
-    "Posts that look like buy/sell arrangements are auto-removed. Contact an admin if you think this happened in error.",
+    "Posts that look like commercial arrangements are auto-removed. Contact an admin if you think this happened in error.",
     "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
     "",
     rulesLine(),
@@ -491,7 +491,7 @@ export function buildModerationWarnText(input: {
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
       : "contact an admin";
-  return `Your message in <b>${escapedGroup}</b> was removed. Posts that look like buy/sell arrangements are auto-removed. If you believe this was a mistake, ${adminPointer}.`;
+  return `Your message in <b>${escapedGroup}</b> was removed. Posts that look like commercial arrangements are auto-removed. If you believe this was a mistake, ${adminPointer}.`;
 }
 
 export function buildAdminHelpText(): string {
