@@ -282,7 +282,29 @@ export function escapeHtml(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// "Synthetic-username" patterns the legacy importer emits when no real
+// Telegram @-handle was recoverable from the source data:
+//   user<digits>      — V1/Forwards entries built from from_id only
+//   fwd_<sha1[:10]>   — Forwards entries with no display name to slugify
+// Real Telegram @s are 5-32 alphanumeric_underscore. We detect synthetic
+// here and render them as tg://user?id deep-links (V1 has real telegram
+// ids → opens profile) or plain monospace ids (forwards' synthetic ids).
+const SYNTHETIC_USER_ID_RE = /^user(\d+)$/;
+const SYNTHETIC_FWD_RE = /^fwd_[a-f0-9]{10}$/;
+
 function fmtUser(username: string): string {
+  const idMatch = SYNTHETIC_USER_ID_RE.exec(username);
+  if (idMatch) {
+    const id = idMatch[1]!;
+    // tg://user?id=<id> opens the profile in Telegram clients. Wrap in
+    // <code> so the id is also copy-paste-friendly inline.
+    return `<a href="tg://user?id=${id}"><code>id ${escapeHtml(id)}</code></a>`;
+  }
+  if (SYNTHETIC_FWD_RE.test(username)) {
+    // Forwards-archive synthetic with no telegram_id mapping. Display
+    // as plain "(unknown reviewer)" — no fake link.
+    return "<i>(unknown reviewer)</i>";
+  }
   return `<b>${escapeHtml(formatUsername(username))}</b>`;
 }
 

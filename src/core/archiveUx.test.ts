@@ -156,17 +156,80 @@ test("buildFrozenListText renders rows with reason and dd/mm/yyyy date", () => {
 });
 
 test("buildFrozenListText caps at 10 rows and notes the remainder", () => {
+  // Use distinguishable handles (not "user<n>" — that pattern now triggers
+  // the synthetic-id renderer for tg://user?id deep-links).
   const rows = Array.from({ length: 13 }, (_, i) => ({
-    username: `user${i + 1}`,
+    username: `acct${i + 1}`,
     freezeReason: null,
     frozenAt: new Date(Date.UTC(2026, 0, 1, 12)),
   }));
   const text = buildFrozenListText(rows);
 
-  assert.match(text, /<b>@user1<\/b>/);
-  assert.match(text, /<b>@user10<\/b>/);
-  assert.doesNotMatch(text, /<b>@user11<\/b>/);
+  assert.match(text, /<b>@acct1<\/b>/);
+  assert.match(text, /<b>@acct10<\/b>/);
+  assert.doesNotMatch(text, /<b>@acct11<\/b>/);
   assert.match(text, /…and 3 more — refine with \/search @x/);
+});
+
+test("buildLookupText renders synthetic user<id> as tg://user?id deep-link, not fake @-handle", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    entries: [
+      {
+        id: 1,
+        reviewerUsername: "user8386618557",
+        result: "positive",
+        tags: [],
+        createdAt: new Date(Date.UTC(2026, 3, 10)),
+      },
+    ],
+  });
+  // Should NOT contain a fake @user8386618557 link
+  assert.equal(text.includes("@user8386618557"), false);
+  // Should contain the tg:// deep-link with monospace id label
+  assert.match(text, /<a href="tg:\/\/user\?id=8386618557"><code>id 8386618557<\/code><\/a>/);
+});
+
+test("buildLookupText renders fwd_<hash> synthetic as plain '(unknown reviewer)'", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    entries: [
+      {
+        id: 2,
+        reviewerUsername: "fwd_a7b9c2d4e1",
+        result: "positive",
+        tags: [],
+        createdAt: new Date(Date.UTC(2026, 3, 10)),
+      },
+    ],
+  });
+  assert.equal(text.includes("@fwd_"), false);
+  assert.match(text, /<i>\(unknown reviewer\)<\/i>/);
+});
+
+test("buildLookupText still renders real @-handles as bold @-mentions", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    entries: [
+      {
+        id: 3,
+        reviewerUsername: "sunnycoastsmoke",
+        result: "positive",
+        tags: [],
+        createdAt: new Date(Date.UTC(2026, 3, 10)),
+      },
+    ],
+  });
+  assert.match(text, /<b>@sunnycoastsmoke<\/b>/);
 });
 
 test("buildLookupText renders admin-only note when present, HTML-escaped", () => {
