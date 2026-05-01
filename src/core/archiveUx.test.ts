@@ -173,6 +173,7 @@ test("buildLookupText renders admin-only note when present, HTML-escaped", () =>
     targetUsername: "bobbiz",
     isFrozen: false,
     freezeReason: null,
+    counts: { total: 1, positive: 0, mixed: 0, negative: 1 },
     entries: [
       {
         id: 7,
@@ -194,6 +195,7 @@ test("buildLookupText omits the note line when private_note is null", () => {
     targetUsername: "bobbiz",
     isFrozen: false,
     freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
     entries: [
       {
         id: 7,
@@ -209,11 +211,12 @@ test("buildLookupText omits the note line when private_note is null", () => {
   assert.equal(text.includes("<i>Note:</i>"), false);
 });
 
-test("buildLookupText shows Active status under heading when not frozen", () => {
+test("buildLookupText shows Active status + summary line under heading", () => {
   const text = buildLookupText({
     targetUsername: "bobbiz",
     isFrozen: false,
     freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
     entries: [
       {
         id: 42,
@@ -227,20 +230,23 @@ test("buildLookupText shows Active status under heading when not frozen", () => 
 
   assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
   assert.match(text, /Status: Active/);
+  assert.match(text, /<b>1 vouch<\/b>/);
+  assert.match(text, /✅ 1 POS/);
   assert.match(text, /<b>#42<\/b>/);
 });
 
-test("buildLookupText shows Frozen status with reason under heading when frozen", () => {
+test("buildLookupText shows Frozen status with reason and 'No vouches' when zero", () => {
   const text = buildLookupText({
     targetUsername: "icebox",
     isFrozen: true,
     freezeReason: "scam attempt",
+    counts: { total: 0, positive: 0, mixed: 0, negative: 0 },
     entries: [],
   });
 
   assert.match(text, /<b><u>@icebox<\/u><\/b>/);
   assert.match(text, /Status: Frozen — <i>scam attempt<\/i>/);
-  assert.match(text, /No entries for <b>@icebox<\/b>\./);
+  assert.match(text, /No vouches for <b>@icebox<\/b>\./);
 });
 
 test("buildLookupText falls back to 'no reason given' when frozen with null reason", () => {
@@ -248,10 +254,90 @@ test("buildLookupText falls back to 'no reason given' when frozen with null reas
     targetUsername: "icebox",
     isFrozen: true,
     freezeReason: null,
+    counts: { total: 0, positive: 0, mixed: 0, negative: 0 },
     entries: [],
   });
 
   assert.match(text, /Status: Frozen — <i>no reason given<\/i>/);
+});
+
+test("buildLookupText summary line shows total + breakdown across results", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 7, positive: 4, mixed: 2, negative: 1 },
+    entries: [],
+  });
+  assert.match(text, /<b>7 vouches<\/b>/);
+  assert.match(text, /✅ 4 POS/);
+  assert.match(text, /⚖️ 2 MIX/);
+  assert.match(text, /⚠️ 1 NEG/);
+});
+
+test("buildLookupText preview mode renders only first 5 of 8 entries", () => {
+  const entries = Array.from({ length: 8 }, (_, i) => ({
+    id: i + 1,
+    reviewerUsername: `r${i}`,
+    result: "positive" as const,
+    tags: [],
+    createdAt: new Date(Date.UTC(2026, 3, 5)),
+  }));
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 8, positive: 8, mixed: 0, negative: 0 },
+    entries,
+    mode: "preview",
+  });
+  assert.match(text, /<b>#1<\/b>/);
+  assert.match(text, /<b>#5<\/b>/);
+  assert.equal(text.includes("<b>#6</b>"), false);
+});
+
+test("buildLookupText all mode renders every entry passed in", () => {
+  const entries = Array.from({ length: 8 }, (_, i) => ({
+    id: i + 1,
+    reviewerUsername: `r${i}`,
+    result: "positive" as const,
+    tags: [],
+    createdAt: new Date(Date.UTC(2026, 3, 5)),
+  }));
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 8, positive: 8, mixed: 0, negative: 0 },
+    entries,
+    mode: "all",
+  });
+  assert.match(text, /<b>#1<\/b>/);
+  assert.match(text, /<b>#8<\/b>/);
+});
+
+test("buildLookupText renders truncated body text when present", () => {
+  const longBody = "x".repeat(500);
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    entries: [
+      {
+        id: 1,
+        reviewerUsername: "alice",
+        result: "positive",
+        tags: [],
+        createdAt: new Date(Date.UTC(2026, 3, 5)),
+        bodyText: `Bobbiz did a great job. ${longBody}`,
+      },
+    ],
+  });
+  assert.match(text, /Bobbiz did a great job/);
+  assert.match(text, /…/);
+  // Body line is rendered as <i>...</i>
+  assert.match(text, /<i>Bobbiz did a great job/);
 });
 
 test("fmtDate renders dd/mm/yyyy in UTC", () => {

@@ -3,6 +3,7 @@ import {
   buildAdminOnlyText,
   buildDbStatsText,
   buildFrozenListText,
+  buildLookupReplyMarkup,
   buildLookupText,
   buildPolicyText,
   buildWelcomeText,
@@ -11,6 +12,7 @@ import {
   formatUsername,
   isFreezeReason,
   normalizeUsername,
+  parseLookupExpandCallback,
   parseSelectedTags,
   MAX_LOOKUP_ENTRIES,
   type EntryResult,
@@ -35,6 +37,7 @@ import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
+  getArchiveCountsForTarget,
   getArchiveDiagnostics,
   getArchiveEntriesForTarget,
   getArchiveEntryById,
@@ -134,6 +137,9 @@ async function handleLookupCommand(input: {
   // "admin" → full audit (private NEGs + private_note included).
   // "member" → public view (POS + MIX only, private_note hidden).
   viewerScope: "admin" | "member";
+  // "preview" → first LOOKUP_PREVIEW_ENTRIES + "see all" button.
+  // "all" → up to MAX_LOOKUP_ENTRIES, no button.
+  mode?: "preview" | "all";
   replyToMessageId?: number | null;
   messageThreadId?: number | null;
   disableNotification?: boolean;
@@ -152,23 +158,46 @@ async function handleLookupCommand(input: {
     return;
   }
 
-  const [entries, profile] = await Promise.all([
+  const mode = input.mode ?? "preview";
+  const [entries, profile, rawCounts] = await Promise.all([
     getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES),
     getBusinessProfileByUsername(targetUsername),
+    getArchiveCountsForTarget(targetUsername),
   ]);
-  input.logger?.info?.(
-    {
-      targetUsername,
-      viewerScope: input.viewerScope,
-      entryCount: entries.length,
-      profileFound: profile != null,
-    },
-    "[Search] query executed",
-  );
+  // Member view filters out NEGs in both display AND counts (the
+  // existence of NEGs is itself private — admins only).
   const visibleEntries =
     input.viewerScope === "admin"
       ? entries
       : entries.filter((entry) => entry.result !== "negative");
+  const counts =
+    input.viewerScope === "admin"
+      ? rawCounts
+      : {
+          total: rawCounts.positive + rawCounts.mixed,
+          positive: rawCounts.positive,
+          mixed: rawCounts.mixed,
+          negative: 0,
+        };
+  input.logger?.info?.(
+    {
+      targetUsername,
+      viewerScope: input.viewerScope,
+      mode,
+      entryCount: entries.length,
+      visibleCount: visibleEntries.length,
+      total: counts.total,
+      profileFound: profile != null,
+    },
+    "[Search] query executed",
+  );
+  const replyMarkup = buildLookupReplyMarkup({
+    targetUsername,
+    totalShown:
+      mode === "preview" ? Math.min(visibleEntries.length, 5) : visibleEntries.length,
+    totalAvailable: counts.total,
+    mode,
+  });
   await sendTelegramMessage(
     {
       chatId: input.chatId,
@@ -176,6 +205,8 @@ async function handleLookupCommand(input: {
         targetUsername,
         isFrozen: profile?.isFrozen ?? false,
         freezeReason: profile?.freezeReason ?? null,
+        counts,
+        mode,
         entries: visibleEntries.map((entry) => ({
           id: entry.id,
           reviewerUsername: entry.reviewerUsername,
@@ -184,8 +215,10 @@ async function handleLookupCommand(input: {
           createdAt: entry.createdAt,
           source: entry.source as EntrySource,
           privateNote: input.viewerScope === "admin" ? entry.privateNote ?? null : null,
+          bodyText: entry.bodyText ?? null,
         })),
       }),
+      ...(replyMarkup ? { replyMarkup } : {}),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
     },
     input.logger,
@@ -975,10 +1008,44 @@ async function handleChatMember(update: any, logger?: LoggerLike) {
 }
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
-  // v9: no wizard means no callback surfaces from this bot.
-  // Acknowledge any stray callback so the inline button stops
-  // showing the loading spinner; do nothing else.
   const chatId = callbackQuery.message?.chat?.id;
+  const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
+
+  // /search "See all" button — re-renders the lookup with mode="all".
+  const expandUsername = parseLookupExpandCallback(data);
+  if (expandUsername && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    const isAdminCaller = isAdmin(fromId);
+    // Member rate-limiting: even the expand button consumes a slot
+    // because it triggers a fresh DB read + send.
+    if (!isAdminCaller && typeof fromId === "number") {
+      const limited = memberLookupLimiter.tryConsume(fromId);
+      if (!limited.allowed) {
+        const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+        await sendTelegramMessage(
+          { chatId, text: `Hold on — try again in ${seconds}s.` },
+          logger,
+        );
+        return;
+      }
+    }
+    await handleLookupCommand({
+      chatId,
+      rawUsername: expandUsername,
+      viewerScope: isAdminCaller ? "admin" : "member",
+      mode: "all",
+      logger,
+    });
+    return;
+  }
+
+  // Unknown callback — ack so the spinner clears, do nothing else.
   if (callbackQuery.id) {
     await answerTelegramCallbackQuery(
       { callbackQueryId: callbackQuery.id, chatId },

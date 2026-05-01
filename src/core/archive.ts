@@ -98,7 +98,21 @@ export function validatePrivateNote(input: string): ValidatePrivateNoteResult {
   return { ok: true, value: trimmed };
 }
 
-export const MAX_LOOKUP_ENTRIES = 5;
+export const MAX_LOOKUP_ENTRIES = 15;
+export const LOOKUP_PREVIEW_ENTRIES = 5;
+
+// callback_data format for "expand to all" button.
+// "lk:a:<lower-username>" — "a" = all. Username is the canonical lowercase
+// stripped form (max 32 chars + "lk:a:" 5 chars = 37 bytes < 64).
+export function buildLookupExpandCallback(username: string): string {
+  return `lk:a:${username.replace(/^@+/, "").toLowerCase().slice(0, 32)}`;
+}
+
+export function parseLookupExpandCallback(data: string): string | null {
+  if (!data.startsWith("lk:a:")) return null;
+  const u = data.slice("lk:a:".length);
+  return /^[a-z0-9_]{5,32}$/.test(u) ? u : null;
+}
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
@@ -410,6 +424,15 @@ export function buildBotShortDescription(): string {
 }
 
 const SAFE_LIMIT = 3900;
+const BODY_PREVIEW_CHARS = 200;
+
+// Truncate vouch body for inline display in /search results. Collapses
+// internal whitespace, takes first N chars, appends ellipsis if cut.
+function truncateBody(body: string): string {
+  const cleaned = body.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= BODY_PREVIEW_CHARS) return cleaned;
+  return cleaned.slice(0, BODY_PREVIEW_CHARS).trimEnd() + "…";
+}
 
 function withCeiling(lines: string[], more: number): string {
   let total = 0;
@@ -429,6 +452,10 @@ export function buildLookupText(input: {
   targetUsername: string;
   isFrozen: boolean;
   freezeReason: string | null;
+  // Summary counts (already filtered to whatever the viewer is allowed to
+  // see — admins get full counts, members get POS+MIX only). Caller is
+  // responsible for the filtering math.
+  counts: { total: number; positive: number; mixed: number; negative: number };
   entries: Array<{
     id: number;
     reviewerUsername: string;
@@ -437,23 +464,45 @@ export function buildLookupText(input: {
     createdAt: Date;
     source?: EntrySource;
     privateNote?: string | null;
+    bodyText?: string | null;
   }>;
+  // "preview" → show first LOOKUP_PREVIEW_ENTRIES + "see all" hint trailer
+  // "all" → show all entries (capped by Telegram char ceiling)
+  mode?: "preview" | "all";
 }): string {
-  // /lookup is admin-only. Renders the per-entry audit list including the
-  // private_note for NEG entries. Note text is HTML-escaped at the boundary.
   const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
   const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
+  const mode = input.mode ?? "preview";
 
-  if (input.entries.length === 0) {
-    return [heading, statusLine, "", `No entries for ${fmtUser(input.targetUsername)}.`].join("\n");
+  if (input.counts.total === 0) {
+    return [heading, statusLine, "", `No vouches for ${fmtUser(input.targetUsername)}.`].join(
+      "\n",
+    );
   }
 
-  const lines = [heading, statusLine, ""];
-  for (const entry of input.entries) {
+  // Summary line — total + breakdown. Always shown.
+  const breakdown: string[] = [];
+  if (input.counts.positive > 0) breakdown.push(`✅ ${input.counts.positive} POS`);
+  if (input.counts.mixed > 0) breakdown.push(`⚖️ ${input.counts.mixed} MIX`);
+  if (input.counts.negative > 0) breakdown.push(`⚠️ ${input.counts.negative} NEG`);
+  const totalNoun = input.counts.total === 1 ? "vouch" : "vouches";
+  const summaryLine = `<b>${input.counts.total} ${totalNoun}</b>${
+    breakdown.length > 0 ? ` — ${breakdown.join(" · ")}` : ""
+  }`;
+
+  const visibleEntries =
+    mode === "preview" ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES) : input.entries;
+  const lines = [heading, statusLine, summaryLine, ""];
+  for (const entry of visibleEntries) {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
     lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
-    lines.push(`<b>Tags:</b> ${fmtTags(entry.tags)}`);
+    if (entry.bodyText && entry.bodyText.trim().length > 0) {
+      lines.push(`<i>${escapeHtml(truncateBody(entry.bodyText))}</i>`);
+    }
+    if (entry.tags.length > 0) {
+      lines.push(`<b>Tags:</b> ${fmtTags(entry.tags)}`);
+    }
     if (entry.privateNote && entry.privateNote.length > 0) {
       lines.push(`<i>Note:</i> ${escapeHtml(entry.privateNote)}`);
     }
@@ -461,6 +510,29 @@ export function buildLookupText(input: {
   }
 
   return withCeiling(lines, 0);
+}
+
+// Returns the inline-keyboard for /search responses, or null if no
+// expand button should be shown (preview mode + total fits in preview,
+// or already in all mode).
+export function buildLookupReplyMarkup(input: {
+  targetUsername: string;
+  totalShown: number;
+  totalAvailable: number;
+  mode: "preview" | "all";
+}): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } | null {
+  if (input.mode === "all") return null;
+  if (input.totalAvailable <= input.totalShown) return null;
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: `📋 See all ${input.totalAvailable} vouches`,
+          callback_data: buildLookupExpandCallback(input.targetUsername),
+        },
+      ],
+    ],
+  };
 }
 
 export function buildAdminOnlyText(): string {
