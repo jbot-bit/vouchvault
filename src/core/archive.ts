@@ -455,7 +455,16 @@ export function buildLookupText(input: {
   // Summary counts (already filtered to whatever the viewer is allowed to
   // see — admins get full counts, members get POS+MIX only). Caller is
   // responsible for the filtering math.
-  counts: { total: number; positive: number; mixed: number; negative: number };
+  counts: {
+    total: number;
+    positive: number;
+    mixed: number;
+    negative: number;
+    firstAt?: Date | null;
+    lastAt?: Date | null;
+    recentCount?: number;
+    distinctReviewers?: number;
+  };
   entries: Array<{
     id: number;
     reviewerUsername: string;
@@ -480,7 +489,13 @@ export function buildLookupText(input: {
     );
   }
 
-  // Summary line — total + breakdown. Always shown.
+  // Summary lines.
+  // Line 1: total count + result breakdown.
+  // Line 2: freshness — last vouch date, recent-window count,
+  //         distinct-reviewer count. Lets the reader judge whether the
+  //         account is currently active or just historically vouched.
+  //         A profile with 50 lifetime vouches but zero in the last
+  //         year is not the same as one with 12 in the last 6 months.
   const breakdown: string[] = [];
   if (input.counts.positive > 0) breakdown.push(`✅ ${input.counts.positive} POS`);
   if (input.counts.mixed > 0) breakdown.push(`⚖️ ${input.counts.mixed} MIX`);
@@ -490,9 +505,31 @@ export function buildLookupText(input: {
     breakdown.length > 0 ? ` — ${breakdown.join(" · ")}` : ""
   }`;
 
+  const freshnessParts: string[] = [];
+  if (input.counts.lastAt) {
+    freshnessParts.push(`Last: ${fmtDate(input.counts.lastAt)}`);
+  }
+  if (
+    typeof input.counts.recentCount === "number" &&
+    input.counts.total > 0
+  ) {
+    const r = input.counts.recentCount;
+    freshnessParts.push(`Recent (12mo): ${r}`);
+  }
+  if (
+    typeof input.counts.distinctReviewers === "number" &&
+    input.counts.distinctReviewers > 0
+  ) {
+    const d = input.counts.distinctReviewers;
+    freshnessParts.push(`${d} distinct reviewer${d === 1 ? "" : "s"}`);
+  }
+  const freshnessLine = freshnessParts.length > 0 ? freshnessParts.join(" · ") : null;
+
   const visibleEntries =
     mode === "preview" ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES) : input.entries;
-  const lines = [heading, statusLine, summaryLine, ""];
+  const lines = [heading, statusLine, summaryLine];
+  if (freshnessLine) lines.push(freshnessLine);
+  lines.push("");
   for (const entry of visibleEntries) {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);

@@ -247,35 +247,74 @@ export async function getArchiveEntriesForTarget(targetUsername: string, limit: 
 }
 
 // Per-target summary counts. Powers the summary line at the top of
-// /search response: total + breakdown by result. Case-insensitive +
-// @-prefix-tolerant — same matching rules as getArchiveEntriesForTarget.
+// /search response: total + breakdown by result + freshness window.
+// Case-insensitive + @-prefix-tolerant. The "recent" bucket uses a
+// 365-day window measured from the most recent vouch's createdAt
+// (legacy entries use legacy_source_timestamp where available — the
+// import populates createdAt from that, so createdAt is the canonical
+// "when this vouch happened" field).
+export const RECENT_VOUCH_WINDOW_DAYS = 365;
+
 export async function getArchiveCountsForTarget(targetUsername: string): Promise<{
   total: number;
   positive: number;
   mixed: number;
   negative: number;
+  firstAt: Date | null;
+  lastAt: Date | null;
+  recentCount: number;
+  distinctReviewers: number;
 }> {
   const lowered = targetUsername.replace(/^@+/, "").toLowerCase();
-  const rows = await db.execute<{ result: string; n: string }>(
-    sql`SELECT result, COUNT(*)::text AS n
-        FROM vouch_entries
-        WHERE LOWER(LTRIM(target_username, '@')) = ${lowered}
-          AND status = 'published'
-        GROUP BY result`,
-  );
-  const list: ReadonlyArray<{ result: string; n: string }> = Array.isArray(rows)
-    ? rows
-    : (rows as { rows: Array<{ result: string; n: string }> }).rows ?? [];
+  const cutoff = new Date(Date.now() - RECENT_VOUCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+  const [byResult, aggs] = await Promise.all([
+    db.execute<{ result: string; n: string }>(
+      sql`SELECT result, COUNT(*)::text AS n
+          FROM vouch_entries
+          WHERE LOWER(LTRIM(target_username, '@')) = ${lowered}
+            AND status = 'published'
+          GROUP BY result`,
+    ),
+    db.execute<{
+      first_at: string | null;
+      last_at: string | null;
+      recent_n: string;
+      distinct_reviewers: string;
+    }>(
+      sql`SELECT
+            MIN(created_at) AS first_at,
+            MAX(created_at) AS last_at,
+            COUNT(*) FILTER (WHERE created_at >= ${cutoff})::text AS recent_n,
+            COUNT(DISTINCT reviewer_telegram_id)::text AS distinct_reviewers
+          FROM vouch_entries
+          WHERE LOWER(LTRIM(target_username, '@')) = ${lowered}
+            AND status = 'published'`,
+    ),
+  ]);
+  const rowsOf = <T>(r: { rows: T[] } | T[]): T[] =>
+    Array.isArray(r) ? r : (r as { rows: T[] }).rows ?? [];
+
   let positive = 0;
   let mixed = 0;
   let negative = 0;
-  for (const row of list) {
+  for (const row of rowsOf(byResult)) {
     const c = Number(row.n);
     if (row.result === "positive") positive = c;
     else if (row.result === "mixed") mixed = c;
     else if (row.result === "negative") negative = c;
   }
-  return { total: positive + mixed + negative, positive, mixed, negative };
+  const a = rowsOf(aggs)[0];
+  return {
+    total: positive + mixed + negative,
+    positive,
+    mixed,
+    negative,
+    firstAt: a?.first_at ? new Date(a.first_at) : null,
+    lastAt: a?.last_at ? new Date(a.last_at) : null,
+    recentCount: Number(a?.recent_n ?? "0"),
+    distinctReviewers: Number(a?.distinct_reviewers ?? "0"),
+  };
 }
 
 // Diagnostic: returns counts so admin can see what's actually in the DB

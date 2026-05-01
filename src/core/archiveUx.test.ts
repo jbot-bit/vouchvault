@@ -316,6 +316,43 @@ test("buildLookupText all mode renders every entry passed in", () => {
   assert.match(text, /<b>#8<\/b>/);
 });
 
+test("buildLookupText surfaces freshness line: last date + recent count + distinct reviewers", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: {
+      total: 50,
+      positive: 45,
+      mixed: 4,
+      negative: 1,
+      firstAt: new Date(Date.UTC(2022, 0, 15)),
+      lastAt: new Date(Date.UTC(2026, 3, 1)),
+      recentCount: 3,
+      distinctReviewers: 28,
+    },
+    entries: [],
+  });
+  assert.match(text, /<b>50 vouches<\/b>/);
+  assert.match(text, /Last: 01\/04\/2026/);
+  assert.match(text, /Recent \(12mo\): 3/);
+  assert.match(text, /28 distinct reviewers/);
+});
+
+test("buildLookupText omits freshness line when no aggregate stats given", () => {
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    entries: [],
+  });
+  // Backwards-compat: caller without aggregates still works.
+  assert.equal(text.includes("Last:"), false);
+  assert.equal(text.includes("Recent ("), false);
+  assert.equal(text.includes("distinct reviewer"), false);
+});
+
 test("buildLookupText renders truncated body text when present", () => {
   const longBody = "x".repeat(500);
   const text = buildLookupText({
