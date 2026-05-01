@@ -33,3 +33,4 @@ Thumbs.db
 scripts/userbot.session
 scripts/userbot.session-journal
 scripts/userbot_forward_state.json
+railway-env.txt
