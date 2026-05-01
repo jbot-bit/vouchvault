@@ -246,6 +246,38 @@ export async function getArchiveEntriesForTarget(targetUsername: string, limit: 
     .limit(limit);
 }
 
+// Per-target summary counts. Powers the summary line at the top of
+// /search response: total + breakdown by result. Case-insensitive +
+// @-prefix-tolerant — same matching rules as getArchiveEntriesForTarget.
+export async function getArchiveCountsForTarget(targetUsername: string): Promise<{
+  total: number;
+  positive: number;
+  mixed: number;
+  negative: number;
+}> {
+  const lowered = targetUsername.replace(/^@+/, "").toLowerCase();
+  const rows = await db.execute<{ result: string; n: string }>(
+    sql`SELECT result, COUNT(*)::text AS n
+        FROM vouch_entries
+        WHERE LOWER(LTRIM(target_username, '@')) = ${lowered}
+          AND status = 'published'
+        GROUP BY result`,
+  );
+  const list: ReadonlyArray<{ result: string; n: string }> = Array.isArray(rows)
+    ? rows
+    : (rows as { rows: Array<{ result: string; n: string }> }).rows ?? [];
+  let positive = 0;
+  let mixed = 0;
+  let negative = 0;
+  for (const row of list) {
+    const c = Number(row.n);
+    if (row.result === "positive") positive = c;
+    else if (row.result === "mixed") mixed = c;
+    else if (row.result === "negative") negative = c;
+  }
+  return { total: positive + mixed + negative, positive, mixed, negative };
+}
+
 // Diagnostic: returns counts so admin can see what's actually in the DB
 // without psql access. Used by the /dbstats admin command. Read-only.
 export async function getArchiveDiagnostics() {

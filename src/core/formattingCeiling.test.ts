@@ -17,7 +17,9 @@ test("lookup truncates to <= 4096 chars with …and N more.", () => {
     targetUsername: "bob_target",
     isFrozen: false,
     freezeReason: null,
+    counts: { total: 100, positive: 100, mixed: 0, negative: 0 },
     entries,
+    mode: "all",
   });
   assert.ok(text.length <= 4096);
   assert.match(text, /…and \d+ more\./);
@@ -53,6 +55,7 @@ test("lookup leaves short lists untouched (no ellipsis line)", () => {
     targetUsername: "bob",
     isFrozen: false,
     freezeReason: null,
+    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
     entries,
   });
   assert.doesNotMatch(text, /…and \d+ more\./);
