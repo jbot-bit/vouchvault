@@ -50,3 +50,14 @@ export function createLookupRateLimiter(
 // Module-level shared limiter for the bot's runtime. Tests should
 // instantiate their own via createLookupRateLimiter.
 export const memberLookupLimiter: LookupRateLimiter = createLookupRateLimiter();
+
+// Separate bucket for inline-keyboard callback taps (welcome buttons,
+// /forgetme stage 2, /me action buttons, etc.). Tighter interval than
+// /search because a tap typically does less work, but needs *some*
+// floor so a hostile actor can't hammer the buttons. Independent from
+// memberLookupLimiter so a search-rate-limited member can still cancel
+// a /forgetme stage 2 or vice versa.
+export const CALLBACK_INTERVAL_MS = 2_000;
+export const memberCallbackLimiter: LookupRateLimiter = createLookupRateLimiter(
+  CALLBACK_INTERVAL_MS,
+);
