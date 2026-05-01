@@ -307,7 +307,8 @@ test("buildLookupReplyMarkup: shows See-all button in preview mode when total > 
   assert.ok(m, "should return markup");
   assert.equal(m!.inline_keyboard.length, 1);
   assert.match(m!.inline_keyboard[0]![0]!.text, /📋 See all 23 vouches/);
-  assert.equal(m!.inline_keyboard[0]![0]!.callback_data, "lk:a:bobbiz");
+  const b0 = m!.inline_keyboard[0]![0]! as { callback_data: string };
+  assert.equal(b0.callback_data, "lk:a:bobbiz");
 });
 
 test("buildLookupReplyMarkup: no buttons when preview shows all entries", () => {
@@ -333,7 +334,8 @@ test("buildLookupReplyMarkup: admin gets See-NEG button when negCount > 0", () =
   assert.equal(m!.inline_keyboard.length, 2);
   assert.match(m!.inline_keyboard[0]![0]!.text, /See all 23/);
   assert.match(m!.inline_keyboard[1]![0]!.text, /⚠️ See 1 NEG/);
-  assert.equal(m!.inline_keyboard[1]![0]!.callback_data, "lk:n:bobbiz");
+  const negBtn = m!.inline_keyboard[1]![0]! as { callback_data: string };
+  assert.equal(negBtn.callback_data, "lk:n:bobbiz");
 });
 
 test("buildLookupReplyMarkup: NEG plural label", () => {
@@ -358,6 +360,61 @@ test("buildLookupReplyMarkup: members never see NEG button (privacy)", () => {
     isAdmin: false,
   });
   assert.equal(m, null);
+});
+
+test("buildLookupReplyMarkup: in-group context replaces See-all callback with DM deep-link URL", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "coastcontra",
+    totalShown: 3,
+    totalAvailable: 73,
+    mode: "preview",
+    inGroupBotUsername: "sc45_bot",
+  });
+  assert.ok(m);
+  assert.equal(m!.inline_keyboard.length, 1);
+  const btn = m!.inline_keyboard[0]![0]! as { url: string; text: string };
+  assert.match(btn.text, /📋 See all 73 in DM/);
+  assert.equal(btn.url, "https://t.me/sc45_bot?start=search_coastcontra");
+});
+
+test("buildLookupReplyMarkup: in-group with NEG → DM URL button + NEG callback button", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "coastcontra",
+    totalShown: 3,
+    totalAvailable: 73,
+    mode: "preview",
+    negCount: 1,
+    isAdmin: true,
+    inGroupBotUsername: "sc45_bot",
+  });
+  assert.ok(m);
+  assert.equal(m!.inline_keyboard.length, 2);
+  // Row 0: URL deep link to DM
+  assert.equal((m!.inline_keyboard[0]![0]! as any).url, "https://t.me/sc45_bot?start=search_coastcontra");
+  // Row 1: NEG callback (stays as callback so the result re-renders in-place)
+  assert.equal((m!.inline_keyboard[1]![0]! as any).callback_data, "lk:n:coastcontra");
+});
+
+test("buildLookupText respects previewLimit override (group surface uses 3)", () => {
+  const entries = Array.from({ length: 8 }, (_, i) => ({
+    id: i + 1,
+    reviewerUsername: `r${i}`,
+    result: "positive" as const,
+    tags: [],
+    createdAt: new Date(Date.UTC(2026, 3, 5)),
+  }));
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: { total: 8, positive: 8, mixed: 0, negative: 0 },
+    entries,
+    mode: "preview",
+    previewLimit: 3,
+  });
+  assert.match(text, /<b>#1<\/b>/);
+  assert.match(text, /<b>#3<\/b>/);
+  assert.equal(text.includes("<b>#4</b>"), false);
 });
 
 test("buildLookupReplyMarkup: no NEG button when already in neg mode", () => {

@@ -100,6 +100,9 @@ export function validatePrivateNote(input: string): ValidatePrivateNoteResult {
 
 export const MAX_LOOKUP_ENTRIES = 15;
 export const LOOKUP_PREVIEW_ENTRIES = 5;
+// Group context shows fewer entries to avoid spamming the chat — admins
+// click "See all in DM" to get the full reply privately.
+export const LOOKUP_GROUP_PREVIEW_ENTRIES = 3;
 
 // callback_data format for inline-keyboard buttons.
 // "lk:a:<user>" — show all entries (admin or member view, mode=all).
@@ -493,10 +496,13 @@ export function buildLookupText(input: {
     privateNote?: string | null;
     bodyText?: string | null;
   }>;
-  // "preview" → show first LOOKUP_PREVIEW_ENTRIES (with "see all" + "see NEG" buttons)
+  // "preview" → show first previewLimit entries (with "see all" + "see NEG" buttons)
   // "all" → show all entries (capped by Telegram char ceiling)
   // "neg" → show ONLY negative entries (admin-only callback)
   mode?: "preview" | "all" | "neg";
+  // Override how many entries the preview shows. Default 5 (DM); group
+  // surface uses 3 to keep replies compact.
+  previewLimit?: number;
 }): string {
   const heading = `<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`;
   const statusLine = fmtStatusLine(input.isFrozen, input.freezeReason);
@@ -595,9 +601,10 @@ export function buildLookupText(input: {
         } by ${fmtUser(input.targetUsername)} about other members</i>`
       : null;
 
+  const previewLimit = input.previewLimit ?? LOOKUP_PREVIEW_ENTRIES;
   const visibleEntries =
     mode === "preview"
-      ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES)
+      ? input.entries.slice(0, previewLimit)
       : mode === "neg"
       ? input.entries.filter((e) => e.result === "negative")
       : input.entries;
@@ -624,10 +631,27 @@ export function buildLookupText(input: {
   return withCeiling(lines, 0);
 }
 
-// Returns the inline-keyboard for /search responses. Two possible buttons:
-//   📋 See all N vouches — when in preview mode and there are more entries to show
-//   ⚠️ See N NEG — admin-only when target has any negative entries
-// Buttons stack in a single column. Returns null if neither button applies.
+// Telegram deep-link URL into the bot DM with a /start payload that
+// the bot's command handler routes to /search <username>. Used by the
+// group-context "See all in DM" button so the full result lands in the
+// admin's DM instead of spamming the group.
+export function buildSearchDeepLinkUrl(botUsername: string, targetUsername: string): string {
+  const u = targetUsername.replace(/^@+/, "").toLowerCase().slice(0, 32);
+  // start payload format: search_<username>. Telegram allows [A-Za-z0-9_-]{0,64}.
+  return `https://t.me/${encodeURIComponent(botUsername)}?start=search_${u}`;
+}
+
+// Returns the inline-keyboard for /search responses.
+// In DM (no botUsername / inGroup=false): callback button(s):
+//   📋 See all N vouches — preview mode + more entries available
+//   ⚠️ See N NEG — admin-only
+// In group (botUsername + inGroup=true): URL deep-link button instead:
+//   📋 See all in DM — opens bot DM, /start payload triggers /search
+// Buttons stack in a single column. Returns null if no button applies.
+type InlineKbButton =
+  | { text: string; callback_data: string }
+  | { text: string; url: string };
+
 export function buildLookupReplyMarkup(input: {
   targetUsername: string;
   totalShown: number;
@@ -636,21 +660,34 @@ export function buildLookupReplyMarkup(input: {
   // Admin-only NEG-view button. Set negCount > 0 + isAdmin true to render.
   negCount?: number;
   isAdmin?: boolean;
-}): { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } | null {
-  const buttons: Array<Array<{ text: string; callback_data: string }>> = [];
+  // Group-context: when set, the See-all button becomes a URL deep-link
+  // into the bot DM. NEG button stays as a callback (it'll re-render
+  // in the same surface).
+  inGroupBotUsername?: string;
+}): { inline_keyboard: InlineKbButton[][] } | null {
+  const buttons: InlineKbButton[][] = [];
+  const inGroup = !!input.inGroupBotUsername;
 
-  // "See all" — only in preview mode, only when not all entries are shown,
-  // and not in NEG-only view.
+  // "See all" — only in preview mode + more entries to show.
   if (
     input.mode === "preview" &&
     input.totalAvailable > input.totalShown
   ) {
-    buttons.push([
-      {
-        text: `📋 See all ${input.totalAvailable} vouches`,
-        callback_data: buildLookupExpandCallback(input.targetUsername),
-      },
-    ]);
+    if (inGroup) {
+      buttons.push([
+        {
+          text: `📋 See all ${input.totalAvailable} in DM`,
+          url: buildSearchDeepLinkUrl(input.inGroupBotUsername!, input.targetUsername),
+        },
+      ]);
+    } else {
+      buttons.push([
+        {
+          text: `📋 See all ${input.totalAvailable} vouches`,
+          callback_data: buildLookupExpandCallback(input.targetUsername),
+        },
+      ]);
+    }
   }
 
   // "See NEGs" — admin-only. NEG existence is private from members per
