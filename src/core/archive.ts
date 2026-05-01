@@ -306,39 +306,57 @@ function rulesLine(): string {
   // profile from a hostile report.
   return [
     "<b>Rules</b>",
-    "• Follow Telegram's Terms of Service. No illegal activity, no scams.",
-    "• Vouch only for members you actually know personally.",
-    "• No personal opinions about people, no rating individuals, no vouching minors.",
-    "• You are responsible for the accuracy of your own vouches.",
+    "• Telegram ToS applies. No illegal activity, no scams.",
+    "• Vouch only members you actually know.",
+    "• No personal opinions, no rating individuals, no minors.",
+    "• You are responsible for your vouches.",
+    "• Report ToS violations to @notoscam — the official channel.",
   ].join("\n");
-}
-
-// Compact single-line variant for bot description, which has a 512-char
-// Telegram limit and can't carry the multi-bullet block. The pinned guide
-// + chat description carry the full rules.
-function rulesLineShort(): string {
-  return "Follow Telegram's Terms of Service. Vouch only members you know personally. You are responsible for your vouches.";
 }
 
 // v9 locked-text. Members post vouches as normal group messages; the bot
 // is a search + moderation tool, not a publisher. DM /lookup @user
 // searches the legacy archive. Native in-group search covers new posts.
 
+// Policy text. Self-contained — no external URL, no public hosting,
+// no third-party indexing surface. Delivered via DM /policy and
+// pinnable as a group message. Owner directive: "isn't a public link
+// risky? we can upload in the group ffs" — the in-Telegram surface
+// is the only surface.
+export function buildPolicyText(): string {
+  return [
+    "<b>Policy + data handling</b>",
+    "",
+    "I'm an automated read-only lookup tool. Members post vouches in the group; I don't write or solicit any.",
+    "",
+    "<b>What I store:</b> Telegram <code>user_id</code> + @username for members who interact, plus the vouch entries posted in the group (timestamp, reviewer, target, body, tags).",
+    "",
+    "<b>Deletion:</b> DM <code>/forgetme</code> to delete vouches you authored + your account record. Vouches other members wrote about you stay — that's their words, not your data.",
+    "",
+    "<b>Telegram's policies apply too:</b>",
+    "• Terms of Service — https://telegram.org/tos",
+    "• Privacy Policy — https://telegram.org/privacy",
+    "• Bot Terms — https://telegram.org/tos/bots",
+    "",
+    "<b>Report abuse:</b> Telegram ToS violations → @notoscam (the official channel).",
+  ].join("\n");
+}
+
 export function buildWelcomeText(): string {
   return [
-    "<b>Welcome to the Vouch Hub</b>",
+    "<b>SC45</b>",
     "",
-    "Vouch for members you personally know. The community helps each other find trustworthy people to interact with.",
+    "DM <code>/search @username</code> to search community vouches.",
+    "DM <code>/policy</code> for data handling. DM <code>/forgetme</code> to delete vouches you've written.",
     "",
     "<b><u>How to vouch</u></b>",
-    "Post your vouch as a normal message in the group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
+    "Post a normal message in the group — mention the @username, say what happened, keep it factual.",
     "",
     "<b><u>Check before you interact</u></b>",
-    "Use the search bar at the top of the group to look up anyone's @username. To search the legacy archive, DM me <code>/lookup @username</code>.",
+    "Use the group's search bar for new vouches. For the legacy archive, DM <code>/search @username</code>.",
     "",
-    "<b><u>Chat moderation</u></b>",
-    "Posts that look like commercial arrangements are auto-removed. Contact an admin if you think this happened in error.",
-    "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
+    "<b><u>Moderation</u></b>",
+    "Commercial-shaped posts are auto-removed. Send <code>/start</code> once so I can DM you if a post of yours is removed.",
     "",
     rulesLine(),
   ].join("\n");
@@ -346,19 +364,19 @@ export function buildWelcomeText(): string {
 
 export function buildPinnedGuideText(): string {
   return [
-    "<b>Welcome to the Vouch Hub</b>",
+    "<b>SC45</b>",
     "",
-    "Vouch for members you personally know. The community helps each other find trustworthy people to interact with.",
+    "DM <code>/search @username</code> to search community vouches.",
+    "DM <code>/policy</code> for data handling. DM <code>/forgetme</code> to delete vouches you've written.",
     "",
     "<b><u>How to vouch</u></b>",
-    "Post your vouch as a normal message in this group. Mention the @username, say what happened, keep it factual. There is no form to fill in.",
+    "Post a normal message in this group — mention the @username, say what happened, keep it factual.",
     "",
     "<b><u>Check before you interact</u></b>",
-    "Use the search bar at the top of this group to look up anyone's @username. DM me <code>/lookup @username</code> to search the legacy archive.",
+    "Use this group's search bar for new vouches. For the legacy archive, DM <code>/search @username</code>.",
     "",
-    "<b><u>Chat moderation</u></b>",
-    "Posts that look like commercial arrangements are auto-removed. Contact an admin if you think this happened in error.",
-    "Send <code>/start</code> to me once so I can DM you if a post of yours is removed.",
+    "<b><u>Moderation</u></b>",
+    "Commercial-shaped posts are auto-removed. Send <code>/start</code> once so I can DM you if a post of yours is removed.",
     "",
     rulesLine(),
   ].join("\n");
@@ -366,16 +384,18 @@ export function buildPinnedGuideText(): string {
 
 export function buildBotDescriptionText(): string {
   return [
-    "A community vouch hub for members who personally know each other. Search the archive and read community vouches.",
+    "SC45 vouch lookup.",
     "",
-    "How it works: members post vouches as normal messages in the group. DM me /lookup @username to search the legacy archive. I never post vouches on your behalf.",
+    "DM /search @username — search community vouches.",
+    "DM /policy — what's stored, how to delete.",
+    "DM /forgetme — delete vouches you've written.",
     "",
-    rulesLineShort(),
+    "Read-only. Members post vouches in the group; the bot doesn't write or DM on its own.",
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch Hub — search community vouches. DM /lookup @username to look up the legacy archive.";
+  return "SC45 — DM /search @username to search community vouches.";
 }
 
 const SAFE_LIMIT = 3900;
@@ -438,29 +458,27 @@ export function buildAdminOnlyText(): string {
 
 // Lookup-bot @BotFather profile copy. Read-only; never posts.
 export function buildLookupBotShortDescription(): string {
-  return "Search vouches by @username. Read-only lookup bot for the Vouch Hub community.";
+  return "SC45 — read-only search. DM /search @username.";
 }
 
 export function buildLookupBotDescription(): string {
   return [
-    "Read-only lookup for the Vouch Hub community.",
+    "SC45 read-only search.",
     "",
-    "Use the search bar at the top of the group to look up anyone's @username — every vouch posted in the group is searchable there.",
-    "",
-    "I never post vouches and never DM members on my own.",
+    "DM /search @username to search community vouches. The bot doesn't write or DM on its own.",
   ].join("\n");
 }
 
 // Admin-bot @BotFather profile copy.
 export function buildAdminBotShortDescription(): string {
-  return "Admin tooling for the Vouch Hub. Restricted access — operator commands only.";
+  return "SC45 admin tooling. Restricted — operator commands only.";
 }
 
 export function buildAdminBotDescription(): string {
   return [
-    "Operator-only admin bot for the Vouch Hub.",
+    "SC45 operator-only admin bot.",
     "",
-    "Handles freeze/unfreeze/audit commands and chat-moderation in the supergroup. If you are not an admin, none of my commands will work — that's intentional.",
+    "Freeze/unfreeze/audit + chat moderation. Non-admin commands are no-ops by design.",
   ].join("\n");
 }
 
@@ -491,7 +509,61 @@ export function buildModerationWarnText(input: {
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
       : "contact an admin";
-  return `Your message in <b>${escapedGroup}</b> was removed. Posts that look like commercial arrangements are auto-removed. If you believe this was a mistake, ${adminPointer}.`;
+  return `Your message in <b>${escapedGroup}</b> was removed by automated moderation. To appeal, ${adminPointer}.`;
+}
+
+export function buildDbStatsText(input: {
+  statusCounts: Array<{ status: string; count: number }>;
+  profileCount: number;
+  sampleTargets: string[];
+  sampleProfiles: string[];
+  nonLowercaseTargets: number;
+  atPrefixedTargets: number;
+}): string {
+  const totalEntries = input.statusCounts.reduce((sum, row) => sum + row.count, 0);
+  const lines: string[] = ["<b>DB stats</b>", ""];
+  lines.push(`<b>vouch_entries:</b> ${totalEntries} total`);
+  if (input.statusCounts.length === 0) {
+    lines.push("  (no rows)");
+  } else {
+    for (const row of input.statusCounts) {
+      lines.push(`  • ${escapeHtml(row.status)}: ${row.count}`);
+    }
+  }
+  lines.push("");
+  lines.push(`<b>business_profiles:</b> ${input.profileCount}`);
+  lines.push("");
+  if (input.sampleTargets.length > 0) {
+    lines.push("<b>sample target_username (first 5):</b>");
+    for (const t of input.sampleTargets) {
+      lines.push(`  • <code>${escapeHtml(t)}</code>`);
+    }
+    lines.push("");
+  }
+  if (input.sampleProfiles.length > 0) {
+    lines.push("<b>sample profile.username (first 5):</b>");
+    for (const u of input.sampleProfiles) {
+      lines.push(`  • <code>${escapeHtml(u)}</code>`);
+    }
+    lines.push("");
+  }
+  if (input.nonLowercaseTargets > 0) {
+    lines.push(
+      `⚠ ${input.nonLowercaseTargets} entries have non-lowercase target_username (LOWER() match still works).`,
+    );
+  }
+  if (input.atPrefixedTargets > 0) {
+    lines.push(
+      `⚠ ${input.atPrefixedTargets} entries have target_username starting with '@' (LTRIM match still works).`,
+    );
+  }
+  if (totalEntries === 0) {
+    lines.push("");
+    lines.push(
+      "❗ No vouch_entries rows. Either DATABASE_URL points at a fresh DB, or legacy import never ran. Check Railway env + run <code>npm run replay:legacy</code>.",
+    );
+  }
+  return lines.join("\n");
 }
 
 export function buildAdminHelpText(): string {
@@ -503,9 +575,10 @@ export function buildAdminHelpText(): string {
     "/frozen_list — show frozen profiles",
     "/remove_entry &lt;id&gt; — delete an entry",
     "/recover_entry &lt;id&gt; — clear stuck publishing",
-    "/lookup @x — full audit list",
+    "/search @x — full audit list (alias: /lookup)",
     "/pause — pause new vouches",
     "/unpause — resume vouches",
+    "/dbstats — DB diagnostics (entry counts, status breakdown)",
   ].join("\n");
 }
 
@@ -526,7 +599,7 @@ export function buildFrozenListText(
   }
   if (rows.length > 10) {
     lines.push("");
-    lines.push(`…and ${rows.length - 10} more — refine with /lookup @x`);
+    lines.push(`…and ${rows.length - 10} more — refine with /search @x`);
   }
   // Defensive char-ceiling pass — caps at 4096 even if pathological reasons
   // push the visible 10-row block over budget (10 × ~200-char reason ≈ 2500
