@@ -94,7 +94,13 @@ function resolveBaseUrl(): string | null {
     process.env.PUBLIC_BASE_URL?.trim() ||
     (process.env.RAILWAY_PUBLIC_DOMAIN && `https://${process.env.RAILWAY_PUBLIC_DOMAIN.trim()}`) ||
     null;
-  return v ? v.replace(/\/+$/, "") : null;
+  if (!v) return null;
+  // Defense: PUBLIC_BASE_URL set without scheme (e.g. "foo.up.railway.app")
+  // produces "foo.up.railway.app/webhooks/..." which Telegram rejects with
+  // "invalid webhook URL specified". Auto-prepend https:// when missing
+  // so a misformatted env doesn't kill the deploy.
+  const withScheme = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+  return withScheme.replace(/\/+$/, "");
 }
 
 async function setupWebhook(): Promise<void> {
