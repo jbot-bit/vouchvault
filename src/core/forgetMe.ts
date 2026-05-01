@@ -1,16 +1,18 @@
-// Data-deletion path. DM /forgetme triggers a two-step confirmation flow;
-// reply YES within FORGET_CONFIRM_TTL_MS to execute the delete. State is
-// in-memory + process-local — sufficient for single-replica deploys.
-//
-// Honours the user-facing /forgetme pointer in the welcome / pinned guide
-// (added in the ToS-hardening pass). Closes one of the compliance gaps
-// flagged in docs/research/telegram-official-implications.md.
+// Data-deletion path. DM /forgetme triggers a TWO-STAGE confirmation flow:
+//   Stage 1 — user replies YES (typed) within FORGET_CONFIRM_TTL_MS.
+//   Stage 2 — user taps the inline-keyboard ✅ Confirm button within
+//             FORGET_FINAL_TTL_MS of the YES.
+// Two stages because deletion is irreversible — typing YES is friction
+// against muscle-memory tap-throughs, and the button is friction against
+// auto-completed YES from previous chats. State is in-memory + process-local;
+// sufficient for single-replica deploys.
 
 export const FORGET_CONFIRM_TTL_MS = 5 * 60 * 1000;
+export const FORGET_FINAL_TTL_MS = 5 * 60 * 1000;
 
 export function buildForgetPromptText(): string {
   return [
-    "<b>Forget me — confirm</b>",
+    "<b>Forget me — step 1 of 2</b>",
     "",
     "This will permanently delete:",
     "• every vouch <b>you authored</b>,",
@@ -18,8 +20,31 @@ export function buildForgetPromptText(): string {
     "",
     "Vouches other members wrote <b>about</b> you stay — they're those members' words, not your data, and removing them would let bad actors wipe negative feedback about themselves.",
     "",
-    "This cannot be undone. Reply <code>YES</code> within 5 minutes to confirm.",
+    "This cannot be undone. Reply <code>YES</code> within 5 minutes to continue to the final confirmation.",
   ].join("\n");
+}
+
+export function buildForgetFinalConfirmText(): string {
+  return [
+    "<b>Forget me — step 2 of 2</b>",
+    "",
+    "Last chance. Tap <b>✅ Confirm delete</b> below to permanently delete every vouch you authored.",
+    "",
+    "<b>This cannot be undone.</b>",
+  ].join("\n");
+}
+
+export function buildForgetFinalConfirmMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ Confirm delete", callback_data: "fg:y" },
+        { text: "❌ Cancel", callback_data: "fg:n" },
+      ],
+    ],
+  };
 }
 
 export function buildForgetCancelledText(): string {
@@ -39,8 +64,10 @@ export function buildForgetGroupRedirectText(): string {
   return "DM me to use /forgetme — this command only works in direct messages.";
 }
 
+export type ForgetStage = "awaitingYes" | "awaitingFinal";
+
 export type ForgetState = {
-  pendingByUser: Map<number, number>; // userId → expiresAt (ms)
+  pendingByUser: Map<number, { stage: ForgetStage; expiresAt: number }>;
 };
 
 export function createForgetState(): ForgetState {
@@ -48,33 +75,60 @@ export function createForgetState(): ForgetState {
 }
 
 export type ForgetStep =
-  | { kind: "prompt" } // first /forgetme — store pending, show prompt
-  | { kind: "execute" } // YES within window — run delete
-  | { kind: "expired" } // YES after window
-  | { kind: "ignore" }; // YES with no pending state
+  | { kind: "prompt" } // /forgetme — store awaitingYes, show prompt
+  | { kind: "awaitingFinal" } // YES received — show final tap-confirm
+  | { kind: "execute" } // ✅ Confirm tapped within window — run delete
+  | { kind: "expired" } // YES or tap after window
+  | { kind: "ignore" }; // YES with no pending state, or wrong stage
 
-// First /forgetme call: register pending and return "prompt".
+// First /forgetme call: register awaitingYes and return "prompt".
 export function beginForget(
   state: ForgetState,
   userId: number,
   now: number = Date.now(),
 ): ForgetStep {
-  state.pendingByUser.set(userId, now + FORGET_CONFIRM_TTL_MS);
+  state.pendingByUser.set(userId, {
+    stage: "awaitingYes",
+    expiresAt: now + FORGET_CONFIRM_TTL_MS,
+  });
   return { kind: "prompt" };
 }
 
-// User replies (anything). Returns execute / expired / ignore.
+// User typed text reply. Returns awaitingFinal / expired / ignore.
+// (Does NOT execute — execution requires the button tap in stage 2.)
 export function tryConfirmForget(
   state: ForgetState,
   userId: number,
   reply: string,
   now: number = Date.now(),
 ): ForgetStep {
-  const expiresAt = state.pendingByUser.get(userId);
-  if (expiresAt == null) return { kind: "ignore" };
+  const pending = state.pendingByUser.get(userId);
+  if (pending == null) return { kind: "ignore" };
+  if (pending.stage !== "awaitingYes") return { kind: "ignore" };
   if (reply.trim().toUpperCase() !== "YES") return { kind: "ignore" };
+  if (now > pending.expiresAt) {
+    state.pendingByUser.delete(userId);
+    return { kind: "expired" };
+  }
+  // Advance to stage 2 with a fresh TTL.
+  state.pendingByUser.set(userId, {
+    stage: "awaitingFinal",
+    expiresAt: now + FORGET_FINAL_TTL_MS,
+  });
+  return { kind: "awaitingFinal" };
+}
+
+// User tapped ✅ Confirm. Returns execute / expired / ignore.
+export function tryFinalizeForget(
+  state: ForgetState,
+  userId: number,
+  now: number = Date.now(),
+): ForgetStep {
+  const pending = state.pendingByUser.get(userId);
+  if (pending == null) return { kind: "ignore" };
+  if (pending.stage !== "awaitingFinal") return { kind: "ignore" };
   state.pendingByUser.delete(userId);
-  if (now > expiresAt) return { kind: "expired" };
+  if (now > pending.expiresAt) return { kind: "expired" };
   return { kind: "execute" };
 }
 

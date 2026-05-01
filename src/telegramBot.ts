@@ -41,11 +41,15 @@ import {
   buildForgetCancelledText,
   buildForgetDoneText,
   buildForgetExpiredText,
+  buildForgetFinalConfirmMarkup,
+  buildForgetFinalConfirmText,
   buildForgetGroupRedirectText,
   buildForgetPromptText,
+  clearForget,
   executeForget,
   memberForgetState,
   tryConfirmForget,
+  tryFinalizeForget,
 } from "./core/forgetMe.ts";
 import { defaultForgetDeps } from "./core/forgetMeStore.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
@@ -706,13 +710,13 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     // explainer when neither applies.
     if (typeof fromId === "number" && text) {
       const step = tryConfirmForget(memberForgetState, fromId, text);
-      if (step.kind === "execute") {
-        const total = await executeForget(
-          { userId: fromId, username: fromUsername },
-          defaultForgetDeps(),
-        );
+      if (step.kind === "awaitingFinal") {
         await sendTelegramMessage(
-          { chatId, text: buildForgetDoneText(total) },
+          {
+            chatId,
+            text: buildForgetFinalConfirmText(),
+            replyMarkup: buildForgetFinalConfirmMarkup(),
+          },
           logger,
         );
         return;
@@ -841,16 +845,20 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       return;
     }
     if (args[0]?.trim().toUpperCase() === "YES") {
-      // Single-shot variant: /forgetme YES executes immediately if a
-      // prompt is pending. Without a pending prompt, falls through to
-      // the prompt step.
+      // Single-shot variant: /forgetme YES advances to the final confirm
+      // (button-tap) if a prompt is pending. Without a pending prompt,
+      // falls through to the initial prompt step. Execution requires
+      // the button tap — typing YES alone never deletes.
       const step = tryConfirmForget(memberForgetState, fromId, "YES");
-      if (step.kind === "execute") {
-        const total = await executeForget(
-          { userId: fromId, username: fromUsername },
-          defaultForgetDeps(),
+      if (step.kind === "awaitingFinal") {
+        await sendTelegramMessage(
+          {
+            chatId,
+            text: buildForgetFinalConfirmText(),
+            replyMarkup: buildForgetFinalConfirmMarkup(),
+          },
+          logger,
         );
-        await sendTelegramMessage({ chatId, text: buildForgetDoneText(total) }, logger);
         return;
       }
       if (step.kind === "expired") {
@@ -1436,6 +1444,56 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       { chatId, text: `Entry #${entryId} removed.` },
       logger,
     );
+    return;
+  }
+
+  // /forgetme stage 2 — final confirm-or-cancel button tap. The user
+  // already typed YES (stage 1); this is the irreversible step. We
+  // re-check against the in-memory state machine so a stale button
+  // (window expired, or already-cleared state) can't fire the delete.
+  if ((data === "fg:y" || data === "fg:n") && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    const fromUsername =
+      typeof callbackQuery.from?.username === "string"
+        ? callbackQuery.from.username
+        : null;
+    if (typeof fromId !== "number") return;
+
+    if (data === "fg:n") {
+      clearForget(memberForgetState, fromId);
+      await sendTelegramMessage(
+        { chatId, text: buildForgetCancelledText() },
+        logger,
+      );
+      return;
+    }
+
+    const step = tryFinalizeForget(memberForgetState, fromId);
+    if (step.kind === "execute") {
+      const total = await executeForget(
+        { userId: fromId, username: fromUsername },
+        defaultForgetDeps(),
+      );
+      await sendTelegramMessage(
+        { chatId, text: buildForgetDoneText(total) },
+        logger,
+      );
+      return;
+    }
+    if (step.kind === "expired") {
+      await sendTelegramMessage(
+        { chatId, text: buildForgetExpiredText() },
+        logger,
+      );
+      return;
+    }
+    // ignore — likely a re-tap of an already-handled button.
     return;
   }
 
