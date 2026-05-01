@@ -132,6 +132,18 @@ export async function recordInviteLinkUsed(
       })
       .where(eq(inviteLinks.link, link));
   } catch (error) {
-    logger?.warn?.({ error, link, telegramId }, "recordInviteLinkUsed failed");
+    // Never log the full link string — it's takedown-vector material.
+    // Log a short fingerprint (last 6 chars) so an admin can correlate
+    // with `invite_links` table without exposing a usable URL.
+    logger?.warn?.(
+      { error, linkSuffix: link.slice(-6), telegramId },
+      "recordInviteLinkUsed failed",
+    );
   }
+}
+
+// Fingerprint helper — exposes the last 6 chars of an invite link for
+// log correlation without leaking a usable URL.
+export function fingerprintInviteLink(link: string): string {
+  return link.slice(-6);
 }

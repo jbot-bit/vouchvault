@@ -75,7 +75,7 @@ import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { recordUserFirstSeen } from "./core/userTracking.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
-import { recordInviteLinkUsed } from "./core/inviteLinks.ts";
+import { fingerprintInviteLink, recordInviteLinkUsed } from "./core/inviteLinks.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
 
@@ -1060,8 +1060,13 @@ export async function processTelegramUpdate(payload: any, logger: LoggerLike = c
         if (typeof linkStr === "string" && typeof fromId === "number") {
           try {
             await recordInviteLinkUsed(linkStr, fromId, logger);
+            // Log fingerprint only — full link is takedown-vector material.
             logger.info(
-              { chatId: joinChatId, fromId, link: linkStr },
+              {
+                chatId: joinChatId,
+                fromId,
+                linkSuffix: fingerprintInviteLink(linkStr),
+              },
               "chat_join_request: invite-link usage recorded",
             );
           } catch (error) {
