@@ -463,6 +463,84 @@ export function buildWelcomeText(): string {
   return `${body}\n\n${rulesLine()}`;
 }
 
+// Inline keyboard for the welcome / /start surface. Three discoverability
+// shortcuts:
+//   1. switch_inline_query_current_chat — taps into inline-mode in the
+//      current DM with a "@" prefix prefilled, so the member can type
+//      a username and see the trust-headline preview without learning
+//      the inline-mode invocation pattern.
+//   2. callback to /me — surfaces the self-summary path.
+//   3. callback to /policy — surfaces the data-handling page.
+// Buttons stack two-then-one for mobile-friendly tap targets.
+export function buildWelcomeReplyMarkup(): {
+  inline_keyboard: Array<
+    Array<
+      | { text: string; switch_inline_query_current_chat: string }
+      | { text: string; callback_data: string }
+    >
+  >;
+} {
+  return {
+    inline_keyboard: [
+      [{ text: "🔍 Search vouches", switch_inline_query_current_chat: "@" }],
+      [
+        { text: "📊 Your stats", callback_data: "wc:me" },
+        { text: "📄 Data + policy", callback_data: "wc:policy" },
+      ],
+    ],
+  };
+}
+
+// Inline keyboard for /me. Quick-actions:
+//   1. Search someone (switch_inline_query_current_chat)
+//   2. Forget my data (deep-links to /forgetme prompt via callback)
+export function buildMeReplyMarkup(): {
+  inline_keyboard: Array<
+    Array<
+      | { text: string; switch_inline_query_current_chat: string }
+      | { text: string; callback_data: string }
+    >
+  >;
+} {
+  return {
+    inline_keyboard: [
+      [{ text: "🔍 Search someone", switch_inline_query_current_chat: "@" }],
+      [{ text: "🗑 Forget my data", callback_data: "wc:forget" }],
+    ],
+  };
+}
+
+// Empty-arg /search response — instead of "send /search @username",
+// drop a button that activates inline-mode in the current chat.
+export function buildSearchPromptText(): string {
+  return [
+    "<b>Search a member</b>",
+    "",
+    "Tap the button below to type an @username, or send <code>/search @username</code>.",
+  ].join("\n");
+}
+
+export function buildSearchPromptReplyMarkup(): {
+  inline_keyboard: Array<
+    Array<{ text: string; switch_inline_query_current_chat: string }>
+  >;
+} {
+  return {
+    inline_keyboard: [
+      [{ text: "🔍 Type @username to search", switch_inline_query_current_chat: "@" }],
+    ],
+  };
+}
+
+// Welcome-callback prefixes ("wc:me" / "wc:policy" / "wc:forget"). All
+// fixed-length, well under the 64-byte cap.
+export function isWelcomeCallback(data: string): "me" | "policy" | "forget" | null {
+  if (data === "wc:me") return "me";
+  if (data === "wc:policy") return "policy";
+  if (data === "wc:forget") return "forget";
+  return null;
+}
+
 export function buildPinnedGuideText(): string {
   const body = envOverride("BOT_PINNED_GUIDE_TEXT") ?? DEFAULT_PINNED_GUIDE_TEXT;
   return `${body}\n\n${rulesLine()}`;

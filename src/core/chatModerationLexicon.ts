@@ -11,13 +11,25 @@ export const MODERATION_COMMAND = "chat_moderation:delete";
 // community. Drug names are deliberately excluded — Suncoast V3 uses
 // bud / fire / k / mdma / pingas / caps in normal chat. The high-precision
 // discriminator is commerce-shape phrasing, not vocabulary.
+// 2026-05 expansion mixed in. Keep alphabetised for diff readability;
+// chatModeration.test.ts asserts it.
 export const PHRASES: ReadonlyArray<string> = [
-  "briar", "buying", "come thru", "dm me", "drop off", "f2f",
-  "front", "got some", "got the", "hit me up", "hmu", "holding",
-  "how much", "in stock", "inbox me", "meet up", "owe me", "p2p",
-  "pickup", "pm me", "selling", "session", "signal me", "sold",
-  "stocked", "threema", "tic", "tick", "what for", "what u sell",
-  "what's the price", "wickr", "wickr me", "wtb", "wts", "wtt",
+  "any deals", "any plug", "any plugs", "any1 got", "any1 selling",
+  "anyone got", "anyone holding", "anyone selling",
+  "best price", "briar", "buying", "come thru",
+  "delivery service", "dm me", "drop loc", "drop off", "drop spot",
+  "drop the loc", "drop ya loc", "drop your loc",
+  "f2f", "free delivery", "free sample", "front", "front me", "fronting",
+  "go halves", "going halves", "going rate", "got some", "got the",
+  "hit me up", "hmu", "holding", "how much",
+  "in stock", "inbox me", "kik me", "lay it on tic",
+  "matrix me", "meet up", "my rate", "owe me", "p2p",
+  "pick up spot", "pickup", "pickup spot", "pm me",
+  "selling", "session", "signal me", "snap me", "snapchat me",
+  "sold", "split a", "stocked", "tab me", "tab up", "the plug",
+  "threema", "tic", "tick", "tox me",
+  "what for", "what u sell", "what's the price",
+  "wickr", "wickr me", "wtb", "wts", "wtt",
 ];
 
 // Format-perfect artefacts + vouch-shape patterns. Empirical scan:
@@ -37,6 +49,49 @@ const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "vouch_heading",      re: /\b(?:pos|neg|mix)\s+vouch\b/i },
   { name: "vouch_for_username", re: /\bvouch(?:ing|ed)?\b[^\n]{0,30}@[A-Za-z]/i },
   { name: "vouch_shorthand",    re: /[+\-]vouch\b/i },
+  // 2026-05 expansion. The patterns below were derived from common
+  // sales/solicitation shapes seen across multiple takedown corpora.
+  // Each is high-precision on its own: a hostile reporter reading a
+  // hit through any of these patterns gets a clearly-classifiable
+  // commerce signal, which is what we want auto-deleted.
+
+  // Price-with-quantity: "$50 for a g", "$200 oz", "350 a qp" — the
+  // numeric figure adjacent to a quantity unit is rare in legit chat.
+  // Constrained to numbers ≤ 4 digits so we don't fire on phone-number
+  // remnants the phone regex didn't catch. Connector words ("for", "a",
+  // "per", "of", "=", "/", "-") may appear 0–3 times between the price
+  // and the quantity unit. The unit list is a closed set so benign
+  // phrasings like "$200 a month" or "$50 last night" don't fire.
+  {
+    name: "price_quantity",
+    re: /(?:\$\s*\d{1,4}|\baud\s*\$?\s*\d{1,4}|\b\d{2,4})\b\s*(?:[/\-]\s*|(?:per|for|a|of|=|=>|gets?|grabs?)\s+){0,3}(?:gram|grams|oz|ounce|qp|hp|eighth|teener|ball|8\s?ball|bag|bags|cap|caps|tab|tabs|pill|pills)\b/i,
+  },
+  // Comm-handle sharing in "Service: handle" form. "snap: bobsmith",
+  // "kik me at JaneDoe", "session id 05abc..." — patterns where someone
+  // is dropping an off-platform contact handle into open chat.
+  // 'telegram' deliberately excluded (vouches commonly say
+  // "DM @user on telegram"); same for "signal" + a phone number which
+  // already trips the phone regex.
+  {
+    name: "comm_handle_share",
+    re: /\b(?:snap|snapchat|kik|tox|matrix|session\s*id|threema)\s*(?:me\s*)?(?:[:=@]|\bat\b|\bid\b)\s*[A-Za-z0-9._-]{3,}/i,
+  },
+  // High-confidence solicitation quantifier: "anyone / any 1 / who's"
+  // followed shortly by a buy/availability verb. Doesn't require a
+  // drug name (unlike compound_buy_solicit) — these phrasings are
+  // overwhelmingly commerce-shaped on their own.
+  {
+    name: "anyone_buyverb",
+    re: /\b(?:anyone|any\s*1|any\s*one|who['']?s|whos|who\sgot)\s+(?:got|holding|selling|selling\s+any|with|copping|chasing|after)\b/i,
+  },
+  // "got any [drug-class noun]?" — availability question with a buy
+  // intent inferred from the noun. Drug-name list overlaps with
+  // BUY_STEM intentionally; legitimate uses ("got any vouches",
+  // "got any food") don't share the noun set.
+  {
+    name: "got_any_supply",
+    re: /\bgot\s+any\s+(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|dabs|edibles|rosin|shatter|blow|yay|yayo|heroin|smack|dope|speed|blues)\b/i,
+  },
 ];
 
 // Compound rule: variant B (KB:F2.18). A solicitation is when a buy/chasing
@@ -47,7 +102,7 @@ const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
 // Drug-name list: edit as new slang surfaces. Re-run
 // `npm run measure:lexicon-fp` after every edit to confirm the FP gate
 // still passes.
-const BUY_STEM = /\b(?:anyone|who(?:'s|s)?|chasing|looking for|need|wtb|after some)\b[^@\n]{0,50}\b(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|oz|qp|hp|gram|d9|dispo)\b/i;
+const BUY_STEM = /\b(?:anyone|any\s*1|who(?:'s|s)?|chasing|looking for|need|wtb|after\s*(?:some)?|cop(?:ping)?|score|scoring|sort\s+(?:me|out)?|where\s+(?:to|can\s+i)\s+(?:get|find|cop)|tryna\s+(?:get|cop|find))\b[^@\n]{0,50}\b(?:bud|buds|gas|tabs|ket|ketamine|vals|carts|wax|coke|cocaine|mdma|md|mda|lsd|acid|shrooms|mushies|oxy|xan|xanax|pingers|pills|press|presses|caps|weed|meth|ice|crystal|oz|qp|hp|gram|d9|dispo|dabs|edibles|rosin|shatter|blow|yay|yayo|heroin|smack|dope|speed|blues|moonrocks|hash|hashish|bricks|halves|quarters|eighths)\b/i;
 
 const SOLICIT_CONTACT_CTA = /\b(?:pm|dm|hmu|hit me|inbox|message me)\b/i;
 
