@@ -114,9 +114,19 @@ const ADMIN_COMMANDS = [
 ];
 
 async function setupBotIdentity(): Promise<void> {
-  await callTelegram("setMyName", { name: "Vouch Hub" });
-  await callTelegram("setMyDescription", { description: buildBotDescriptionText() });
-  await callTelegram("setMyShortDescription", { short_description: buildBotShortDescription() });
+  // Identity overrides via env. If unset, fall back to spec-locked text.
+  // Telegram caps: name ≤ 64 chars, description ≤ 512, short_description ≤ 120.
+  const name = (process.env.BOT_DISPLAY_NAME?.trim() || "Vouch Hub").slice(0, 64);
+  const description = (
+    process.env.BOT_DESCRIPTION?.trim() || buildBotDescriptionText()
+  ).slice(0, 512);
+  const shortDescription = (
+    process.env.BOT_SHORT_DESCRIPTION?.trim() || buildBotShortDescription()
+  ).slice(0, 120);
+
+  await callTelegram("setMyName", { name });
+  await callTelegram("setMyDescription", { description });
+  await callTelegram("setMyShortDescription", { short_description: shortDescription });
   await callTelegram("setMyCommands", { commands: DEFAULT_COMMANDS });
   await callTelegram("setMyCommands", {
     commands: DEFAULT_COMMANDS,
