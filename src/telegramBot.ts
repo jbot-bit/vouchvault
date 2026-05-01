@@ -58,7 +58,10 @@ import {
   recordMirror,
   wasAlreadyMirrored,
 } from "./core/mirrorStore.ts";
-import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
+import {
+  memberCallbackLimiter,
+  memberLookupLimiter,
+} from "./core/lookupRateLimit.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
@@ -475,49 +478,73 @@ async function handleAdminCommand(input: {
   }
 
   if (input.command === "/mirrorstats") {
-    const config = resolveMirrorConfig();
-    const diag = await getMirrorDiagnostics();
-    await recordAdminAction({
-      adminTelegramId: input.from.id,
-      adminUsername: input.from.username ?? null,
-      command: input.command,
-      targetChatId: input.chatId,
-      denied: false,
-    });
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: buildMirrorStatsText({
-          enabled: config != null,
-          total: diag.total,
-          last24h: diag.last24h,
-          last1h: diag.last1h,
-          lastForwardedAt: diag.lastForwardedAt,
-        }),
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-      },
-      input.logger,
-    );
+    try {
+      const config = resolveMirrorConfig();
+      const diag = await getMirrorDiagnostics();
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: false,
+      });
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildMirrorStatsText({
+            enabled: config != null,
+            total: diag.total,
+            last24h: diag.last24h,
+            last1h: diag.last1h,
+            lastForwardedAt: diag.lastForwardedAt,
+          }),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /mirrorstats failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Mirror diagnostics failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
     return;
   }
 
   if (input.command === "/modstats") {
-    const diag = await getModerationDiagnostics();
-    await recordAdminAction({
-      adminTelegramId: input.from.id,
-      adminUsername: input.from.username ?? null,
-      command: input.command,
-      targetChatId: input.chatId,
-      denied: false,
-    });
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: buildModStatsText(diag),
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-      },
-      input.logger,
-    );
+    try {
+      const diag = await getModerationDiagnostics();
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: false,
+      });
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildModStatsText(diag),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /modstats failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Moderation diagnostics failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
     return;
   }
 
@@ -811,31 +838,39 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       );
       return;
     }
-    const [counts, authoredCount] = await Promise.all([
-      getArchiveCountsForTarget(normalized),
-      getAuthoredCountForReviewer(normalized),
-    ]);
-    await sendTelegramMessage(
-      {
-        chatId,
-        text: buildMeText({
-          username: normalized,
-          counts: {
-            total: counts.positive + counts.mixed,
-            positive: counts.positive,
-            mixed: counts.mixed,
-            // NEG count not surfaced to self — the existence of NEGs
-            // is admin-only per v9 design.
-            negative: 0,
-            firstAt: counts.firstAt,
-            lastAt: counts.lastAt,
-          },
-          authoredCount,
-        }),
-        replyMarkup: buildMeReplyMarkup(),
-      },
-      logger,
-    );
+    try {
+      const [counts, authoredCount] = await Promise.all([
+        getArchiveCountsForTarget(normalized),
+        getAuthoredCountForReviewer(normalized),
+      ]);
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildMeText({
+            username: normalized,
+            counts: {
+              total: counts.positive + counts.mixed,
+              positive: counts.positive,
+              mixed: counts.mixed,
+              // NEG count not surfaced to self — the existence of NEGs
+              // is admin-only per v9 design.
+              negative: 0,
+              firstAt: counts.firstAt,
+              lastAt: counts.lastAt,
+            },
+            authoredCount,
+          }),
+          replyMarkup: buildMeReplyMarkup(),
+        },
+        logger,
+      );
+    } catch (err) {
+      logger?.error?.({ err, fromId }, "/me failed");
+      await sendTelegramMessage(
+        { chatId, text: "Couldn't load your stats right now. Try again in a moment." },
+        logger,
+      );
+    }
     return;
   }
 
@@ -868,10 +903,34 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     }
     if (args[0]?.toLowerCase() === "cancel") {
       memberForgetState.pendingByUser.delete(fromId);
+      try {
+        await recordAdminAction({
+          adminTelegramId: fromId,
+          adminUsername: fromUsername,
+          command: "/forgetme:cancel",
+          targetChatId: null,
+          targetUsername: fromUsername,
+          denied: false,
+        });
+      } catch (err) {
+        logger?.warn?.({ err, fromId }, "forgetme cancel audit failed (non-fatal)");
+      }
       await sendTelegramMessage({ chatId, text: buildForgetCancelledText() }, logger);
       return;
     }
     beginForget(memberForgetState, fromId);
+    try {
+      await recordAdminAction({
+        adminTelegramId: fromId,
+        adminUsername: fromUsername,
+        command: "/forgetme:start",
+        targetChatId: null,
+        targetUsername: fromUsername,
+        denied: false,
+      });
+    } catch (err) {
+      logger?.warn?.({ err, fromId }, "forgetme start audit failed (non-fatal)");
+    }
     await sendTelegramMessage({ chatId, text: buildForgetPromptText() }, logger);
     return;
   }
@@ -1465,8 +1524,29 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         : null;
     if (typeof fromId !== "number") return;
 
+    // Hardening: rate-limit non-admin taps. The button itself is
+    // self-rate-limiting via the state machine (each tap clears state)
+    // but we still gate so a hostile actor can't pin a worker on the
+    // executeForget path repeatedly.
+    if (!isAdmin(fromId)) {
+      const limited = memberCallbackLimiter.tryConsume(fromId);
+      if (!limited.allowed) return;
+    }
+
     if (data === "fg:n") {
       clearForget(memberForgetState, fromId);
+      try {
+        await recordAdminAction({
+          adminTelegramId: fromId,
+          adminUsername: fromUsername,
+          command: "/forgetme:cancel",
+          targetChatId: null,
+          targetUsername: fromUsername,
+          denied: false,
+        });
+      } catch (err) {
+        logger?.warn?.({ err, fromId }, "forgetme cancel audit failed (non-fatal)");
+      }
       await sendTelegramMessage(
         { chatId, text: buildForgetCancelledText() },
         logger,
@@ -1476,14 +1556,25 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
 
     const step = tryFinalizeForget(memberForgetState, fromId);
     if (step.kind === "execute") {
-      const total = await executeForget(
-        { userId: fromId, username: fromUsername },
-        defaultForgetDeps(),
-      );
-      await sendTelegramMessage(
-        { chatId, text: buildForgetDoneText(total) },
-        logger,
-      );
+      try {
+        const total = await executeForget(
+          { userId: fromId, username: fromUsername },
+          defaultForgetDeps(),
+        );
+        await sendTelegramMessage(
+          { chatId, text: buildForgetDoneText(total) },
+          logger,
+        );
+      } catch (err) {
+        logger?.error?.({ err, fromId }, "executeForget failed");
+        await sendTelegramMessage(
+          {
+            chatId,
+            text: "Something went wrong deleting your data. Try /forgetme again in a moment.",
+          },
+          logger,
+        );
+      }
       return;
     }
     if (step.kind === "expired") {
@@ -1514,6 +1605,16 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         ? callbackQuery.from.username
         : null;
 
+    // Hardening: per-non-admin callback rate limit. Closes the
+    // hammer-the-button DoS vector (each tap fires a DB query +
+    // sendMessage call). Admins bypass; the bucket is independent
+    // from /search so a user rate-limited on search can still tap
+    // through their own welcome buttons.
+    if (typeof fromId === "number" && !isAdmin(fromId)) {
+      const limited = memberCallbackLimiter.tryConsume(fromId);
+      if (!limited.allowed) return;
+    }
+
     if (welcomeAction === "policy") {
       await sendTelegramMessage(
         {
@@ -1542,29 +1643,37 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         );
         return;
       }
-      const [counts, authoredCount] = await Promise.all([
-        getArchiveCountsForTarget(normalized),
-        getAuthoredCountForReviewer(normalized),
-      ]);
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildMeText({
-            username: normalized,
-            counts: {
-              total: counts.positive + counts.mixed,
-              positive: counts.positive,
-              mixed: counts.mixed,
-              negative: 0,
-              firstAt: counts.firstAt,
-              lastAt: counts.lastAt,
-            },
-            authoredCount,
-          }),
-          replyMarkup: buildMeReplyMarkup(),
-        },
-        logger,
-      );
+      try {
+        const [counts, authoredCount] = await Promise.all([
+          getArchiveCountsForTarget(normalized),
+          getAuthoredCountForReviewer(normalized),
+        ]);
+        await sendTelegramMessage(
+          {
+            chatId,
+            text: buildMeText({
+              username: normalized,
+              counts: {
+                total: counts.positive + counts.mixed,
+                positive: counts.positive,
+                mixed: counts.mixed,
+                negative: 0,
+                firstAt: counts.firstAt,
+                lastAt: counts.lastAt,
+              },
+              authoredCount,
+            }),
+            replyMarkup: buildMeReplyMarkup(),
+          },
+          logger,
+        );
+      } catch (err) {
+        logger?.error?.({ err, fromId }, "/me callback failed");
+        await sendTelegramMessage(
+          { chatId, text: "Couldn't load your stats right now. Try again in a moment." },
+          logger,
+        );
+      }
       return;
     }
 
@@ -1577,6 +1686,18 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
         return;
       }
       beginForget(memberForgetState, fromId);
+      try {
+        await recordAdminAction({
+          adminTelegramId: fromId,
+          adminUsername: fromUsername,
+          command: "/forgetme:start",
+          targetChatId: null,
+          targetUsername: fromUsername,
+          denied: false,
+        });
+      } catch (err) {
+        logger?.warn?.({ err, fromId }, "forgetme start audit failed (non-fatal)");
+      }
       await sendTelegramMessage(
         { chatId, text: buildForgetPromptText() },
         logger,
