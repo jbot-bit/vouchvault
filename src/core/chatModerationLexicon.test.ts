@@ -89,10 +89,11 @@ test("compound: contact CTA alone (no BUY_STEM/drug) does not match the compound
 });
 
 test("compound: source tag is 'compound_buy_solicit' (marginal)", () => {
-  // Use a contact CTA that is NOT in PHRASES (e.g. bare "dm" not "dm me")
-  // so the phrase pass doesn't claim the hit first. This is the
-  // "marginal" attribution path — compound is the unique contributor.
-  const r = findHits("anyone chasing some carts dm");
+  // Use a buy stem ("looking for") that's in BUY_STEM but NOT in the
+  // newer anyone_buyverb regex prefix-set, plus a CTA ("dm") that's
+  // not a literal phrase. This is the marginal attribution path —
+  // compound is the unique contributor.
+  const r = findHits("looking for some carts dm");
   assert.equal(r.matched, true);
   if (r.matched) assert.equal(r.source, "compound_buy_solicit");
 });

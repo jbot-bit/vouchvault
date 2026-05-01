@@ -6,14 +6,19 @@ import {
   buildInlineLookupResult,
   buildLookupReplyMarkup,
   buildLookupText,
+  buildMeReplyMarkup,
   buildMeText,
   buildMirrorStatsText,
   buildModStatsText,
   buildPolicyText,
   buildRemoveEntryConfirmMarkup,
   buildRemoveEntryConfirmText,
+  buildSearchPromptReplyMarkup,
+  buildSearchPromptText,
+  buildWelcomeReplyMarkup,
   buildWelcomeText,
   isReservedTarget,
+  isWelcomeCallback,
   LOOKUP_GROUP_PREVIEW_ENTRIES,
   LOOKUP_PREVIEW_ENTRIES,
   MAINTENANCE_EVERY_N_UPDATES,
@@ -171,14 +176,29 @@ async function handleLookupCommand(input: {
 }) {
   const targetUsername = normalizeUsername(input.rawUsername ?? "");
   if (!targetUsername) {
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: "Search requires /search @username.",
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-      },
-      input.logger,
-    );
+    // In groups we keep the old terse copy + no markup — group surface
+    // doesn't benefit from switch_inline_query_current_chat there.
+    // In DM (default), surface the inline-mode tap-to-search button so
+    // members don't need to remember the /search syntax.
+    if (input.inGroup) {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: "Search requires /search @username.",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    } else {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildSearchPromptText(),
+          replyMarkup: buildSearchPromptReplyMarkup(),
+        },
+        input.logger,
+      );
+    }
     return;
   }
 
@@ -706,7 +726,10 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       }
     }
     if (text) {
-      await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
+      await sendTelegramMessage(
+      { chatId, text: buildWelcomeText(), replyMarkup: buildWelcomeReplyMarkup() },
+      logger,
+    );
     }
     return;
   }
@@ -743,7 +766,10 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
         return;
       }
     }
-    await sendTelegramMessage({ chatId, text: buildWelcomeText() }, logger);
+    await sendTelegramMessage(
+      { chatId, text: buildWelcomeText(), replyMarkup: buildWelcomeReplyMarkup() },
+      logger,
+    );
     return;
   }
 
@@ -802,6 +828,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
           },
           authoredCount,
         }),
+        replyMarkup: buildMeReplyMarkup(),
       },
       logger,
     );
@@ -1410,6 +1437,94 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       logger,
     );
     return;
+  }
+
+  // Welcome-keyboard callbacks (wc:me / wc:policy / wc:forget) — DM
+  // discoverability shortcuts that route to the existing handlers.
+  // Same rate-limit rules as direct DM commands.
+  const welcomeAction = isWelcomeCallback(data);
+  if (welcomeAction && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    const fromUsername =
+      typeof callbackQuery.from?.username === "string"
+        ? callbackQuery.from.username
+        : null;
+
+    if (welcomeAction === "policy") {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildPolicyText(),
+          linkPreviewOptions: { isDisabled: true },
+        },
+        logger,
+      );
+      return;
+    }
+
+    if (welcomeAction === "me") {
+      if (!fromUsername) {
+        await sendTelegramMessage(
+          { chatId, text: "Set a Telegram @username on your profile to use /me." },
+          logger,
+        );
+        return;
+      }
+      const normalized = normalizeUsername(fromUsername);
+      if (!normalized) {
+        await sendTelegramMessage(
+          { chatId, text: "Your @username isn't supported by /me." },
+          logger,
+        );
+        return;
+      }
+      const [counts, authoredCount] = await Promise.all([
+        getArchiveCountsForTarget(normalized),
+        getAuthoredCountForReviewer(normalized),
+      ]);
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: buildMeText({
+            username: normalized,
+            counts: {
+              total: counts.positive + counts.mixed,
+              positive: counts.positive,
+              mixed: counts.mixed,
+              negative: 0,
+              firstAt: counts.firstAt,
+              lastAt: counts.lastAt,
+            },
+            authoredCount,
+          }),
+          replyMarkup: buildMeReplyMarkup(),
+        },
+        logger,
+      );
+      return;
+    }
+
+    if (welcomeAction === "forget") {
+      if (typeof fromId !== "number") {
+        await sendTelegramMessage(
+          { chatId, text: buildForgetGroupRedirectText() },
+          logger,
+        );
+        return;
+      }
+      beginForget(memberForgetState, fromId);
+      await sendTelegramMessage(
+        { chatId, text: buildForgetPromptText() },
+        logger,
+      );
+      return;
+    }
   }
 
   // Unknown callback — ack so the spinner clears, do nothing else.
