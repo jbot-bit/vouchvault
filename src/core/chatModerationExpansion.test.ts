@@ -220,3 +220,195 @@ test("PHRASES list: no duplicates after expansion", () => {
   const set = new Set(PHRASES.map((p) => p.toLowerCase()));
   assert.equal(set.size, PHRASES.length, "PHRASES has duplicates");
 });
+
+// ---- v2 lexicon expansion (2026-05) ----
+
+test("phrases v2: stock/menu/price-list shapes fire", () => {
+  for (const sample of [
+    "menu attached for tonight",
+    "menu in dm if anyone wants",
+    "stock list dropping soon",
+    "prices in pm",
+    "got the price list ready",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("phrases v2: open-for-business / DMs-open shapes fire", () => {
+  for (const sample of [
+    "dms open tonight",
+    "inbox open for orders",
+    "open for biz this weekend",
+    "open for business now",
+    "back of pm for menu",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("phrases v2: off-platform comm-handle asks fire", () => {
+  for (const sample of [
+    "got insta",
+    "got your snap",
+    "got kik handle",
+    "got wickr details",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("phrases v2: off-platform payment shapes fire", () => {
+  for (const sample of [
+    "cash app me later",
+    "venmo me $50",
+    "paypal me the rest",
+    "btc only please",
+    "crypto only no cash",
+    "monero only",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("regex v2: numeric quantity request fires", () => {
+  for (const sample of [
+    "need 1g tonight",
+    "after 3.5g",
+    "chasing 7g",
+    "wtb half oz",
+    "cop a teener",
+    "need an eighth",
+    "grabbing 2 caps",
+    "need 5 tabs",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("regex v2: numeric quantity does NOT fire on benign requests", () => {
+  for (const sample of [
+    "need 5 minutes to think",
+    "after 2 hours of waiting",
+    "chasing 100 followers",
+    "grabbing some food later",
+    "need the docs",
+  ]) {
+    const r = findHits(sample);
+    if (r.matched) {
+      assert.notEqual(
+        r.source,
+        "regex_buy_numeric_quantity",
+        `buy_numeric_quantity should not fire for: ${sample}`,
+      );
+    }
+  }
+});
+
+test("regex v2: open_for_biz fires", () => {
+  for (const sample of [
+    "DMs open",
+    "DM's open right now",
+    "inbox is open",
+    "pms open",
+    "open for biz",
+    "open for orders",
+    "open for the night",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("regex v2: got_handle_request fires on non-Telegram handle asks", () => {
+  for (const sample of [
+    "got insta",
+    "got an instagram",
+    "got snap",
+    "got ya snap",
+    "got your kik",
+    "got wickr",
+    "got session",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("regex v2: got_handle_request does NOT fire on legit Telegram references", () => {
+  for (const sample of [
+    "got their telegram",
+    "got @bobsmith on telegram",
+  ]) {
+    const r = findHits(sample);
+    if (r.matched) {
+      assert.notEqual(
+        r.source,
+        "regex_got_handle_request",
+        `got_handle_request should not fire for: ${sample}`,
+      );
+    }
+  }
+});
+
+test("regex v2: menu_shape fires on sales-catalogue language", () => {
+  for (const sample of [
+    "menu in dm",
+    "menu drops at 7",
+    "stock list available",
+    "price list attached",
+    "prices on request",
+    "menu coming tonight",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("regex v2: offplatform_payment fires", () => {
+  for (const sample of [
+    "cash app me",
+    "venmo only",
+    "paypal preferred",
+    "send via cashapp",
+    "pay through venmo",
+    "using zelle",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("compound v2: lmk + drug catches solicitation", () => {
+  for (const sample of [
+    "lmk if anyone has bud",
+    "lmk who has tabs",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(r.matched, true, `expected match for: ${sample}`);
+  }
+});
+
+test("baseline v2: extended legit chat still passes", () => {
+  for (const sample of [
+    "the menu was ten dollars",
+    "got my insta password reset",
+    "we cooked stock yesterday",
+    "the price was fair",
+    "after a long week, finally home",
+    "anyone know what time the gym opens",
+    "thanks for the recommendation",
+  ]) {
+    const r = findHits(sample);
+    assert.equal(
+      r.matched,
+      false,
+      `unexpected match for: ${sample} (${(r as any).source})`,
+    );
+  }
+});
