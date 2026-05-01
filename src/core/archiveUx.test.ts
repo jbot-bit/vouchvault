@@ -37,11 +37,11 @@ test("welcome text describes the v9 member-post flow (no wizard)", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>Welcome to the Vouch Hub<\/b>/);
   assert.match(text, /Vouch for members you personally know/);
-  assert.match(text, /community helps each other find trustworthy people to deal with/);
+  assert.match(text, /community helps each other find trustworthy people to interact with/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
   assert.match(text, /Post your vouch as a normal message in the group/);
   assert.match(text, /There is no form to fill in/);
-  assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
+  assert.match(text, /<b><u>Check before you interact<\/u><\/b>/);
   assert.match(text, /search bar at the top of the group/);
   assert.match(text, /DM me <code>\/lookup @username<\/code>/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
@@ -60,7 +60,7 @@ test("pinned guide text describes the v9 member-post flow (no wizard)", () => {
   assert.match(text, /Vouch for members you personally know/);
   assert.match(text, /<b><u>How to vouch<\/u><\/b>/);
   assert.match(text, /Post your vouch as a normal message in this group/);
-  assert.match(text, /<b><u>Check before you deal<\/u><\/b>/);
+  assert.match(text, /<b><u>Check before you interact<\/u><\/b>/);
   assert.match(text, /search bar at the top of this group/);
   assert.match(text, /DM me <code>\/lookup @username<\/code>/);
   assert.match(text, /<b><u>Chat moderation<\/u><\/b>/);
@@ -361,7 +361,7 @@ test("buildModerationWarnText: buy/sell branch with admin-bot username points at
     hitSource: "compound_buy_solicit",
     adminBotUsername: "VouchAdminBot",
   });
-  assert.match(text, /look like buy\/sell/);
+  assert.match(text, /look like commercial arrangements/);
   assert.match(text, /DM <code>@VouchAdminBot<\/code>/);
 });
 
