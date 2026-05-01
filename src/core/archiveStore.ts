@@ -271,6 +271,7 @@ export async function getAuthoredCountForReviewer(username: string): Promise<num
 // import populates createdAt from that, so createdAt is the canonical
 // "when this vouch happened" field).
 export const RECENT_VOUCH_WINDOW_DAYS = 365;
+export const SHORT_RECENT_WINDOW_DAYS = 30;
 
 export async function getArchiveCountsForTarget(targetUsername: string): Promise<{
   total: number;
@@ -279,11 +280,14 @@ export async function getArchiveCountsForTarget(targetUsername: string): Promise
   negative: number;
   firstAt: Date | null;
   lastAt: Date | null;
-  recentCount: number;
-  distinctReviewers: number;
+  recentCount: number; // last 12 months
+  recentCount30d: number; // last 30 days
+  distinctReviewers: number; // lifetime
+  distinctReviewers12mo: number; // last 12 months
 }> {
   const lowered = targetUsername.replace(/^@+/, "").toLowerCase();
-  const cutoff = new Date(Date.now() - RECENT_VOUCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff12mo = new Date(Date.now() - RECENT_VOUCH_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+  const cutoff30d = new Date(Date.now() - SHORT_RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000);
 
   const [byResult, aggs] = await Promise.all([
     db.execute<{ result: string; n: string }>(
@@ -296,14 +300,18 @@ export async function getArchiveCountsForTarget(targetUsername: string): Promise
     db.execute<{
       first_at: string | null;
       last_at: string | null;
-      recent_n: string;
+      recent_12mo_n: string;
+      recent_30d_n: string;
       distinct_reviewers: string;
+      distinct_reviewers_12mo: string;
     }>(
       sql`SELECT
             MIN(created_at) AS first_at,
             MAX(created_at) AS last_at,
-            COUNT(*) FILTER (WHERE created_at >= ${cutoff})::text AS recent_n,
-            COUNT(DISTINCT reviewer_telegram_id)::text AS distinct_reviewers
+            COUNT(*) FILTER (WHERE created_at >= ${cutoff12mo})::text AS recent_12mo_n,
+            COUNT(*) FILTER (WHERE created_at >= ${cutoff30d})::text AS recent_30d_n,
+            COUNT(DISTINCT reviewer_telegram_id)::text AS distinct_reviewers,
+            COUNT(DISTINCT reviewer_telegram_id) FILTER (WHERE created_at >= ${cutoff12mo})::text AS distinct_reviewers_12mo
           FROM vouch_entries
           WHERE LOWER(LTRIM(target_username, '@')) = ${lowered}
             AND status = 'published'`,
@@ -329,8 +337,10 @@ export async function getArchiveCountsForTarget(targetUsername: string): Promise
     negative,
     firstAt: a?.first_at ? new Date(a.first_at) : null,
     lastAt: a?.last_at ? new Date(a.last_at) : null,
-    recentCount: Number(a?.recent_n ?? "0"),
+    recentCount: Number(a?.recent_12mo_n ?? "0"),
+    recentCount30d: Number(a?.recent_30d_n ?? "0"),
     distinctReviewers: Number(a?.distinct_reviewers ?? "0"),
+    distinctReviewers12mo: Number(a?.distinct_reviewers_12mo ?? "0"),
   };
 }
 

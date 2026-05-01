@@ -462,8 +462,10 @@ export function buildLookupText(input: {
     negative: number;
     firstAt?: Date | null;
     lastAt?: Date | null;
-    recentCount?: number;
-    distinctReviewers?: number;
+    recentCount?: number; // last 12 months
+    recentCount30d?: number; // last 30 days
+    distinctReviewers?: number; // lifetime
+    distinctReviewers12mo?: number; // last 12 months
     // Vouches AUTHORED by this user (where they're the reviewer of
     // someone else). Lets the reader see how active they've been
     // reviewing others.
@@ -519,25 +521,56 @@ export function buildLookupText(input: {
     breakdown.length > 0 ? ` — ${breakdown.join(" · ")}` : ""
   }`;
 
-  const freshnessParts: string[] = [];
-  if (input.counts.lastAt) {
-    freshnessParts.push(`Last: ${fmtDate(input.counts.lastAt)}`);
+  // Freshness signal — more than just "most recent". Two lines:
+  //   Line 1: tenure (first → last) + days-ago of most recent
+  //   Line 2: activity windows + reviewer-diversity (recent vs lifetime)
+  // Lets the reader judge whether the profile is currently active or
+  // just historically vouched, and whether it's diverse vouchers or
+  // the same handful repeating.
+  const freshness1: string[] = [];
+  const freshness2: string[] = [];
+  if (input.counts.firstAt && input.counts.lastAt) {
+    const days = Math.floor((Date.now() - input.counts.lastAt.getTime()) / (24 * 60 * 60 * 1000));
+    const ago =
+      days <= 0 ? "today" : days === 1 ? "1 day ago" : days < 60 ? `${days} days ago` : `${Math.floor(days / 30)} months ago`;
+    freshness1.push(
+      `Active ${fmtDate(input.counts.firstAt)} → ${fmtDate(input.counts.lastAt)} (last ${ago})`,
+    );
+  } else if (input.counts.lastAt) {
+    freshness1.push(`Last: ${fmtDate(input.counts.lastAt)}`);
   }
-  if (
-    typeof input.counts.recentCount === "number" &&
-    input.counts.total > 0
-  ) {
-    const r = input.counts.recentCount;
-    freshnessParts.push(`Recent (12mo): ${r}`);
+
+  if (input.counts.total > 0) {
+    const parts: string[] = [];
+    if (typeof input.counts.recentCount === "number") {
+      parts.push(`12mo: ${input.counts.recentCount}`);
+    }
+    if (typeof input.counts.recentCount30d === "number") {
+      parts.push(`30d: ${input.counts.recentCount30d}`);
+    }
+    if (parts.length > 0) freshness2.push(`Recent — ${parts.join(", ")}`);
   }
+
   if (
     typeof input.counts.distinctReviewers === "number" &&
     input.counts.distinctReviewers > 0
   ) {
     const d = input.counts.distinctReviewers;
-    freshnessParts.push(`${d} distinct reviewer${d === 1 ? "" : "s"}`);
+    const recent12 =
+      typeof input.counts.distinctReviewers12mo === "number"
+        ? input.counts.distinctReviewers12mo
+        : null;
+    const reviewerLabel =
+      recent12 !== null && recent12 !== d
+        ? `${d} distinct reviewer${d === 1 ? "" : "s"} (${recent12} in last 12mo)`
+        : `${d} distinct reviewer${d === 1 ? "" : "s"}`;
+    freshness2.push(reviewerLabel);
   }
-  const freshnessLine = freshnessParts.length > 0 ? freshnessParts.join(" · ") : null;
+
+  const freshnessLines = [
+    freshness1.length > 0 ? freshness1.join(" · ") : null,
+    freshness2.length > 0 ? freshness2.join(" · ") : null,
+  ].filter((x): x is string => x != null);
 
   // Authored line: separate from "vouches FOR them" so the trust signal
   // stays the headline. Only shown when non-zero so members with no
@@ -552,7 +585,7 @@ export function buildLookupText(input: {
   const visibleEntries =
     mode === "preview" ? input.entries.slice(0, LOOKUP_PREVIEW_ENTRIES) : input.entries;
   const lines = [heading, statusLine, summaryLine];
-  if (freshnessLine) lines.push(freshnessLine);
+  for (const line of freshnessLines) lines.push(line);
   if (authoredLine) lines.push(authoredLine);
   lines.push("");
   for (const entry of visibleEntries) {
