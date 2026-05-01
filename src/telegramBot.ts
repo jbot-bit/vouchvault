@@ -5,8 +5,14 @@ import {
   buildFrozenListText,
   buildLookupReplyMarkup,
   buildLookupText,
+  buildMeText,
+  buildMirrorStatsText,
+  buildModStatsText,
   buildPolicyText,
+  buildRemoveEntryConfirmMarkup,
+  buildRemoveEntryConfirmText,
   buildWelcomeText,
+  isReservedTarget,
   LOOKUP_GROUP_PREVIEW_ENTRIES,
   LOOKUP_PREVIEW_ENTRIES,
   MAINTENANCE_EVERY_N_UPDATES,
@@ -16,6 +22,8 @@ import {
   normalizeUsername,
   parseLookupExpandCallback,
   parseLookupNegCallback,
+  parseRemoveEntryCancelCallback,
+  parseRemoveEntryConfirmCallback,
   parseSelectedTags,
   MAX_LOOKUP_ENTRIES,
   type EntryResult,
@@ -35,7 +43,11 @@ import {
 } from "./core/forgetMe.ts";
 import { defaultForgetDeps } from "./core/forgetMeStore.ts";
 import { resolveMirrorConfig, shouldMirror } from "./core/mirrorPublish.ts";
-import { recordMirror, wasAlreadyMirrored } from "./core/mirrorStore.ts";
+import {
+  getMirrorDiagnostics,
+  recordMirror,
+  wasAlreadyMirrored,
+} from "./core/mirrorStore.ts";
 import { memberLookupLimiter } from "./core/lookupRateLimit.ts";
 import { getTelegramBotId } from "./core/tools/telegramTools.ts";
 import {
@@ -46,6 +58,7 @@ import {
   getArchiveEntryById,
   getAuthoredCountForReviewer,
   getBusinessProfileByUsername,
+  getModerationDiagnostics,
   listFrozenProfiles,
   markArchiveEntryRemoved,
   releaseTelegramUpdate,
@@ -239,6 +252,7 @@ async function handleLookupCommand(input: {
         counts,
         mode,
         previewLimit,
+        viewerScope: input.viewerScope,
         entries: visibleEntries.map((entry) => ({
           id: entry.id,
           reviewerUsername: entry.reviewerUsername,
@@ -363,7 +377,7 @@ async function handleAdminCommand(input: {
 
   if (input.command === "/remove_entry") {
     const entryId = Number(input.args[0]);
-    if (!Number.isSafeInteger(entryId)) {
+    if (!Number.isSafeInteger(entryId) || entryId <= 0) {
       await recordAdminAction({
         adminTelegramId: input.from.id,
         adminUsername: input.from.username ?? null,
@@ -403,38 +417,77 @@ async function handleAdminCommand(input: {
       return;
     }
 
-    // Mark removed in DB FIRST so the source of truth flips before we touch
-    // Telegram. If the Telegram delete fails (or is interrupted), the entry
-    // is still treated as removed by /lookup.
-    await markArchiveEntryRemoved(entryId);
+    // Two-step destructive: render a preview + Confirm/Cancel buttons.
+    // The actual removal happens in handleCallbackQuery on the
+    // re:y:<id> callback. Audit row writes here record the prompt
+    // (denied=true so it doesn't read as a successful removal).
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: `${input.command}:prompt`,
+      targetChatId: input.chatId,
+      entryId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: buildRemoveEntryConfirmText({
+          entryId,
+          reviewerUsername: entry.reviewerUsername,
+          targetUsername: entry.targetUsername,
+          result: entry.result as EntryResult,
+          createdAt: entry.createdAt,
+          bodyText: entry.bodyText ?? null,
+        }),
+        replyMarkup: buildRemoveEntryConfirmMarkup(entryId),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+      },
+      input.logger,
+    );
+    return;
+  }
 
-    if (entry.publishedMessageId) {
-      try {
-        await deleteTelegramMessage(
-          {
-            chatId: entry.chatId,
-            messageId: entry.publishedMessageId,
-          },
-          input.logger,
-        );
-      } catch (error) {
-        input.logger?.warn?.({ error, entryId }, "Failed to delete published entry");
-      }
-    }
-
+  if (input.command === "/mirrorstats") {
+    const config = resolveMirrorConfig();
+    const diag = await getMirrorDiagnostics();
     await recordAdminAction({
       adminTelegramId: input.from.id,
       adminUsername: input.from.username ?? null,
       command: input.command,
       targetChatId: input.chatId,
-      entryId,
       denied: false,
     });
-
     await sendTelegramMessage(
       {
         chatId: input.chatId,
-        text: `Entry #${entryId} removed.`,
+        text: buildMirrorStatsText({
+          enabled: config != null,
+          total: diag.total,
+          last24h: diag.last24h,
+          last1h: diag.last1h,
+          lastForwardedAt: diag.lastForwardedAt,
+        }),
+        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+      },
+      input.logger,
+    );
+    return;
+  }
+
+  if (input.command === "/modstats") {
+    const diag = await getModerationDiagnostics();
+    await recordAdminAction({
+      adminTelegramId: input.from.id,
+      adminUsername: input.from.username ?? null,
+      command: input.command,
+      targetChatId: input.chatId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      {
+        chatId: input.chatId,
+        text: buildModStatsText(diag),
         ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
       },
       input.logger,
@@ -704,6 +757,55 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
+  if (command === "/me") {
+    // Self-summary. Caller's own @-handle only — never accepts an
+    // argument (use /search for that). Admins are fine to use /me too;
+    // it just shows their own data.
+    if (!fromUsername) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "Set a Telegram @username on your profile to use /me.",
+        },
+        logger,
+      );
+      return;
+    }
+    const normalized = normalizeUsername(fromUsername);
+    if (!normalized) {
+      await sendTelegramMessage(
+        { chatId, text: "Your @username isn't supported by /me." },
+        logger,
+      );
+      return;
+    }
+    const [counts, authoredCount] = await Promise.all([
+      getArchiveCountsForTarget(normalized),
+      getAuthoredCountForReviewer(normalized),
+    ]);
+    await sendTelegramMessage(
+      {
+        chatId,
+        text: buildMeText({
+          username: normalized,
+          counts: {
+            total: counts.positive + counts.mixed,
+            positive: counts.positive,
+            mixed: counts.mixed,
+            // NEG count not surfaced to self — the existence of NEGs
+            // is admin-only per v9 design.
+            negative: 0,
+            firstAt: counts.firstAt,
+            lastAt: counts.lastAt,
+          },
+          authoredCount,
+        }),
+      },
+      logger,
+    );
+    return;
+  }
+
   if (command === "/forgetme") {
     if (typeof fromId !== "number") {
       await sendTelegramMessage({ chatId, text: buildForgetGroupRedirectText() }, logger);
@@ -773,7 +875,9 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/pause" ||
     command === "/unpause" ||
     command === "/admin_help" ||
-    command === "/dbstats"
+    command === "/dbstats" ||
+    command === "/mirrorstats" ||
+    command === "/modstats"
   ) {
     await handleAdminCommand({
       command,
@@ -949,7 +1053,9 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/pause" ||
     command === "/unpause" ||
     command === "/admin_help" ||
-    command === "/dbstats"
+    command === "/dbstats" ||
+    command === "/mirrorstats" ||
+    command === "/modstats"
   ) {
     await handleAdminCommand({
       command,
@@ -1133,6 +1239,83 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       mode: "neg",
       logger,
     });
+    return;
+  }
+
+  // /remove_entry confirm/cancel — admin-only destructive action.
+  // The button payload carries the entry id; we re-check admin here so
+  // a non-admin who somehow gets the callback_data string can't trip it.
+  const removeConfirmId = parseRemoveEntryConfirmCallback(data);
+  const removeCancelId = parseRemoveEntryCancelCallback(data);
+  if ((removeConfirmId != null || removeCancelId != null) && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    if (!isAdmin(fromId)) {
+      await sendTelegramMessage(
+        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
+        logger,
+      );
+      return;
+    }
+    const entryId = (removeConfirmId ?? removeCancelId)!;
+    if (removeCancelId != null) {
+      await recordAdminAction({
+        adminTelegramId: fromId ?? 0,
+        adminUsername: callbackQuery.from?.username ?? null,
+        command: "/remove_entry:cancel",
+        targetChatId: chatId,
+        entryId,
+        denied: false,
+      });
+      await sendTelegramMessage(
+        { chatId, text: `Entry #${entryId} — cancelled.` },
+        logger,
+      );
+      return;
+    }
+
+    // Confirm path: re-fetch the entry to defend against a stale prompt
+    // (e.g. someone already removed it in another session).
+    const entry = await getArchiveEntryById(entryId);
+    if (!entry || entry.status === "removed") {
+      await sendTelegramMessage(
+        { chatId, text: `Entry #${entryId} not found or already removed.` },
+        logger,
+      );
+      return;
+    }
+
+    // Mark removed in DB FIRST so the source of truth flips before we
+    // touch Telegram. If the Telegram delete fails the entry is still
+    // treated as removed by /search.
+    await markArchiveEntryRemoved(entryId);
+    if (entry.publishedMessageId) {
+      try {
+        await deleteTelegramMessage(
+          { chatId: entry.chatId, messageId: entry.publishedMessageId },
+          logger,
+        );
+      } catch (error) {
+        logger?.warn?.({ error, entryId }, "Failed to delete published entry");
+      }
+    }
+    await recordAdminAction({
+      adminTelegramId: fromId ?? 0,
+      adminUsername: callbackQuery.from?.username ?? null,
+      command: "/remove_entry",
+      targetChatId: chatId,
+      entryId,
+      denied: false,
+    });
+    await sendTelegramMessage(
+      { chatId, text: `Entry #${entryId} removed.` },
+      logger,
+    );
     return;
   }
 

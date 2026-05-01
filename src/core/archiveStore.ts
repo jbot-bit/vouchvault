@@ -396,6 +396,66 @@ export async function getArchiveDiagnostics() {
   };
 }
 
+// /modstats diagnostics: deletion counts + top offenders within the
+// last day / last 7d, derived from admin_audit_log entries written by
+// runChatModeration. Pure read; no writes. The query plan is tiny — the
+// audit table is bounded by deploy-lifetime traffic.
+export async function getModerationDiagnostics(): Promise<{
+  countToday: number;
+  count7d: number;
+  topReviewers: Array<{ username: string | null; count: number }>;
+  topHitSources: Array<{ source: string; count: number }>;
+}> {
+  const cutoff7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const cutoff1d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const [counts, topReviewers, topHitSources] = await Promise.all([
+    db.execute<{ today: string; week: string }>(
+      sql`SELECT
+            COUNT(*) FILTER (WHERE created_at >= ${cutoff1d})::text AS today,
+            COUNT(*) FILTER (WHERE created_at >= ${cutoff7d})::text AS week
+          FROM admin_audit_log
+          WHERE command = 'chat_moderation:delete'
+            AND denied = false`,
+    ),
+    db.execute<{ admin_username: string | null; n: string }>(
+      sql`SELECT admin_username, COUNT(*)::text AS n
+          FROM admin_audit_log
+          WHERE command = 'chat_moderation:delete'
+            AND denied = false
+            AND created_at >= ${cutoff7d}
+          GROUP BY admin_username
+          ORDER BY COUNT(*) DESC
+          LIMIT 5`,
+    ),
+    db.execute<{ reason: string | null; n: string }>(
+      sql`SELECT reason, COUNT(*)::text AS n
+          FROM admin_audit_log
+          WHERE command = 'chat_moderation:delete'
+            AND denied = false
+            AND created_at >= ${cutoff7d}
+            AND reason IS NOT NULL
+          GROUP BY reason
+          ORDER BY COUNT(*) DESC
+          LIMIT 5`,
+    ),
+  ]);
+  const rowsOf = <T>(r: { rows: T[] } | T[]): T[] =>
+    Array.isArray(r) ? r : (r as { rows: T[] }).rows ?? [];
+  const c = rowsOf(counts)[0];
+  return {
+    countToday: Number(c?.today ?? "0"),
+    count7d: Number(c?.week ?? "0"),
+    topReviewers: rowsOf(topReviewers).map((row) => ({
+      username: row.admin_username,
+      count: Number(row.n),
+    })),
+    topHitSources: rowsOf(topHitSources).map((row) => ({
+      source: row.reason ?? "(unknown)",
+      count: Number(row.n),
+    })),
+  };
+}
+
 /**
  * `pg_advisory_lock` is a session-level lock — it must be acquired AND released
  * on the same Postgres connection. Going through `db.execute(...)` checks out a

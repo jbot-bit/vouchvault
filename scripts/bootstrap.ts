@@ -141,7 +141,10 @@ async function setupWebhook(): Promise<void> {
 const DEFAULT_COMMANDS = [
   { command: "start", description: "Get started" },
   { command: "search", description: "Search community vouches — /search @username" },
+  { command: "me", description: "Your own vouch summary" },
   { command: "policy", description: "Data handling + Telegram policies" },
+  { command: "tos", description: "Telegram ToS + bot policies" },
+  { command: "privacy", description: "Data + privacy summary" },
   { command: "forgetme", description: "Delete vouches you've written" },
 ];
 
@@ -155,6 +158,8 @@ const ADMIN_COMMANDS = [
   { command: "pause", description: "Pause posting in a chat" },
   { command: "unpause", description: "Resume posting" },
   { command: "dbstats", description: "DB diagnostics" },
+  { command: "mirrorstats", description: "Backup-channel mirror health" },
+  { command: "modstats", description: "Chat-moderation stats" },
   { command: "admin_help", description: "Admin command help" },
 ];
 

@@ -19,7 +19,7 @@ Refresh by re-fetching wholesale (don't selectively edit).
 
 **No public-URL surface, by design.** A hosted policy page would be search-indexed, third-party-trackable, and just another classifier-visible link tied to the group identity. We surface the policy in-Telegram only.
 
-- DM `/policy`, `/privacy`, or `/tos` — returns `buildPolicyText()` (see `src/core/archive.ts`). Self-contained: lists what's stored, the deletion path, links to Telegram's ToS / Privacy / Bot Terms (their canonical URLs, not ours), and `@notoscam` for abuse reports.
+- DM `/policy`, `/privacy`, or `/tos` — returns `buildPolicyText()` (see `src/core/archive.ts`). Self-contained: lists what's stored, the deletion path, and links to Telegram's ToS / Privacy / Bot Terms (their canonical URLs, not ours). Does NOT direct members to a reporting channel — surfacing one in bot copy invites reports against the bot itself.
 - DM `/forgetme` — two-step YES confirmation, then deletes vouches the user authored + their account record. Vouches written ABOUT them by other reviewers stay (see "scope" below).
 - Welcome + pinned guide point at `/policy` and `/forgetme`.
 - Bot description (BotFather profile) carries `Automated read-only tool — member-initiated only.` plus the compact rules line.
@@ -39,4 +39,4 @@ If a future BotFather change makes the privacy-policy URL field mandatory, point
 
 ## Reporting abuse
 
-`@notoscam` — Telegram's official ToS-violation channel. Surfaced in welcome, pinned guide, and `/policy`.
+We do **not** surface a reporting channel in bot copy (welcome / pinned guide / `/policy`). Members who need to report ToS violations use Telegram's native reporting UI directly. Embedding `@notoscam` (or any report channel) in bot copy invites reports against the bot itself — a takedown vector we deliberately avoid.
