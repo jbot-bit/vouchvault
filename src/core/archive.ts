@@ -300,17 +300,19 @@ function fmtStatusLine(
   return "Status: Active";
 }
 
+const DEFAULT_RULES_TEXT = [
+  "<b>Rules</b>",
+  "• Telegram ToS — no illegal, no scams",
+  "• Vouch only people you know personally",
+  "• No personal opinions, no rating, no minors",
+  "• Report ToS violations to @notoscam",
+].join("\n");
+
 function rulesLine(): string {
-  // Tight 4-line rules block. Welcome and pinned guide both embed this.
-  // Documents the scope a Telegram T&S reviewer would see if they arrive
-  // at the chat profile from a hostile report.
-  return [
-    "<b>Rules</b>",
-    "• Telegram ToS — no illegal, no scams",
-    "• Vouch only people you know personally",
-    "• No personal opinions, no rating, no minors",
-    "• Report ToS violations to @notoscam",
-  ].join("\n");
+  // Welcome and pinned guide both embed this. Override via BOT_RULES_TEXT
+  // env. Documents the scope a Telegram T&S reviewer would see if they
+  // arrive at the chat profile from a hostile report.
+  return envOverride("BOT_RULES_TEXT") ?? DEFAULT_RULES_TEXT;
 }
 
 // v9 locked-text. Members post vouches as normal group messages; the bot
@@ -341,40 +343,54 @@ export function buildPolicyText(): string {
   ].join("\n");
 }
 
+// Env override pattern. Same as BOT_DESCRIPTION / BOT_SHORT_DESCRIPTION.
+// Set BOT_WELCOME_TEXT / BOT_PINNED_GUIDE_TEXT in Railway to override
+// without touching code. HTML supported (<b>, <code>, <i>, <u>, <a>).
+// Use \n for line breaks. Empty / unset → falls back to the spec-locked
+// default below.
+function envOverride(key: string): string | null {
+  const v = process.env[key];
+  if (v == null) return null;
+  const trimmed = v.trim();
+  return trimmed.length > 0 ? trimmed.replace(/\\n/g, "\n") : null;
+}
+
+const DEFAULT_WELCOME_TEXT = [
+  "<b>SC45</b>",
+  "",
+  "🔍 Search vouches → <code>/search @username</code>",
+  "🗑 Delete yours → <code>/forgetme</code>",
+  "📄 Data + policy → <code>/policy</code>",
+  "",
+  "<b>How to vouch</b>",
+  "Post in the group. Tag the @, say what happened. Keep it factual.",
+  "",
+  "<b>Moderation</b>",
+  "Commercial-shaped posts auto-delete. Hit <code>/start</code> once so I can ping you if yours gets removed.",
+].join("\n");
+
+const DEFAULT_PINNED_GUIDE_TEXT = [
+  "<b>SC45</b>",
+  "",
+  "🔍 Search vouches → DM me <code>/search @username</code>",
+  "🗑 Delete yours → DM <code>/forgetme</code>",
+  "📄 Data + policy → DM <code>/policy</code>",
+  "",
+  "<b>How to vouch</b>",
+  "Post in this group. Tag the @, say what happened. Keep it factual.",
+  "",
+  "<b>Moderation</b>",
+  "Commercial-shaped posts auto-delete. DM me <code>/start</code> once so I can ping you if yours gets removed.",
+].join("\n");
+
 export function buildWelcomeText(): string {
-  return [
-    "<b>SC45</b>",
-    "",
-    "🔍 Search vouches → <code>/search @username</code>",
-    "🗑 Delete yours → <code>/forgetme</code>",
-    "📄 Data + policy → <code>/policy</code>",
-    "",
-    "<b>How to vouch</b>",
-    "Post in the group. Tag the @, say what happened. Keep it factual.",
-    "",
-    "<b>Moderation</b>",
-    "Commercial-shaped posts auto-delete. Hit <code>/start</code> once so I can ping you if yours gets removed.",
-    "",
-    rulesLine(),
-  ].join("\n");
+  const body = envOverride("BOT_WELCOME_TEXT") ?? DEFAULT_WELCOME_TEXT;
+  return `${body}\n\n${rulesLine()}`;
 }
 
 export function buildPinnedGuideText(): string {
-  return [
-    "<b>SC45</b>",
-    "",
-    "🔍 Search vouches → DM me <code>/search @username</code>",
-    "🗑 Delete yours → DM <code>/forgetme</code>",
-    "📄 Data + policy → DM <code>/policy</code>",
-    "",
-    "<b>How to vouch</b>",
-    "Post in this group. Tag the @, say what happened. Keep it factual.",
-    "",
-    "<b>Moderation</b>",
-    "Commercial-shaped posts auto-delete. DM me <code>/start</code> once so I can ping you if yours gets removed.",
-    "",
-    rulesLine(),
-  ].join("\n");
+  const body = envOverride("BOT_PINNED_GUIDE_TEXT") ?? DEFAULT_PINNED_GUIDE_TEXT;
+  return `${body}\n\n${rulesLine()}`;
 }
 
 export function buildBotDescriptionText(): string {

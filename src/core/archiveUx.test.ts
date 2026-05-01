@@ -311,6 +311,52 @@ test("buildAdminBotDescription is the locked copy", () => {
   assert.match(text, /chat moderation/);
 });
 
+test("BOT_WELCOME_TEXT env overrides welcome body, rules block still appended", () => {
+  process.env.BOT_WELCOME_TEXT = "Hello world\\nLine 2";
+  try {
+    const text = buildWelcomeText();
+    assert.match(text, /^Hello world\nLine 2/);
+    assert.match(text, /<b>Rules<\/b>/);
+    assert.equal(text.includes("🔍 Search"), false);
+  } finally {
+    delete process.env.BOT_WELCOME_TEXT;
+  }
+});
+
+test("BOT_PINNED_GUIDE_TEXT env overrides pinned body, rules block still appended", () => {
+  process.env.BOT_PINNED_GUIDE_TEXT = "Pinned-override-body";
+  try {
+    const text = buildPinnedGuideText();
+    assert.match(text, /^Pinned-override-body/);
+    assert.match(text, /<b>Rules<\/b>/);
+  } finally {
+    delete process.env.BOT_PINNED_GUIDE_TEXT;
+  }
+});
+
+test("BOT_RULES_TEXT env replaces the default rules block", () => {
+  process.env.BOT_RULES_TEXT = "<b>House Rules</b>\\n• Be cool";
+  try {
+    const text = buildWelcomeText();
+    assert.match(text, /<b>House Rules<\/b>/);
+    assert.match(text, /Be cool/);
+    assert.equal(text.includes("Telegram ToS — no illegal"), false);
+  } finally {
+    delete process.env.BOT_RULES_TEXT;
+  }
+});
+
+test("env override falls back to default when env is empty / whitespace", () => {
+  process.env.BOT_WELCOME_TEXT = "   ";
+  try {
+    const text = buildWelcomeText();
+    assert.match(text, /<b>SC45<\/b>/);
+    assert.match(text, /🔍 Search/);
+  } finally {
+    delete process.env.BOT_WELCOME_TEXT;
+  }
+});
+
 test("buildPolicyText covers store/delete/Telegram-policies/abuse with no external URL", () => {
   const text = buildPolicyText();
   assert.match(text, /<b>Policy \+ data handling<\/b>/);
