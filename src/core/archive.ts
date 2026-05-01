@@ -379,10 +379,7 @@ function fmtStatusLine(
 }
 
 const DEFAULT_RULES_TEXT = [
-  "<b>Rules</b>",
-  "• Telegram ToS — no illegal, no scams",
-  "• Vouch only people you know personally",
-  "• No personal opinions, no rating, no minors",
+  "Rules: Telegram ToS, vouch people you actually know, no opinions, no minors.",
 ].join("\n");
 
 function rulesLine(): string {
@@ -403,18 +400,11 @@ function rulesLine(): string {
 // is the only surface.
 export function buildPolicyText(): string {
   return [
-    "<b>Policy + data handling</b>",
+    "Stored: your @ and Telegram id once you DM, plus vouches you write.",
     "",
-    "I'm an automated read-only lookup tool. Members post vouches in the group; I don't write or solicit any.",
+    "DM <code>/forgetme</code> to wipe yours. Vouches others wrote about you stay — their words, not your data.",
     "",
-    "<b>What I store:</b> Telegram <code>user_id</code> + @username for members who interact, plus the vouch entries posted in the group (timestamp, reviewer, target, body, tags).",
-    "",
-    "<b>Deletion:</b> DM <code>/forgetme</code> to delete vouches you authored + your account record. Vouches other members wrote about you stay — that's their words, not your data.",
-    "",
-    "<b>Telegram's policies apply too:</b>",
-    "• Terms of Service — https://telegram.org/tos",
-    "• Privacy Policy — https://telegram.org/privacy",
-    "• Bot Terms — https://telegram.org/tos/bots",
+    "Telegram's ToS, Privacy and Bot Terms apply.",
   ].join("\n");
 }
 
@@ -433,29 +423,23 @@ function envOverride(key: string): string | null {
 const DEFAULT_WELCOME_TEXT = [
   "<b>SC45</b>",
   "",
-  "🔍 Search vouches → <code>/search @username</code>",
-  "🗑 Delete yours → <code>/forgetme</code>",
-  "📄 Data + policy → <code>/policy</code>",
+  "<code>/search @username</code> — look up vouches.",
+  "<code>/me</code> — your own.",
+  "<code>/forgetme</code> — wipe yours.",
+  "<code>/policy</code> — what's stored.",
   "",
-  "<b>How to vouch</b>",
-  "Post in the group. Tag the @, say what happened. Keep it factual.",
-  "",
-  "<b>Moderation</b>",
-  "Commercial-shaped posts auto-delete. Hit <code>/start</code> once so I can ping you if yours gets removed.",
+  "Vouch by posting in the group. Tag the @, say what happened.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
   "<b>SC45</b>",
   "",
-  "🔍 Search vouches → DM me <code>/search @username</code>",
-  "🗑 Delete yours → DM <code>/forgetme</code>",
-  "📄 Data + policy → DM <code>/policy</code>",
+  "DM the bot:",
+  "<code>/search @username</code> — look up.",
+  "<code>/forgetme</code> — wipe yours.",
+  "<code>/policy</code> — data handling.",
   "",
-  "<b>How to vouch</b>",
-  "Post in this group. Tag the @, say what happened. Keep it factual.",
-  "",
-  "<b>Moderation</b>",
-  "Commercial-shaped posts auto-delete. DM me <code>/start</code> once so I can ping you if yours gets removed.",
+  "Vouch by posting in this group. Tag the @, say what happened.",
 ].join("\n");
 
 export function buildWelcomeText(): string {
@@ -482,18 +466,16 @@ export function buildWelcomeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "🔍 Search vouches", switch_inline_query_current_chat: "@" }],
+      [{ text: "Search", switch_inline_query_current_chat: "@" }],
       [
-        { text: "📊 Your stats", callback_data: "wc:me" },
-        { text: "📄 Data + policy", callback_data: "wc:policy" },
+        { text: "Me", callback_data: "wc:me" },
+        { text: "Policy", callback_data: "wc:policy" },
       ],
     ],
   };
 }
 
-// Inline keyboard for /me. Quick-actions:
-//   1. Search someone (switch_inline_query_current_chat)
-//   2. Forget my data (deep-links to /forgetme prompt via callback)
+// Inline keyboard for /me.
 export function buildMeReplyMarkup(): {
   inline_keyboard: Array<
     Array<
@@ -504,8 +486,8 @@ export function buildMeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "🔍 Search someone", switch_inline_query_current_chat: "@" }],
-      [{ text: "🗑 Forget my data", callback_data: "wc:forget" }],
+      [{ text: "Search someone", switch_inline_query_current_chat: "@" }],
+      [{ text: "Forget me", callback_data: "wc:forget" }],
     ],
   };
 }
@@ -513,11 +495,7 @@ export function buildMeReplyMarkup(): {
 // Empty-arg /search response — instead of "send /search @username",
 // drop a button that activates inline-mode in the current chat.
 export function buildSearchPromptText(): string {
-  return [
-    "<b>Search a member</b>",
-    "",
-    "Tap the button below to type an @username, or send <code>/search @username</code>.",
-  ].join("\n");
+  return "Tap below or send <code>/search @username</code>.";
 }
 
 export function buildSearchPromptReplyMarkup(): {
@@ -527,7 +505,7 @@ export function buildSearchPromptReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "🔍 Type @username to search", switch_inline_query_current_chat: "@" }],
+      [{ text: "Search @user", switch_inline_query_current_chat: "@" }],
     ],
   };
 }
@@ -548,18 +526,18 @@ export function buildPinnedGuideText(): string {
 
 export function buildBotDescriptionText(): string {
   return [
-    "SC45 vouch lookup.",
+    "Look up vouches in SC45.",
     "",
-    "DM /search @username — search community vouches.",
-    "DM /policy — what's stored, how to delete.",
-    "DM /forgetme — delete vouches you've written.",
+    "/search @user — search.",
+    "/me — your own.",
+    "/forgetme — wipe yours.",
     "",
-    "Read-only. Members post vouches in the group; the bot doesn't write or DM on its own.",
+    "Read-only. Members write the vouches.",
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "SC45 — DM /search @username to search community vouches.";
+  return "Look up SC45 vouches. DM /search @user.";
 }
 
 const SAFE_LIMIT = 3900;
@@ -646,11 +624,7 @@ export function buildLookupText(input: {
   // Telegram-reserved handle (telegram, botfather, etc.) is rejected
   // upstream; here we explain why a /search for one returns nothing.
   if (isReservedTarget(input.targetUsername)) {
-    return [
-      heading,
-      "",
-      "I'm a read-only lookup tool, not a person — you can't vouch for me.",
-    ].join("\n");
+    return [heading, "", "Can't vouch the bot."].join("\n");
   }
 
   if (input.counts.total === 0) {
@@ -658,7 +632,7 @@ export function buildLookupText(input: {
       heading,
       statusLine,
       "",
-      `No vouches yet for ${fmtUser(input.targetUsername)}. They might be new, or no one's posted about them. If you've worked with them, post a vouch in the group.`,
+      `Nothing on ${fmtUser(input.targetUsername)} yet.`,
     ];
     if (
       typeof input.counts.authoredCount === "number" &&
@@ -867,28 +841,20 @@ export function buildAdminOnlyText(): string {
 
 // Lookup-bot @BotFather profile copy. Read-only; never posts.
 export function buildLookupBotShortDescription(): string {
-  return "SC45 — read-only search. DM /search @username.";
+  return "SC45 read-only search. DM /search @user.";
 }
 
 export function buildLookupBotDescription(): string {
-  return [
-    "SC45 read-only search.",
-    "",
-    "DM /search @username to search community vouches. The bot doesn't write or DM on its own.",
-  ].join("\n");
+  return "Look up SC45 vouches. DM /search @user. Read-only.";
 }
 
 // Admin-bot @BotFather profile copy.
 export function buildAdminBotShortDescription(): string {
-  return "SC45 admin tooling. Restricted — operator commands only.";
+  return "SC45 admin. Operators only.";
 }
 
 export function buildAdminBotDescription(): string {
-  return [
-    "SC45 operator-only admin bot.",
-    "",
-    "Freeze/unfreeze/audit + chat moderation. Non-admin commands are no-ops by design.",
-  ].join("\n");
+  return "SC45 admin tools. Operators only.";
 }
 
 // Account-age guard rejection — kept for the moderation/welcome path even
@@ -912,13 +878,13 @@ export function buildModerationWarnText(input: {
 }): string {
   const escapedGroup = escapeHtml(input.groupName);
   if (input.hitSource.startsWith("regex_vouch_")) {
-    return `Your message in <b>${escapedGroup}</b> was removed. Post your vouch as a normal message in the group — keep it factual and mention the @username plainly.`;
+    return `Removed in <b>${escapedGroup}</b>. Post the vouch as a normal message — tag the @, say what happened.`;
   }
   const adminPointer =
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
-      : "contact an admin";
-  return `Your message in <b>${escapedGroup}</b> was removed by automated moderation. To appeal, ${adminPointer}.`;
+      : "ping an admin";
+  return `Removed in <b>${escapedGroup}</b>. To appeal, ${adminPointer}.`;
 }
 
 export function buildDbStatsText(input: {
@@ -1008,32 +974,22 @@ export function buildMeText(input: {
   };
   authoredCount: number;
 }): string {
-  const heading = `<b><u>Your vouches</u></b>`;
   const handle = fmtUser(input.username);
   if (input.counts.total === 0 && input.authoredCount === 0) {
-    return [
-      heading,
-      "",
-      `No vouches recorded for ${handle} yet.`,
-      "",
-      "If members have worked with you, they can post a vouch as a normal message in the group.",
-    ].join("\n");
+    return `Nothing on ${handle} yet.`;
   }
 
-  const lines: string[] = [heading, "", `Handle: ${handle}`];
+  const lines: string[] = [handle];
   if (input.counts.total > 0) {
     const breakdown: string[] = [];
-    if (input.counts.positive > 0) breakdown.push(`✅ ${input.counts.positive} POS`);
-    if (input.counts.mixed > 0) breakdown.push(`⚖️ ${input.counts.mixed} MIX`);
-    // NEG count intentionally omitted — NEG existence is private.
-    const noun = input.counts.total === 1 ? "vouch" : "vouches";
+    if (input.counts.positive > 0) breakdown.push(`${input.counts.positive} POS`);
+    if (input.counts.mixed > 0) breakdown.push(`${input.counts.mixed} MIX`);
     const visibleTotal = input.counts.positive + input.counts.mixed;
+    const noun = visibleTotal === 1 ? "vouch" : "vouches";
     lines.push(
-      `Received: <b>${visibleTotal} ${noun}</b>${
-        breakdown.length > 0 ? ` — ${breakdown.join(" · ")}` : ""
-      }`,
+      `<b>${visibleTotal} ${noun}</b>${breakdown.length > 0 ? ` (${breakdown.join(", ")})` : ""}`,
     );
-    if (input.counts.firstAt && input.counts.lastAt) {
+    if (input.counts.lastAt) {
       const days = Math.floor(
         (Date.now() - input.counts.lastAt.getTime()) / (24 * 60 * 60 * 1000),
       );
@@ -1041,20 +997,16 @@ export function buildMeText(input: {
         days <= 0
           ? "today"
           : days === 1
-          ? "1 day ago"
+          ? "1d ago"
           : days < 60
-          ? `${days} days ago`
-          : `${Math.floor(days / 30)} months ago`;
-      lines.push(
-        `Active ${fmtDate(input.counts.firstAt)} → ${fmtDate(input.counts.lastAt)} (last ${ago})`,
-      );
+          ? `${days}d ago`
+          : `${Math.floor(days / 30)}mo ago`;
+      lines.push(`Last ${ago}`);
     }
-  } else {
-    lines.push("Received: 0 vouches");
   }
   if (input.authoredCount > 0) {
     const noun = input.authoredCount === 1 ? "vouch" : "vouches";
-    lines.push(`Authored: <b>${input.authoredCount} ${noun}</b> about other members`);
+    lines.push(`Wrote ${input.authoredCount} ${noun} about others`);
   }
   return lines.join("\n");
 }

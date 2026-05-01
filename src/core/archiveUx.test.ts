@@ -36,63 +36,60 @@ import {
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text is SC45-branded and points at /search, /policy, /forgetme", () => {
+test("welcome text is terse, SC45-branded, points at /search /me /forgetme /policy", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>SC45<\/b>/);
   assert.match(text, /<code>\/search @username<\/code>/);
-  assert.match(text, /<code>\/policy<\/code>/);
+  assert.match(text, /<code>\/me<\/code>/);
   assert.match(text, /<code>\/forgetme<\/code>/);
-  assert.match(text, /<b>How to vouch<\/b>/);
+  assert.match(text, /<code>\/policy<\/code>/);
   assert.match(text, /Tag the @, say what happened/);
-  assert.match(text, /<b>Moderation<\/b>/);
-  assert.match(text, /auto-delete/);
-  assert.match(text, /Hit <code>\/start<\/code> once/);
   assert.match(text, /Telegram ToS/);
-  // @notoscam was removed — surfacing it in bot copy invites reports
-  // against the bot itself. Members report through Telegram's native UI.
+  // No reporting-channel pointer; no AI-flavoured headers.
   assert.equal(text.includes("@notoscam"), false);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
+  // Length sanity — full output incl. rules line should fit ~600 chars.
+  assert.ok(text.length <= 600, `welcome is ${text.length} chars`);
 });
 
-test("pinned guide text is SC45-branded with the same surface", () => {
+test("pinned guide is terse and points at the DM commands", () => {
   const text = buildPinnedGuideText();
   assert.match(text, /<b>SC45<\/b>/);
-  assert.match(text, /DM me <code>\/search @username<\/code>/);
-  assert.match(text, /DM <code>\/forgetme<\/code>/);
-  assert.match(text, /<b>How to vouch<\/b>/);
-  assert.match(text, /Post in this group/);
-  assert.match(text, /<b>Moderation<\/b>/);
-  assert.match(text, /auto-delete/);
+  assert.match(text, /<code>\/search @username<\/code>/);
+  assert.match(text, /<code>\/forgetme<\/code>/);
+  assert.match(text, /Tag the @, say what happened/);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
+  assert.ok(text.length <= 600, `pinned guide is ${text.length} chars`);
 });
 
-test("bot description is concise, SC45-branded, ≤512 chars", () => {
+test("bot description is short and human, ≤512 chars", () => {
   const desc = buildBotDescriptionText();
-  assert.match(desc, /^SC45 vouch lookup\./);
-  assert.match(desc, /DM \/search @username/);
-  assert.match(desc, /DM \/policy/);
-  assert.match(desc, /DM \/forgetme/);
+  assert.match(desc, /^Look up vouches in SC45\./);
+  assert.match(desc, /\/search @user/);
+  assert.match(desc, /\/me/);
+  assert.match(desc, /\/forgetme/);
   assert.match(desc, /Read-only/);
-  assert.match(desc, /Members post vouches in the group/);
   assert.equal(desc.includes("Vouch Hub"), false);
   assert.equal(desc.includes("Submit Vouch"), false);
   assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
 
   const short = buildBotShortDescription();
-  assert.equal(short, "SC45 — DM /search @username to search community vouches.");
+  assert.equal(short, "Look up SC45 vouches. DM /search @user.");
   assert.ok(short.length <= 120);
 });
 
-test("rules block contains the three bullets in welcome and pinned guide", () => {
+test("rules line is one short sentence, no header, no bullets", () => {
   const surfaces = [buildWelcomeText(), buildPinnedGuideText()];
   for (const text of surfaces) {
-    assert.match(text, /<b>Rules<\/b>/);
-    assert.match(text, /Telegram ToS — no illegal, no scams/);
-    assert.match(text, /Vouch only people you know personally/);
-    assert.match(text, /No personal opinions, no rating, no minors/);
-    // @notoscam line removed: bot copy shouldn't direct members to report.
+    assert.match(text, /Rules:/);
+    assert.match(text, /Telegram ToS/);
+    assert.match(text, /vouch people you actually know/);
+    assert.match(text, /no minors/);
+    // No header / no bullet markers — the goal is human prose.
+    assert.equal(text.includes("<b>Rules</b>"), false);
+    assert.equal(text.includes("• "), false);
     assert.equal(text.includes("@notoscam"), false);
   }
 });
@@ -313,7 +310,7 @@ test("buildLookupText shows Frozen status with reason and 'No vouches' when zero
 
   assert.match(text, /<b><u>@icebox<\/u><\/b>/);
   assert.match(text, /Status: Frozen — <i>scam attempt<\/i>/);
-  assert.match(text, /No vouches yet for <b>@icebox<\/b>/);
+  assert.match(text, /Nothing on <b>@icebox<\/b>/);
 });
 
 test("buildLookupText falls back to 'no reason given' when frozen with null reason", () => {
@@ -656,64 +653,65 @@ test("buildAdminHelpText lists every admin command (v9 — /search primary, /loo
   assert.match(text, /alias: \/lookup/);
 });
 
-test("buildLookupBotShortDescription is the locked copy", () => {
-  assert.equal(
-    buildLookupBotShortDescription(),
-    "SC45 — read-only search. DM /search @username.",
-  );
+test("buildLookupBotShortDescription is short + read-only-flavoured", () => {
+  const s = buildLookupBotShortDescription();
+  assert.match(s, /SC45/);
+  assert.match(s, /read-only/i);
+  assert.match(s, /\/search/);
+  assert.ok(s.length <= 120);
 });
 
-test("buildLookupBotDescription is the locked copy", () => {
+test("buildLookupBotDescription is one short line", () => {
   const text = buildLookupBotDescription();
-  assert.match(text, /^SC45 read-only search\./);
-  assert.match(text, /DM \/search @username/);
-  assert.match(text, /doesn't write or DM on its own/);
+  assert.match(text, /SC45/);
+  assert.match(text, /\/search @user/);
+  assert.match(text, /Read-only/);
+  assert.ok(text.length <= 200);
 });
 
-test("buildAdminBotShortDescription is the locked copy", () => {
-  assert.equal(
-    buildAdminBotShortDescription(),
-    "SC45 admin tooling. Restricted — operator commands only.",
-  );
+test("buildAdminBotShortDescription is short", () => {
+  const s = buildAdminBotShortDescription();
+  assert.match(s, /SC45/);
+  assert.match(s, /admin/i);
+  assert.ok(s.length <= 120);
 });
 
-test("buildAdminBotDescription is the locked copy", () => {
+test("buildAdminBotDescription is one short line", () => {
   const text = buildAdminBotDescription();
-  assert.match(text, /SC45 operator-only admin bot/);
-  assert.match(text, /Freeze\/unfreeze\/audit/);
-  assert.match(text, /chat moderation/);
+  assert.match(text, /SC45/);
+  assert.match(text, /admin/i);
+  assert.ok(text.length <= 200);
 });
 
-test("BOT_WELCOME_TEXT env overrides welcome body, rules block still appended", () => {
+test("BOT_WELCOME_TEXT env overrides welcome body, rules line still appended", () => {
   process.env.BOT_WELCOME_TEXT = "Hello world\\nLine 2";
   try {
     const text = buildWelcomeText();
     assert.match(text, /^Hello world\nLine 2/);
-    assert.match(text, /<b>Rules<\/b>/);
-    assert.equal(text.includes("🔍 Search"), false);
+    assert.match(text, /Rules:/);
+    assert.equal(text.includes("/search @username"), false);
   } finally {
     delete process.env.BOT_WELCOME_TEXT;
   }
 });
 
-test("BOT_PINNED_GUIDE_TEXT env overrides pinned body, rules block still appended", () => {
+test("BOT_PINNED_GUIDE_TEXT env overrides pinned body, rules line still appended", () => {
   process.env.BOT_PINNED_GUIDE_TEXT = "Pinned-override-body";
   try {
     const text = buildPinnedGuideText();
     assert.match(text, /^Pinned-override-body/);
-    assert.match(text, /<b>Rules<\/b>/);
+    assert.match(text, /Rules:/);
   } finally {
     delete process.env.BOT_PINNED_GUIDE_TEXT;
   }
 });
 
-test("BOT_RULES_TEXT env replaces the default rules block", () => {
-  process.env.BOT_RULES_TEXT = "<b>House Rules</b>\\n• Be cool";
+test("BOT_RULES_TEXT env replaces the default rules line", () => {
+  process.env.BOT_RULES_TEXT = "House rules: be cool.";
   try {
     const text = buildWelcomeText();
-    assert.match(text, /<b>House Rules<\/b>/);
-    assert.match(text, /Be cool/);
-    assert.equal(text.includes("Telegram ToS — no illegal"), false);
+    assert.match(text, /House rules: be cool\./);
+    assert.equal(text.includes("Telegram ToS, vouch people"), false);
   } finally {
     delete process.env.BOT_RULES_TEXT;
   }
@@ -724,25 +722,20 @@ test("env override falls back to default when env is empty / whitespace", () => 
   try {
     const text = buildWelcomeText();
     assert.match(text, /<b>SC45<\/b>/);
-    assert.match(text, /🔍 Search/);
+    assert.match(text, /\/search @username/);
   } finally {
     delete process.env.BOT_WELCOME_TEXT;
   }
 });
 
-test("buildPolicyText covers store/delete/Telegram-policies with no external URL", () => {
+test("buildPolicyText is short, names what's stored + the deletion path, no @notoscam", () => {
   const text = buildPolicyText();
-  assert.match(text, /<b>Policy \+ data handling<\/b>/);
-  assert.match(text, /automated read-only lookup tool/);
-  assert.match(text, /<b>What I store:<\/b>/);
-  assert.match(text, /<b>Deletion:<\/b> DM <code>\/forgetme<\/code>/);
-  assert.match(text, /https:\/\/telegram\.org\/tos/);
-  assert.match(text, /https:\/\/telegram\.org\/privacy/);
-  assert.match(text, /https:\/\/telegram\.org\/tos\/bots/);
-  // @notoscam removed — bot copy doesn't direct members to report.
+  assert.match(text, /Stored:/);
+  assert.match(text, /<code>\/forgetme<\/code>/);
+  assert.match(text, /Telegram's ToS/i);
   assert.equal(text.includes("@notoscam"), false);
-  // No operator-hosted URL surface — group-pinnable, DM-deliverable only.
   assert.equal(text.includes("Full policy:"), false);
+  assert.ok(text.length <= 400, `policy is ${text.length} chars`);
 });
 
 test("buildDbStatsText shows status breakdown + sample rows when data is present", () => {
@@ -813,8 +806,8 @@ test("buildModerationWarnText: vouch-shape branch points back into the group (no
     hitSource: "regex_vouch_for_username",
     adminBotUsername: null,
   });
-  assert.match(text, /<b>VouchVault<\/b> was removed/);
-  assert.match(text, /Post your vouch as a normal message in the group/);
+  assert.match(text, /Removed in <b>VouchVault<\/b>/);
+  assert.match(text, /Post the vouch as a normal message/);
   // v9: no Submit Vouch launcher anymore.
   assert.equal(text.includes("Submit Vouch"), false);
 });
@@ -825,18 +818,18 @@ test("buildModerationWarnText: buy/sell branch with admin-bot username points at
     hitSource: "compound_buy_solicit",
     adminBotUsername: "VouchAdminBot",
   });
-  assert.match(text, /removed by automated moderation/);
+  assert.match(text, /Removed in <b>VouchVault<\/b>/);
   assert.match(text, /To appeal, DM <code>@VouchAdminBot<\/code>/);
 });
 
-test("buildModerationWarnText: buy/sell branch without admin-bot username falls back to 'contact an admin'", () => {
+test("buildModerationWarnText: buy/sell branch without admin-bot username falls back to pinging an admin", () => {
   const text = buildModerationWarnText({
     groupName: "VouchVault",
     hitSource: "phrase",
     adminBotUsername: null,
   });
-  assert.match(text, /removed by automated moderation/);
-  assert.match(text, /To appeal, contact an admin/);
+  assert.match(text, /Removed in <b>VouchVault<\/b>/);
+  assert.match(text, /To appeal, ping an admin/);
   assert.doesNotMatch(text, /DM <code>@/);
 });
 

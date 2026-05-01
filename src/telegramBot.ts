@@ -782,7 +782,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
           if (!limited.allowed) {
             const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
             await sendTelegramMessage(
-              { chatId, text: `Hold on — try again in ${seconds}s.` },
+              { chatId, text: `Slow down — ${seconds}s.` },
               logger,
             );
             return;
@@ -947,7 +947,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       if (!limited.allowed) {
         const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
         await sendTelegramMessage(
-          { chatId, text: `Hold on — try again in ${seconds}s.` },
+          { chatId, text: `Slow down — ${seconds}s.` },
           logger,
         );
         return;
@@ -1384,7 +1384,7 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       if (!limited.allowed) {
         const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
         await sendTelegramMessage(
-          { chatId, text: `Hold on — try again in ${seconds}s.` },
+          { chatId, text: `Slow down — ${seconds}s.` },
           logger,
         );
         return;

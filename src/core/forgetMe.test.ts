@@ -19,19 +19,19 @@ import {
   type ForgetDeps,
 } from "./forgetMe.ts";
 
-test("buildForgetPromptText names the deletion scope and the YES window (stage 1 of 2)", () => {
+test("buildForgetPromptText names the deletion scope and the YES window", () => {
   const text = buildForgetPromptText();
-  assert.match(text, /<b>Forget me — step 1 of 2<\/b>/);
-  assert.match(text, /every vouch <b>you authored<\/b>/);
-  assert.match(text, /Vouches other members wrote <b>about<\/b> you stay/);
-  assert.match(text, /Reply <code>YES<\/code> within 5 minutes/);
+  assert.match(text, /Wipes every vouch you wrote/);
+  assert.match(text, /Vouches others wrote about you stay/);
+  assert.match(text, /Reply <code>YES<\/code> within 5 min/);
+  assert.ok(text.length <= 250, `forget prompt is ${text.length} chars`);
 });
 
-test("buildForgetFinalConfirmText is stage 2 with cannot-be-undone language", () => {
+test("buildForgetFinalConfirmText is short and unambiguous", () => {
   const text = buildForgetFinalConfirmText();
-  assert.match(text, /step 2 of 2/);
-  assert.match(text, /Tap <b>✅ Confirm delete<\/b>/);
-  assert.match(text, /<b>This cannot be undone\.<\/b>/);
+  assert.match(text, /Last chance/);
+  assert.match(text, /Tap Confirm/);
+  assert.ok(text.length <= 80);
 });
 
 test("buildForgetFinalConfirmMarkup carries fg:y + fg:n callbacks", () => {
@@ -43,13 +43,13 @@ test("buildForgetFinalConfirmMarkup carries fg:y + fg:n callbacks", () => {
 });
 
 test("buildForgetDoneText pluralises 'row' correctly", () => {
-  assert.match(buildForgetDoneText(1), /deleted 1 row /);
-  assert.match(buildForgetDoneText(7), /deleted 7 rows /);
+  assert.equal(buildForgetDoneText(1), "Wiped 1 row.");
+  assert.equal(buildForgetDoneText(7), "Wiped 7 rows.");
 });
 
 test("buildForgetExpiredText + cancelled + group-redirect copy", () => {
-  assert.match(buildForgetExpiredText(), /Confirmation window expired/);
-  assert.equal(buildForgetCancelledText(), "Cancelled. Your data is unchanged.");
+  assert.match(buildForgetExpiredText(), /Expired/);
+  assert.equal(buildForgetCancelledText(), "Cancelled.");
   assert.match(buildForgetGroupRedirectText(), /DM me to use \/forgetme/);
 });
 
