@@ -789,6 +789,14 @@ export function buildSearchDeepLinkUrl(botUsername: string, targetUsername: stri
   return `https://t.me/${encodeURIComponent(botUsername)}?start=search_${u}`;
 }
 
+// Same as buildSearchDeepLinkUrl but routes to NEG-only view in DM.
+// Used by the group-context "See N NEG" button so admin NEG details
+// never spam the group.
+export function buildNegDeepLinkUrl(botUsername: string, targetUsername: string): string {
+  const u = targetUsername.replace(/^@+/, "").toLowerCase().slice(0, 32);
+  return `https://t.me/${encodeURIComponent(botUsername)}?start=neg_${u}`;
+}
+
 // Returns the inline-keyboard for /search responses.
 // In DM (no botUsername / inGroup=false): callback button(s):
 //   📋 See all N vouches — preview mode + more entries available
@@ -841,6 +849,8 @@ export function buildLookupReplyMarkup(input: {
   // "See NEGs" — admin-only. NEG existence is private from members per
   // the v9 design; admins get a quick-access button when target has any.
   // Hidden when already in NEG view to avoid a no-op button.
+  // In group: URL deep-link to DM so the NEG list never appears in
+  // the group chat. In DM: callback (response goes to the same DM).
   if (
     input.isAdmin === true &&
     typeof input.negCount === "number" &&
@@ -848,12 +858,21 @@ export function buildLookupReplyMarkup(input: {
     input.mode !== "neg"
   ) {
     const noun = input.negCount === 1 ? "NEG" : "NEGs";
-    buttons.push([
-      {
-        text: `⚠️ See ${input.negCount} ${noun}`,
-        callback_data: buildLookupNegCallback(input.targetUsername),
-      },
-    ]);
+    if (inGroup) {
+      buttons.push([
+        {
+          text: `⚠️ See ${input.negCount} ${noun} in DM`,
+          url: buildNegDeepLinkUrl(input.inGroupBotUsername!, input.targetUsername),
+        },
+      ]);
+    } else {
+      buttons.push([
+        {
+          text: `⚠️ See ${input.negCount} ${noun}`,
+          callback_data: buildLookupNegCallback(input.targetUsername),
+        },
+      ]);
+    }
   }
 
   return buttons.length > 0 ? { inline_keyboard: buttons } : null;

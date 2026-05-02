@@ -440,7 +440,7 @@ test("buildLookupReplyMarkup: in-group context replaces See-all callback with DM
   assert.equal(btn.url, "https://t.me/sc45_bot?start=search_coastcontra");
 });
 
-test("buildLookupReplyMarkup: in-group with NEG → DM URL button + NEG callback button", () => {
+test("buildLookupReplyMarkup: in-group with NEG → both buttons are URL deep-links to DM", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "coastcontra",
     totalShown: 3,
@@ -452,10 +452,13 @@ test("buildLookupReplyMarkup: in-group with NEG → DM URL button + NEG callback
   });
   assert.ok(m);
   assert.equal(m!.inline_keyboard.length, 2);
-  // Row 0: URL deep link to DM
+  // Row 0: See-all → DM via search deep-link.
   assert.equal((m!.inline_keyboard[0]![0]! as any).url, "https://t.me/sc45_bot?start=search_coastcontra");
-  // Row 1: NEG callback (stays as callback so the result re-renders in-place)
-  assert.equal((m!.inline_keyboard[1]![0]! as any).callback_data, "lk:n:coastcontra");
+  // Row 1: NEG → DM via neg deep-link (was callback, would have spammed group).
+  assert.equal((m!.inline_keyboard[1]![0]! as any).url, "https://t.me/sc45_bot?start=neg_coastcontra");
+  // Neither button uses callback_data in group context.
+  assert.equal((m!.inline_keyboard[0]![0]! as any).callback_data, undefined);
+  assert.equal((m!.inline_keyboard[1]![0]! as any).callback_data, undefined);
 });
 
 test("buildLookupText respects previewLimit override (group surface uses 3)", () => {
