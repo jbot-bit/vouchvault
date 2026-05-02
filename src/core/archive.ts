@@ -183,6 +183,30 @@ export function buildLearnedRemoveCallback(id: number): string {
   return `lp:rm:${Math.trunc(id)}`;
 }
 
+// Single source of truth for /teach validator-failure copy. Keeps the
+// group + DM paths in sync, and the exhaustive switch makes TS error
+// when new reasons are added to the validator without copy.
+export type LearnedPhraseRejectReason =
+  | "too_short"
+  | "no_letters"
+  | "too_long"
+  | "too_broad";
+
+export function buildLearnedPhraseRejectText(
+  reason: LearnedPhraseRejectReason,
+): string {
+  switch (reason) {
+    case "too_short":
+      return "Phrase too short after normalising — needs at least 4 letters.";
+    case "no_letters":
+      return "Phrase needs letters (digits/symbols alone over-match).";
+    case "too_long":
+      return "Phrase too long — keep it under 120 chars.";
+    case "too_broad":
+      return "Phrase too broad — needs at least one word with 3+ letters (e.g. 'snap me' is OK; 'pm me' is too short to add safely).";
+  }
+}
+
 export function parseLearnedRemoveCallback(data: string): number | null {
   if (!data.startsWith("lp:rm:")) return null;
   const n = Number(data.slice("lp:rm:".length));

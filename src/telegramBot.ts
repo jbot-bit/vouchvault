@@ -17,6 +17,7 @@ import {
   buildLearnedListHeader,
   buildLearnedItemText,
   buildLearnedItemMarkup,
+  buildLearnedPhraseRejectText,
   parseLearnedRemoveCallback,
   escapeHtml,
   buildSearchPromptReplyMarkup,
@@ -1312,12 +1313,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       });
       let text: string;
       if (!result.ok) {
-        text =
-          result.reason === "too_short"
-            ? "Phrase too short after normalising — needs at least 3 letters."
-            : result.reason === "no_letters"
-            ? "Phrase needs at least one letter (digits/symbols alone over-match)."
-            : "Phrase too long — keep it under 120 chars.";
+        text = buildLearnedPhraseRejectText(result.reason);
       } else {
         text = result.alreadyActive
           ? `Already learned: <code>${escapeHtml(phraseRaw)}</code> (#${result.id}).`
@@ -1590,12 +1586,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
           addedByTelegramId: message.from.id,
         });
         if (!result.ok) {
-          trainConfirm =
-            result.reason === "too_short"
-              ? `Phrase too short after normalising — needs at least 3 letters.`
-              : result.reason === "no_letters"
-              ? `Phrase needs at least one letter (digits/symbols alone over-match).`
-              : `Phrase too long — keep it under 120 chars.`;
+          trainConfirm = buildLearnedPhraseRejectText(result.reason);
         } else {
           trainConfirm = result.alreadyActive
             ? `Already learned: <code>${escapeHtml(phraseRaw)}</code> (#${result.id}).`
