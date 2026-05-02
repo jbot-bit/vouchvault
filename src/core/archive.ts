@@ -963,6 +963,26 @@ export function buildModerationWarnText(input: {
   return `Removed in <b>${escapedGroup}</b>. To appeal, ${adminPointer}.`;
 }
 
+// Group-visible warn that lands after a moderation delete. Deliberately
+// generic: no phrase trigger leaked (would help attackers tune around
+// it), no offender @-tag (avoids public callout). Auto-deletes after a
+// short window so the group doesn't accumulate moderation noise.
+export const MODERATION_GROUP_WARN_TTL_MS = 20_000;
+
+export function buildModerationGroupWarnText(input: {
+  hitSource: string;
+  adminBotUsername?: string | null;
+}): string {
+  if (input.hitSource.startsWith("regex_vouch_")) {
+    return "Vouches go in as plain messages — tag the @, say what happened.";
+  }
+  const adminPointer =
+    input.adminBotUsername && input.adminBotUsername.length > 0
+      ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code> to appeal.`
+      : "Ping an admin to appeal.";
+  return `Removed (off-policy). ${adminPointer}`;
+}
+
 export function buildDbStatsText(input: {
   statusCounts: Array<{ status: string; count: number }>;
   profileCount: number;

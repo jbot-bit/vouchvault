@@ -19,7 +19,11 @@ import {
   getChatMember,
   sendTelegramMessage,
 } from "./tools/telegramTools.ts";
-import { buildModerationWarnText } from "./archive.ts";
+import {
+  MODERATION_GROUP_WARN_TTL_MS,
+  buildModerationGroupWarnText,
+  buildModerationWarnText,
+} from "./archive.ts";
 import {
   findHitInPhrases,
   findHits,
@@ -143,18 +147,85 @@ export async function runChatModeration(
     );
   }
 
+  const adminBotUsername = process.env.TELEGRAM_ADMIN_BOT_USERNAME?.trim() || null;
+
+  // Group-visible warn — generic, no phrase leak, no offender callout.
+  // Goes to the group (or the same forum topic) so the offender sees
+  // it WITHOUT needing to have /start-ed the bot. Auto-deletes after
+  // MODERATION_GROUP_WARN_TTL_MS so chat doesn't accumulate noise.
+  const messageThreadId =
+    typeof message.message_thread_id === "number"
+      ? message.message_thread_id
+      : undefined;
+  const groupWarnText = buildModerationGroupWarnText({
+    hitSource: hit.source,
+    adminBotUsername,
+  });
+  postGroupWarnAndAutoDelete(
+    {
+      chatId: message.chat.id,
+      messageThreadId,
+      text: groupWarnText,
+    },
+    logger,
+  );
+
   // Best-effort DM warning. Silent for users who never /start-ed
-  // the bot (Telegram blocks bot-initiated DMs); the welcome / pinned
-  // guide instructs members to /start once. Locked text comes from
-  // archive.buildModerationWarnText (V3.5 §8.4).
+  // the bot (Telegram blocks bot-initiated DMs). Kept alongside the
+  // group warn because it can carry slightly more context.
   const dmText = buildModerationWarnText({
     groupName,
     hitSource: hit.source,
-    adminBotUsername: process.env.TELEGRAM_ADMIN_BOT_USERNAME?.trim() || null,
+    adminBotUsername,
   });
   await safeSendDm(fromId, dmText, logger);
 
   return { deleted: true };
+}
+
+// Fire-and-forget: post the warn, schedule its delete, and return
+// immediately. We deliberately do NOT await — moderation's hot path
+// shouldn't be blocked on a TTL message. setTimeout is best-effort:
+// if the process restarts inside the TTL window the warn just stays;
+// admins can /teach-delete it manually. Acceptable trade.
+function postGroupWarnAndAutoDelete(
+  input: { chatId: number; messageThreadId?: number; text: string },
+  logger?: Logger,
+): void {
+  void (async () => {
+    try {
+      const sent = await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: input.text,
+          parseMode: "HTML",
+          disableNotification: true,
+          ...(input.messageThreadId != null
+            ? { messageThreadId: input.messageThreadId }
+            : {}),
+        },
+        logger,
+      );
+      const sentMessageId = (sent as { message_id?: number } | null)?.message_id;
+      if (typeof sentMessageId !== "number") return;
+      setTimeout(() => {
+        deleteTelegramMessage(
+          { chatId: input.chatId, messageId: sentMessageId },
+          logger,
+        ).catch((error) => {
+          logger?.info?.(
+            { error, sentMessageId },
+            "chatModeration: group-warn auto-delete failed (non-fatal)",
+          );
+        });
+      }, MODERATION_GROUP_WARN_TTL_MS).unref?.();
+    } catch (error) {
+      logger?.warn?.(
+        { error, chatId: input.chatId },
+        "chatModeration: group-warn post failed (non-fatal)",
+      );
+    }
+  })();
 }
 
 async function safeSendDm(
