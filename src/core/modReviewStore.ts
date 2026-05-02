@@ -75,6 +75,27 @@ export async function listPendingReviewItems(limit = 10): Promise<ReviewItem[]> 
   }));
 }
 
+// List recent /teach actions, newest first. Used by the read-only
+// /reviewq history view. Pulls from the same table, regardless of
+// decision state.
+export async function listRecentTeachItems(limit = 10): Promise<ReviewItem[]> {
+  const rows = await db
+    .select()
+    .from(modReviewQueue)
+    .orderBy(sql`${modReviewQueue.flaggedAt} DESC`)
+    .limit(limit);
+  return rows.map((row) => ({
+    id: row.id,
+    groupChatId: row.groupChatId,
+    groupMessageId: row.groupMessageId,
+    senderTelegramId: row.senderTelegramId,
+    senderUsername: row.senderUsername,
+    messageText: row.messageText,
+    flaggedByTelegramId: row.flaggedByTelegramId,
+    flaggedAt: row.flaggedAt,
+  }));
+}
+
 // Returns the item without changing its state. Used by the callback
 // handler to verify the item still exists before acting.
 export async function getReviewItem(id: number): Promise<ReviewItem | null> {

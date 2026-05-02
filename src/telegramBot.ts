@@ -13,8 +13,6 @@ import {
   buildPolicyText,
   buildRemoveEntryConfirmMarkup,
   buildRemoveEntryConfirmText,
-  buildReviewItemMarkup,
-  buildReviewQueueHeader,
   buildReviewQueueItemText,
   buildSearchPromptReplyMarkup,
   buildSearchPromptText,
@@ -33,8 +31,6 @@ import {
   parseLookupNegCallback,
   parseRemoveEntryCancelCallback,
   parseRemoveEntryConfirmCallback,
-  parseReviewDeleteCallback,
-  parseReviewKeepCallback,
   parseSelectedTags,
   MAX_LOOKUP_ENTRIES,
   type EntryResult,
@@ -105,9 +101,7 @@ import {
 import { recordAdminAction } from "./core/adminAuditStore.ts";
 import {
   enqueueReviewItem,
-  getPendingReviewCount,
-  getReviewItem,
-  listPendingReviewItems,
+  listRecentTeachItems,
   markReviewItemDecided,
 } from "./core/modReviewStore.ts";
 import { handleChatGone } from "./core/chatGoneHandler.ts";
@@ -717,11 +711,11 @@ async function handleAdminCommand(input: {
   }
 
   if (input.command === "/reviewq") {
+    // Read-only history of recent /teach actions. Now that /teach is
+    // one-step (immediate delete), this is purely a "what was deleted
+    // recently" audit surface. No buttons, no callbacks.
     try {
-      const [items, total] = await Promise.all([
-        listPendingReviewItems(10),
-        getPendingReviewCount(),
-      ]);
+      const items = await listRecentTeachItems(10);
       await recordAdminAction({
         adminTelegramId: input.from.id,
         adminUsername: input.from.username ?? null,
@@ -729,41 +723,36 @@ async function handleAdminCommand(input: {
         targetChatId: input.chatId,
         denied: false,
       });
-      // Header first.
+      const text =
+        items.length === 0
+          ? "<i>No /teach actions recorded yet.</i>"
+          : [
+              `<b>Last ${items.length} /teach action${items.length === 1 ? "" : "s"}</b>`,
+              "",
+              ...items.map((item) =>
+                buildReviewQueueItemText({
+                  itemId: item.id,
+                  senderUsername: item.senderUsername,
+                  senderTelegramId: item.senderTelegramId,
+                  messageText: item.messageText,
+                  flaggedAt: item.flaggedAt,
+                }),
+              ),
+            ].join("\n\n");
       await sendTelegramMessage(
         {
           chatId: input.chatId,
-          text: buildReviewQueueHeader({
-            pendingCount: total,
-            shownCount: items.length,
-          }),
+          text,
           ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
       );
-      // One message per item so each gets its own keep/delete buttons.
-      for (const item of items) {
-        await sendTelegramMessage(
-          {
-            chatId: input.chatId,
-            text: buildReviewQueueItemText({
-              itemId: item.id,
-              senderUsername: item.senderUsername,
-              senderTelegramId: item.senderTelegramId,
-              messageText: item.messageText,
-              flaggedAt: item.flaggedAt,
-            }),
-            replyMarkup: buildReviewItemMarkup(item.id),
-          },
-          input.logger,
-        );
-      }
     } catch (err) {
       input.logger?.error?.({ err }, "[Admin] /reviewq failed");
       await sendTelegramMessage(
         {
           chatId: input.chatId,
-          text: `Review queue failed: ${err instanceof Error ? err.message : String(err)}`,
+          text: `Review history failed: ${err instanceof Error ? err.message : String(err)}`,
           ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
@@ -860,6 +849,21 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
           chatId,
           rawUsername: target,
           viewerScope: isAdminCaller ? "admin" : "member",
+          logger,
+        });
+        return;
+      }
+    }
+    // Admin-only NEG deep-link from group "See N NEG in DM" button.
+    // Non-admins fall through to welcome (admin gate below also catches).
+    if (command === "/start" && payload && payload.startsWith("neg_")) {
+      const target = payload.slice("neg_".length);
+      if (/^[a-z0-9_]{5,32}$/i.test(target) && isAdmin(fromId)) {
+        await handleLookupCommand({
+          chatId,
+          rawUsername: target,
+          viewerScope: "admin",
+          mode: "neg",
           logger,
         });
         return;
@@ -1210,9 +1214,11 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/teach") {
-    // Admin-only group command. Must be a reply-to-message: the replied
-    // message is the one being flagged. Adds it to the review queue
-    // (no auto-delete) and DMs the admin a confirmation.
+    // Admin-only group command, replied to the offending message.
+    // ONE STEP: deletes the replied message immediately + writes an
+    // audit row. The /teach reply itself is also deleted so the
+    // group stays clean. Operator can review the audit log later via
+    // /reviewq if they need a history.
     if (!isAdmin(message.from?.id)) {
       try {
         await deleteTelegramMessage(
@@ -1229,17 +1235,20 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       await sendTelegramMessage(
         {
           chatId,
-          text: "Reply to a message with /teach to flag it.",
+          text: "Reply to a message with /teach to delete it.",
           ...buildReplyOptions(message.message_id, true, messageThreadId),
         },
         logger,
       );
       return;
     }
+    const repliedMessageId = replied.message_id;
     try {
+      // Record the teach event in the queue table with decision=delete
+      // pre-set, so the row functions as both the audit + the history.
       const result = await enqueueReviewItem({
         groupChatId: chatId,
-        groupMessageId: replied.message_id,
+        groupMessageId: repliedMessageId,
         senderTelegramId:
           typeof replied.from?.id === "number" ? replied.from.id : null,
         senderUsername:
@@ -1254,6 +1263,11 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
             : null,
         flaggedByTelegramId: message.from.id,
       });
+      await markReviewItemDecided({
+        id: result.id,
+        decidedByTelegramId: message.from.id,
+        decision: "delete",
+      });
       await recordAdminAction({
         adminTelegramId: message.from.id,
         adminUsername: message.from.username ?? null,
@@ -1262,19 +1276,22 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
         entryId: result.id,
         denied: false,
       });
-      await sendTelegramMessage(
-        {
-          chatId: message.from.id,
-          text: result.alreadyQueued
-            ? `Already in review queue (#${result.id}). /reviewq to decide.`
-            : `Added to review queue (#${result.id}). /reviewq to decide.`,
-        },
-        logger,
-      );
     } catch (err) {
       logger?.error?.({ err }, "[/teach] enqueue failed");
     }
-    // Always delete the /teach command itself so the group stays clean.
+    // Delete the offending message.
+    try {
+      await deleteTelegramMessage(
+        { chatId, messageId: repliedMessageId },
+        logger,
+      );
+    } catch (err) {
+      logger?.warn?.(
+        { err, repliedMessageId },
+        "[/teach] message delete failed (non-fatal)",
+      );
+    }
+    // Delete the /teach command itself.
     try {
       await deleteTelegramMessage(
         { chatId, messageId: message.message_id },
@@ -1649,89 +1666,6 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       { chatId, text: `Entry #${entryId} removed.` },
       logger,
     );
-    return;
-  }
-
-  // /reviewq item callbacks. Admin-only. rq:d → delete the original
-  // group message + mark item as decided; rq:k → mark as kept (no
-  // delete). Both are idempotent via markReviewItemDecided's
-  // pending-only guard.
-  const reviewDeleteId = parseReviewDeleteCallback(data);
-  const reviewKeepId = parseReviewKeepCallback(data);
-  if ((reviewDeleteId != null || reviewKeepId != null) && typeof chatId === "number") {
-    if (callbackQuery.id) {
-      await answerTelegramCallbackQuery(
-        { callbackQueryId: callbackQuery.id, chatId },
-        logger,
-      );
-    }
-    const fromId = callbackQuery.from?.id;
-    if (!isAdmin(fromId)) {
-      await sendTelegramMessage(
-        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
-        logger,
-      );
-      return;
-    }
-    const itemId = (reviewDeleteId ?? reviewKeepId)!;
-    const isDelete = reviewDeleteId != null;
-
-    try {
-      const item = await getReviewItem(itemId);
-      if (!item) {
-        await sendTelegramMessage(
-          { chatId, text: `#${itemId} not found.` },
-          logger,
-        );
-        return;
-      }
-      const flipped = await markReviewItemDecided({
-        id: itemId,
-        decidedByTelegramId: fromId!,
-        decision: isDelete ? "delete" : "keep",
-      });
-      if (!flipped) {
-        await sendTelegramMessage(
-          { chatId, text: `#${itemId} already decided.` },
-          logger,
-        );
-        return;
-      }
-      if (isDelete) {
-        try {
-          await deleteTelegramMessage(
-            { chatId: item.groupChatId, messageId: item.groupMessageId },
-            logger,
-          );
-        } catch (err) {
-          logger?.warn?.(
-            { err, itemId, groupChatId: item.groupChatId },
-            "[/reviewq] delete failed (non-fatal)",
-          );
-        }
-      }
-      await recordAdminAction({
-        adminTelegramId: fromId!,
-        adminUsername: callbackQuery.from?.username ?? null,
-        command: isDelete ? "/reviewq:delete" : "/reviewq:keep",
-        targetChatId: item.groupChatId,
-        entryId: itemId,
-        denied: false,
-      });
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: isDelete ? `#${itemId} deleted.` : `#${itemId} kept.`,
-        },
-        logger,
-      );
-    } catch (err) {
-      logger?.error?.({ err, itemId }, "[/reviewq] callback failed");
-      await sendTelegramMessage(
-        { chatId, text: `Couldn't process #${itemId}. Try again.` },
-        logger,
-      );
-    }
     return;
   }
 
