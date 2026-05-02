@@ -13,6 +13,9 @@ import {
   buildPolicyText,
   buildRemoveEntryConfirmMarkup,
   buildRemoveEntryConfirmText,
+  buildReviewItemMarkup,
+  buildReviewQueueHeader,
+  buildReviewQueueItemText,
   buildSearchPromptReplyMarkup,
   buildSearchPromptText,
   buildWelcomeReplyMarkup,
@@ -30,6 +33,8 @@ import {
   parseLookupNegCallback,
   parseRemoveEntryCancelCallback,
   parseRemoveEntryConfirmCallback,
+  parseReviewDeleteCallback,
+  parseReviewKeepCallback,
   parseSelectedTags,
   MAX_LOOKUP_ENTRIES,
   type EntryResult,
@@ -98,6 +103,13 @@ import {
   setChatPaused,
 } from "./core/chatSettingsStore.ts";
 import { recordAdminAction } from "./core/adminAuditStore.ts";
+import {
+  enqueueReviewItem,
+  getPendingReviewCount,
+  getReviewItem,
+  listPendingReviewItems,
+  markReviewItemDecided,
+} from "./core/modReviewStore.ts";
 import { handleChatGone } from "./core/chatGoneHandler.ts";
 import {
   buildVelocityAlertText,
@@ -704,6 +716,62 @@ async function handleAdminCommand(input: {
     return;
   }
 
+  if (input.command === "/reviewq") {
+    try {
+      const [items, total] = await Promise.all([
+        listPendingReviewItems(10),
+        getPendingReviewCount(),
+      ]);
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: false,
+      });
+      // Header first.
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildReviewQueueHeader({
+            pendingCount: total,
+            shownCount: items.length,
+          }),
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+      // One message per item so each gets its own keep/delete buttons.
+      for (const item of items) {
+        await sendTelegramMessage(
+          {
+            chatId: input.chatId,
+            text: buildReviewQueueItemText({
+              itemId: item.id,
+              senderUsername: item.senderUsername,
+              senderTelegramId: item.senderTelegramId,
+              messageText: item.messageText,
+              flaggedAt: item.flaggedAt,
+            }),
+            replyMarkup: buildReviewItemMarkup(item.id),
+          },
+          input.logger,
+        );
+      }
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /reviewq failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Review queue failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
+    return;
+  }
+
   if (input.command === "/admin_help") {
     await recordAdminAction({
       adminTelegramId: input.from.id,
@@ -973,7 +1041,8 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/admin_help" ||
     command === "/dbstats" ||
     command === "/mirrorstats" ||
-    command === "/modstats"
+    command === "/modstats" ||
+    command === "/reviewq"
   ) {
     await handleAdminCommand({
       command,
@@ -1137,6 +1206,83 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       disableNotification: true,
       logger,
     });
+    return;
+  }
+
+  if (command === "/teach") {
+    // Admin-only group command. Must be a reply-to-message: the replied
+    // message is the one being flagged. Adds it to the review queue
+    // (no auto-delete) and DMs the admin a confirmation.
+    if (!isAdmin(message.from?.id)) {
+      try {
+        await deleteTelegramMessage(
+          { chatId, messageId: message.message_id },
+          logger,
+        );
+      } catch {
+        /* ignore */
+      }
+      return;
+    }
+    const replied = message.reply_to_message;
+    if (!replied || typeof replied.message_id !== "number") {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "Reply to a message with /teach to flag it.",
+          ...buildReplyOptions(message.message_id, true, messageThreadId),
+        },
+        logger,
+      );
+      return;
+    }
+    try {
+      const result = await enqueueReviewItem({
+        groupChatId: chatId,
+        groupMessageId: replied.message_id,
+        senderTelegramId:
+          typeof replied.from?.id === "number" ? replied.from.id : null,
+        senderUsername:
+          typeof replied.from?.username === "string"
+            ? replied.from.username
+            : null,
+        messageText:
+          typeof replied.text === "string"
+            ? replied.text
+            : typeof replied.caption === "string"
+            ? replied.caption
+            : null,
+        flaggedByTelegramId: message.from.id,
+      });
+      await recordAdminAction({
+        adminTelegramId: message.from.id,
+        adminUsername: message.from.username ?? null,
+        command: "/teach",
+        targetChatId: chatId,
+        entryId: result.id,
+        denied: false,
+      });
+      await sendTelegramMessage(
+        {
+          chatId: message.from.id,
+          text: result.alreadyQueued
+            ? `Already in review queue (#${result.id}). /reviewq to decide.`
+            : `Added to review queue (#${result.id}). /reviewq to decide.`,
+        },
+        logger,
+      );
+    } catch (err) {
+      logger?.error?.({ err }, "[/teach] enqueue failed");
+    }
+    // Always delete the /teach command itself so the group stays clean.
+    try {
+      await deleteTelegramMessage(
+        { chatId, messageId: message.message_id },
+        logger,
+      );
+    } catch {
+      /* ignore */
+    }
     return;
   }
 
@@ -1503,6 +1649,89 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       { chatId, text: `Entry #${entryId} removed.` },
       logger,
     );
+    return;
+  }
+
+  // /reviewq item callbacks. Admin-only. rq:d → delete the original
+  // group message + mark item as decided; rq:k → mark as kept (no
+  // delete). Both are idempotent via markReviewItemDecided's
+  // pending-only guard.
+  const reviewDeleteId = parseReviewDeleteCallback(data);
+  const reviewKeepId = parseReviewKeepCallback(data);
+  if ((reviewDeleteId != null || reviewKeepId != null) && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    if (!isAdmin(fromId)) {
+      await sendTelegramMessage(
+        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
+        logger,
+      );
+      return;
+    }
+    const itemId = (reviewDeleteId ?? reviewKeepId)!;
+    const isDelete = reviewDeleteId != null;
+
+    try {
+      const item = await getReviewItem(itemId);
+      if (!item) {
+        await sendTelegramMessage(
+          { chatId, text: `#${itemId} not found.` },
+          logger,
+        );
+        return;
+      }
+      const flipped = await markReviewItemDecided({
+        id: itemId,
+        decidedByTelegramId: fromId!,
+        decision: isDelete ? "delete" : "keep",
+      });
+      if (!flipped) {
+        await sendTelegramMessage(
+          { chatId, text: `#${itemId} already decided.` },
+          logger,
+        );
+        return;
+      }
+      if (isDelete) {
+        try {
+          await deleteTelegramMessage(
+            { chatId: item.groupChatId, messageId: item.groupMessageId },
+            logger,
+          );
+        } catch (err) {
+          logger?.warn?.(
+            { err, itemId, groupChatId: item.groupChatId },
+            "[/reviewq] delete failed (non-fatal)",
+          );
+        }
+      }
+      await recordAdminAction({
+        adminTelegramId: fromId!,
+        adminUsername: callbackQuery.from?.username ?? null,
+        command: isDelete ? "/reviewq:delete" : "/reviewq:keep",
+        targetChatId: item.groupChatId,
+        entryId: itemId,
+        denied: false,
+      });
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: isDelete ? `#${itemId} deleted.` : `#${itemId} kept.`,
+        },
+        logger,
+      );
+    } catch (err) {
+      logger?.error?.({ err, itemId }, "[/reviewq] callback failed");
+      await sendTelegramMessage(
+        { chatId, text: `Couldn't process #${itemId}. Try again.` },
+        logger,
+      );
+    }
     return;
   }
 

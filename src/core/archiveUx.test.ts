@@ -647,6 +647,8 @@ test("buildAdminHelpText lists every admin command (v9 — /search primary, /loo
     "/dbstats",
     "/mirrorstats",
     "/modstats",
+    "/teach",
+    "/reviewq",
   ]) {
     assert.match(text, new RegExp(cmd.replace(/[.*+?^${}()|[\]\\\/]/g, "\\$&")));
   }
