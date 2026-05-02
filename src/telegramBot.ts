@@ -112,6 +112,7 @@ import {
 } from "./core/modReviewStore.ts";
 import {
   addLearnedPhrase,
+  getLearnedPhraseCount,
   listActiveLearnedPhrases,
   removeLearnedPhraseById,
   removeLearnedPhraseByText,
@@ -318,6 +319,42 @@ async function handleLookupCommand(input: {
   );
 }
 
+// Delivers the full learned-phrase list (header + one button-row per
+// item) to a target chat (always the admin's DM in the /learned-from-
+// group flow). Throws if Telegram refuses delivery — caller decides
+// whether to surface that to the user or fall back to a group ack.
+async function deliverLearnedListToDm(
+  adminTelegramId: number,
+  logger?: LoggerLike,
+): Promise<void> {
+  const items = await listActiveLearnedPhrases(50);
+  await sendTelegramMessage(
+    {
+      chatId: adminTelegramId,
+      text: buildLearnedListHeader(items.length),
+      parseMode: "HTML",
+    },
+    logger,
+  );
+  for (const item of items) {
+    await sendTelegramMessage(
+      {
+        chatId: adminTelegramId,
+        text: buildLearnedItemText({
+          id: item.id,
+          phraseRaw: item.phraseRaw,
+          phraseNormalized: item.phraseNormalized,
+          addedAt: item.addedAt,
+        }),
+        parseMode: "HTML",
+        replyMarkup: buildLearnedItemMarkup(item.id),
+        disableNotification: true,
+      },
+      logger,
+    );
+  }
+}
+
 async function handleAdminCommand(input: {
   command: string;
   args: string[];
@@ -326,6 +363,11 @@ async function handleAdminCommand(input: {
   messageThreadId?: number | null;
   disableNotification?: boolean;
   from: any;
+  // True when the command was issued in a group (vs admin DM). Lets
+  // commands that would otherwise spam the group (/learned with N
+  // inline-button messages) redirect to DM, and lets /untrain self-
+  // delete the command + DM the result for symmetry with /teach.
+  inGroup?: boolean;
   logger?: LoggerLike;
 }) {
   if (!isAdmin(input.from?.id)) {
@@ -775,7 +817,6 @@ async function handleAdminCommand(input: {
 
   if (input.command === "/learned") {
     try {
-      const items = await listActiveLearnedPhrases(50);
       await recordAdminAction({
         adminTelegramId: input.from.id,
         adminUsername: input.from.username ?? null,
@@ -783,7 +824,49 @@ async function handleAdminCommand(input: {
         targetChatId: input.chatId,
         denied: false,
       });
-      // Header first, then one message per item with its own Remove button.
+      // In group, never dump the full list — that's up to 50 inline-
+      // button messages. Try to deliver the list to the admin's DM
+      // (best-effort: silently skipped if the admin never /start-ed
+      // the bot) and leave a one-line ack in the group, then delete the
+      // command itself for hygiene.
+      if (input.inGroup) {
+        const count = await getLearnedPhraseCount();
+        let dmDelivered = false;
+        try {
+          await deliverLearnedListToDm(input.from.id, input.logger);
+          dmDelivered = true;
+        } catch (err) {
+          input.logger?.info?.(
+            { err, adminId: input.from.id },
+            "[/learned] DM delivery failed (admin likely hasn't /start-ed)",
+          );
+        }
+        // Best-effort delete of the /learned command msg.
+        if (typeof input.replyToMessageId === "number") {
+          try {
+            await deleteTelegramMessage(
+              { chatId: input.chatId, messageId: input.replyToMessageId },
+              input.logger,
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!dmDelivered) {
+          await sendTelegramMessage(
+            {
+              chatId: input.chatId,
+              text: `Learned phrases: ${count}. <i>Open the bot in DM and run /learned to manage them.</i>`,
+              parseMode: "HTML",
+              disableNotification: true,
+            },
+            input.logger,
+          );
+        }
+        return;
+      }
+      const items = await listActiveLearnedPhrases(50);
+      // DM path: full list with Remove buttons.
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -827,6 +910,30 @@ async function handleAdminCommand(input: {
   if (input.command === "/untrain") {
     const phraseRaw = input.args.join(" ").trim();
     if (!phraseRaw) {
+      // Group: redirect to DM + delete cmd for hygiene. DM: inline.
+      if (input.inGroup && typeof input.replyToMessageId === "number") {
+        try {
+          await deleteTelegramMessage(
+            { chatId: input.chatId, messageId: input.replyToMessageId },
+            input.logger,
+          );
+        } catch {
+          /* ignore */
+        }
+        try {
+          await sendTelegramMessage(
+            {
+              chatId: input.from.id,
+              text: "Usage: <code>/untrain &lt;phrase&gt;</code> — or /learned for inline Remove buttons.",
+              parseMode: "HTML",
+            },
+            input.logger,
+          );
+        } catch {
+          /* admin hasn't /start-ed — silently skip */
+        }
+        return;
+      }
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -855,6 +962,29 @@ async function handleAdminCommand(input: {
       const text = removed
         ? `Removed #${removed.id}: <code>${escapeHtml(removed.phraseRaw)}</code>.`
         : `No active learned phrase matched <code>${escapeHtml(phraseRaw)}</code>.`;
+      // Group: delete cmd msg + DM confirm to admin (symmetry with /teach
+      // <phrase>). DM: inline reply.
+      if (input.inGroup) {
+        if (typeof input.replyToMessageId === "number") {
+          try {
+            await deleteTelegramMessage(
+              { chatId: input.chatId, messageId: input.replyToMessageId },
+              input.logger,
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          await sendTelegramMessage(
+            { chatId: input.from.id, text, parseMode: "HTML" },
+            input.logger,
+          );
+        } catch {
+          /* admin DM blocked — silent */
+        }
+        return;
+      }
       await sendTelegramMessage(
         {
           chatId: input.chatId,
@@ -1151,6 +1281,71 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
+  // /teach <phrase> — DM training-only path. The reply form (delete a
+  // group msg) is meaningless in DM, so reject it with a usage hint.
+  // The training logic itself is identical to the group path; we
+  // reuse it inline here so the admin can train without leaving DM.
+  if (command === "/teach") {
+    if (!isAdmin(fromId)) {
+      await sendTelegramMessage(
+        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
+        logger,
+      );
+      return;
+    }
+    const phraseRaw = args.join(" ").trim();
+    if (!phraseRaw) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "Usage: <code>/teach &lt;phrase&gt;</code> to add a phrase to the live lexicon. (Reply form only works in the group.)",
+          parseMode: "HTML",
+        },
+        logger,
+      );
+      return;
+    }
+    try {
+      const result = await addLearnedPhrase({
+        rawPhrase: phraseRaw,
+        addedByTelegramId: fromId!,
+      });
+      let text: string;
+      if (!result.ok) {
+        text =
+          result.reason === "too_short"
+            ? "Phrase too short after normalising — needs at least 3 letters."
+            : result.reason === "no_letters"
+            ? "Phrase needs at least one letter (digits/symbols alone over-match)."
+            : "Phrase too long — keep it under 120 chars.";
+      } else {
+        text = result.alreadyActive
+          ? `Already learned: <code>${escapeHtml(phraseRaw)}</code> (#${result.id}).`
+          : `Learned phrase added (#${result.id}): <code>${escapeHtml(phraseRaw)}</code>\n<i>normalised: ${escapeHtml(result.phraseNormalized)}</i>\n<i>Use /untrain ${escapeHtml(phraseRaw)} or /learned to remove.</i>`;
+        await recordAdminAction({
+          adminTelegramId: fromId!,
+          adminUsername: fromUsername,
+          command: "/teach:train",
+          targetChatId: null,
+          entryId: result.id,
+          reason: result.alreadyActive ? "already_active" : "added",
+          denied: false,
+        });
+      }
+      await sendTelegramMessage(
+        { chatId, text, parseMode: "HTML" },
+        logger,
+      );
+    } catch (err) {
+      logger?.error?.({ err, phraseRaw }, "[/teach DM] train failed");
+      await sendTelegramMessage(
+        { chatId, text: "Training failed — check logs." },
+        logger,
+      );
+    }
+    return;
+  }
+
   if (
     command === "/freeze" ||
     command === "/unfreeze" ||
@@ -1172,6 +1367,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       args,
       chatId,
       from: message.from,
+      inGroup: false,
       logger,
     });
     return;
@@ -1357,16 +1553,30 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     const hasPhrase = phraseRaw.length > 0;
 
     if (!hasReply && !hasPhrase) {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text:
-            "Usage: reply with /teach to delete a message, or /teach &lt;phrase&gt; to add a phrase to the live lexicon.",
-          parseMode: "HTML",
-          ...buildReplyOptions(message.message_id, true, messageThreadId),
-        },
-        logger,
-      );
+      // Group hygiene: never leave a visible "Usage:" reply in chat —
+      // delete the /teach command and DM the admin with the hint
+      // (best-effort; silently no-ops if the admin hasn't /start-ed).
+      try {
+        await deleteTelegramMessage(
+          { chatId, messageId: message.message_id },
+          logger,
+        );
+      } catch {
+        /* ignore */
+      }
+      try {
+        await sendTelegramMessage(
+          {
+            chatId: message.from.id,
+            text:
+              "Usage: reply with <code>/teach</code> to delete a message, or <code>/teach &lt;phrase&gt;</code> to add a phrase to the live lexicon.",
+            parseMode: "HTML",
+          },
+          logger,
+        );
+      } catch {
+        /* admin DM blocked — silent */
+      }
       return;
     }
 
@@ -1496,7 +1706,9 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/admin_help" ||
     command === "/dbstats" ||
     command === "/mirrorstats" ||
-    command === "/modstats"
+    command === "/modstats" ||
+    command === "/learned" ||
+    command === "/untrain"
   ) {
     await handleAdminCommand({
       command,
@@ -1506,6 +1718,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       messageThreadId,
       disableNotification: true,
       from: message.from,
+      inGroup: true,
       logger,
     });
     // Admin-only delete: a non-admin attempt hits the "admin only"
