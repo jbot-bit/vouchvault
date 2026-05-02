@@ -233,3 +233,20 @@ export const inviteLinks = pgTable("invite_links", {
   usedAt: timestamp("used_at", { withTimezone: true }),
 });
 
+// 2026-05: admin-curated review queue. /teach in the group adds a row;
+// /reviewq in DM lists pending; admin taps Delete or Keep per item.
+// Decision is null while pending; 'delete' or 'keep' once decided.
+export const modReviewQueue = pgTable("mod_review_queue", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  groupChatId: bigint("group_chat_id", { mode: "number" }).notNull(),
+  groupMessageId: bigint("group_message_id", { mode: "number" }).notNull(),
+  senderTelegramId: bigint("sender_telegram_id", { mode: "number" }),
+  senderUsername: text("sender_username"),
+  messageText: text("message_text"),
+  flaggedByTelegramId: bigint("flagged_by_telegram_id", { mode: "number" }).notNull(),
+  flaggedAt: timestamp("flagged_at", { withTimezone: true }).notNull().defaultNow(),
+  decidedByTelegramId: bigint("decided_by_telegram_id", { mode: "number" }),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  decision: text("decision"),
+});
+

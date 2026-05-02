@@ -160,6 +160,8 @@ const ADMIN_COMMANDS = [
   { command: "dbstats", description: "DB diagnostics" },
   { command: "mirrorstats", description: "Backup-channel mirror health" },
   { command: "modstats", description: "Chat-moderation stats" },
+  { command: "teach", description: "Reply to a group msg to flag it" },
+  { command: "reviewq", description: "Review flagged messages" },
   { command: "admin_help", description: "Admin command help" },
 ];
 

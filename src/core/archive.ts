@@ -152,6 +152,30 @@ export function parseRemoveEntryCancelCallback(data: string): number | null {
   const n = Number(data.slice("re:n:".length));
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
+
+// Review-queue callback prefixes.
+//   "rq:d:<id>" — admin tapped Delete on this queued message.
+//   "rq:k:<id>" — admin tapped Keep on this queued message.
+// id is mod_review_queue.id (positive integer); ≤ 64 bytes UTF-8.
+export function buildReviewDeleteCallback(itemId: number): string {
+  return `rq:d:${Math.trunc(itemId)}`;
+}
+
+export function buildReviewKeepCallback(itemId: number): string {
+  return `rq:k:${Math.trunc(itemId)}`;
+}
+
+export function parseReviewDeleteCallback(data: string): number | null {
+  if (!data.startsWith("rq:d:")) return null;
+  const n = Number(data.slice("rq:d:".length));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+export function parseReviewKeepCallback(data: string): number | null {
+  if (!data.startsWith("rq:k:")) return null;
+  const n = Number(data.slice("rq:k:".length));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
@@ -956,6 +980,8 @@ export function buildAdminHelpText(): string {
     "/dbstats — DB diagnostics (entry counts, status breakdown)",
     "/mirrorstats — backup-channel mirror health",
     "/modstats — chat-moderation deletion stats",
+    "/teach — reply to a group msg to flag it for review",
+    "/reviewq — review pending flagged messages",
   ].join("\n");
 }
 
@@ -1084,6 +1110,59 @@ export function buildMirrorStatsText(input: {
     lines.push("Most recent: never");
   }
   return lines.join("\n");
+}
+
+// Review-queue rendering. /reviewq sends one message per pending item
+// so each gets its own [Delete] / [Keep] inline keyboard.
+export function buildReviewQueueHeader(input: {
+  pendingCount: number;
+  shownCount: number;
+}): string {
+  if (input.pendingCount === 0) {
+    return "<i>Review queue is empty.</i>";
+  }
+  const more = input.pendingCount - input.shownCount;
+  const tail = more > 0 ? ` (showing ${input.shownCount}, ${more} more)` : "";
+  return `<b>Review queue: ${input.pendingCount}</b>${tail}`;
+}
+
+const REVIEW_BODY_PREVIEW_CHARS = 300;
+
+export function buildReviewQueueItemText(input: {
+  itemId: number;
+  senderUsername: string | null;
+  senderTelegramId: number | null;
+  messageText: string | null;
+  flaggedAt: Date;
+}): string {
+  const sender = input.senderUsername
+    ? fmtUser(input.senderUsername)
+    : input.senderTelegramId != null
+    ? `<code>id ${input.senderTelegramId}</code>`
+    : "<i>(unknown)</i>";
+  const body =
+    input.messageText && input.messageText.trim().length > 0
+      ? input.messageText.length > REVIEW_BODY_PREVIEW_CHARS
+        ? input.messageText.slice(0, REVIEW_BODY_PREVIEW_CHARS).trimEnd() + "…"
+        : input.messageText
+      : "<i>(no text)</i>";
+  return [
+    `<b>#${input.itemId}</b> — ${sender} • ${fmtDateTime(input.flaggedAt)}`,
+    `<i>${escapeHtml(body)}</i>`,
+  ].join("\n");
+}
+
+export function buildReviewItemMarkup(itemId: number): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Delete msg", callback_data: buildReviewDeleteCallback(itemId) },
+        { text: "Keep", callback_data: buildReviewKeepCallback(itemId) },
+      ],
+    ],
+  };
 }
 
 // /modstats — chat-moderation deletion volume + top offenders. Reads from
