@@ -189,8 +189,7 @@ export function buildLearnedRemoveCallback(id: number): string {
 export type LearnedPhraseRejectReason =
   | "too_short"
   | "no_letters"
-  | "too_long"
-  | "too_broad";
+  | "too_long";
 
 export function buildLearnedPhraseRejectText(
   reason: LearnedPhraseRejectReason,
@@ -202,8 +201,6 @@ export function buildLearnedPhraseRejectText(
       return "Phrase needs letters (digits/symbols alone over-match).";
     case "too_long":
       return "Phrase too long — keep it under 120 chars.";
-    case "too_broad":
-      return "Phrase too broad — needs at least one word with 3+ letters (e.g. 'snap me' is OK; 'pm me' is too short to add safely).";
   }
 }
 

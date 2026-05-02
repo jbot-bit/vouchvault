@@ -34,22 +34,16 @@ test("validate: rejects digit-only inputs that don't leet-decode to letters", ()
   if (!r.ok) assert.equal(r.reason, "no_letters");
 });
 
-test("validate: rejects too-broad phrases — no token has 3+ letters", () => {
-  // "ab cd" is 5 chars, has letters, but every token is 2 letters.
-  // Would over-match in normal chat. The static lexicon contains
-  // similar short phrases ("pm me", "wtb") but those went through an
-  // empirical FP gate; user-added ones haven't.
-  const r = validateLearnedPhrase("ab cd");
-  assert.equal(r.ok, false);
-  if (!r.ok) assert.equal(r.reason, "too_broad");
-  // "pm me" likewise: both tokens are 2 letters.
-  const r2 = validateLearnedPhrase("pm me");
-  assert.equal(r2.ok, false);
-  if (!r2.ok) assert.equal(r2.reason, "too_broad");
+test("validate: accepts short multi-word phrases like 'pm me' (admin owns risk)", () => {
+  // "pm me" → normalised "pm me" → 5 chars with letters → passes.
+  // The validator deliberately allows this shape; admin is responsible
+  // for not teaching something that fires on legit chat.
+  const r = validateLearnedPhrase("pm me");
+  assert.equal(r.ok, true);
+  if (r.ok) assert.equal(r.normalized, "pm me");
 });
 
-test("validate: accepts phrases where at least one token has 3+ letters", () => {
-  // "snap me" — "snap" is 4 letters → passes.
+test("validate: accepts a normal multi-word phrase", () => {
   const r = validateLearnedPhrase("snap me");
   assert.equal(r.ok, true);
   // Single 4-letter token also passes.

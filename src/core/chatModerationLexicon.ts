@@ -188,26 +188,21 @@ const PHRASES_SET: ReadonlySet<string> = new Set(PHRASES.map((p) => p.toLowerCas
 // tests (and the bot's command handlers) can call it without pulling in
 // the DB layer.
 //
-// Rules — biased toward harder-to-FP shapes, since runtime-added phrases
-// don't go through the empirical FP gate that the static PHRASES list
-// did. The static set contains short tokens like "pm me", "wtb", "tic"
-// because those were measured against a 24k-message corpus; user-added
-// phrases haven't been, so we require more discriminative shapes.
+// Rules:
+//   - raw form > 120 chars       → too_long   (likely pasted msg)
+//   - normalised form < 4 chars  → too_short  (over-match risk)
+//   - normalised has zero letters → no_letters (digits-only)
 //
-//   - raw form > 120 chars                   → too_long  (likely pasted msg)
-//   - normalised form < 4 chars              → too_short (over-match risk)
-//   - normalised has zero letters            → no_letters (digits-only)
-//   - no token ≥ 3 alphabetic chars          → too_broad (e.g. "a a", "ab cd")
+// We deliberately do NOT reject short multi-word phrases like "pm me" —
+// admins routinely want exactly these shapes, and the static PHRASES
+// list already contains them as proof-of-concept. The admin owns
+// responsibility for not teaching something that fires on legit chat.
 const LEARNED_PHRASE_MIN_NORMALIZED_LEN = 4;
-const LEARNED_PHRASE_MIN_TOKEN_LEN = 3;
 const LEARNED_PHRASE_MAX_RAW_LEN = 120;
 
 export function validateLearnedPhrase(raw: string):
   | { ok: true; normalized: string; raw: string }
-  | {
-      ok: false;
-      reason: "too_short" | "no_letters" | "too_long" | "too_broad";
-    } {
+  | { ok: false; reason: "too_short" | "no_letters" | "too_long" } {
   const trimmed = raw.trim();
   if (trimmed.length > LEARNED_PHRASE_MAX_RAW_LEN) {
     return { ok: false, reason: "too_long" };
@@ -218,17 +213,6 @@ export function validateLearnedPhrase(raw: string):
   }
   if (!/[a-z]/.test(norm)) {
     return { ok: false, reason: "no_letters" };
-  }
-  // Require at least one space-separated token with ≥3 alphabetic chars.
-  // "a a", "ab cd", "1 2 3" all fail this — those would over-match in
-  // ordinary chat. "snap me" passes (snap is 4 letters); "abcd" passes
-  // (single token, 4 letters).
-  const tokens = norm.split(" ");
-  const hasDiscriminativeToken = tokens.some(
-    (t) => (t.match(/[a-z]/g)?.length ?? 0) >= LEARNED_PHRASE_MIN_TOKEN_LEN,
-  );
-  if (!hasDiscriminativeToken) {
-    return { ok: false, reason: "too_broad" };
   }
   return { ok: true, normalized: norm, raw: trimmed };
 }

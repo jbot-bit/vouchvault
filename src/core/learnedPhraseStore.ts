@@ -26,10 +26,7 @@ export type LearnedPhrase = {
 export type AddResult =
   | { ok: true; id: number; alreadyActive: false; phraseNormalized: string }
   | { ok: true; id: number; alreadyActive: true; phraseNormalized: string }
-  | {
-      ok: false;
-      reason: "too_short" | "no_letters" | "too_long" | "too_broad";
-    };
+  | { ok: false; reason: "too_short" | "no_letters" | "too_long" };
 
 const MIN_NORMALIZED_LEN = 3;
 
