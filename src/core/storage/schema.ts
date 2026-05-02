@@ -250,3 +250,16 @@ export const modReviewQueue = pgTable("mod_review_queue", {
   decision: text("decision"),
 });
 
+// 2026-05: live-trainable lexicon. /teach <phrase> appends a row; /untrain
+// or the /learned remove-button soft-deletes (sets removed_at). The active
+// set is unioned with the static PHRASES list at moderation time.
+export const learnedPhrases = pgTable("learned_phrases", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  phraseNormalized: text("phrase_normalized").notNull(),
+  phraseRaw: text("phrase_raw").notNull(),
+  addedByTelegramId: bigint("added_by_telegram_id", { mode: "number" }).notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+  removedByTelegramId: bigint("removed_by_telegram_id", { mode: "number" }),
+});
+

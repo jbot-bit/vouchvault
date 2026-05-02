@@ -184,6 +184,55 @@ export type HitResult =
 
 const PHRASES_SET: ReadonlySet<string> = new Set(PHRASES.map((p) => p.toLowerCase()));
 
+// Validate + normalise a candidate learned phrase. Pure: kept here so
+// tests (and the bot's command handlers) can call it without pulling in
+// the DB layer.
+//
+// Rejects:
+//   - normalised form < 3 chars (would over-match)
+//   - normalised form has zero letters (e.g. "$$$" or "123" alone)
+//   - raw form > 120 chars (someone pasted a whole message)
+const LEARNED_PHRASE_MIN_NORMALIZED_LEN = 3;
+const LEARNED_PHRASE_MAX_RAW_LEN = 120;
+
+export function validateLearnedPhrase(raw: string):
+  | { ok: true; normalized: string; raw: string }
+  | { ok: false; reason: "too_short" | "no_letters" | "too_long" } {
+  const trimmed = raw.trim();
+  if (trimmed.length > LEARNED_PHRASE_MAX_RAW_LEN) {
+    return { ok: false, reason: "too_long" };
+  }
+  const norm = normalize(trimmed);
+  if (norm.length < LEARNED_PHRASE_MIN_NORMALIZED_LEN) {
+    return { ok: false, reason: "too_short" };
+  }
+  if (!/[a-z]/.test(norm)) {
+    return { ok: false, reason: "no_letters" };
+  }
+  return { ok: true, normalized: norm, raw: trimmed };
+}
+
+// Reusable phrase-pass against an arbitrary phrase list. Same normalisation
+// + space-padded word-boundary check as the static PHRASES pass. Used by
+// chatModeration to also check the live `learned_phrases` set.
+// `phrases` should be pre-normalised by the caller (i.e. each entry has
+// already been through `normalize`); this function does NOT renormalise
+// per-message-per-phrase.
+export function findHitInPhrases(
+  text: string,
+  phrases: ReadonlyArray<string>,
+): { matched: true; phrase: string } | { matched: false } {
+  if (phrases.length === 0) return { matched: false };
+  const padded = ` ${normalize(text)} `;
+  for (const phrase of phrases) {
+    if (!phrase) continue;
+    if (padded.includes(` ${phrase} `)) {
+      return { matched: true, phrase };
+    }
+  }
+  return { matched: false };
+}
+
 export function findHits(text: string): HitResult {
   // Phrase pass: normalise + space-padded includes() for word-boundary safety.
   const padded = ` ${normalize(text)} `;

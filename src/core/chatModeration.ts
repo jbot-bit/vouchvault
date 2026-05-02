@@ -21,9 +21,11 @@ import {
 } from "./tools/telegramTools.ts";
 import { buildModerationWarnText } from "./archive.ts";
 import {
+  findHitInPhrases,
   findHits,
   MODERATION_COMMAND,
 } from "./chatModerationLexicon.ts";
+import { getActiveLearnedPhrasesCached } from "./learnedPhraseStore.ts";
 
 export {
   PHRASES,
@@ -48,6 +50,9 @@ export type RunChatModerationInput = {
   isAdmin: (telegramId: number | null | undefined) => boolean;
   botTelegramId: number;
   logger?: Logger;
+  // Optional override for the learned-phrase loader. Tests inject a static
+  // list; production uses the cached DB loader by default.
+  loadLearnedPhrases?: () => Promise<ReadonlyArray<string>>;
 };
 
 export async function runChatModeration(
@@ -85,7 +90,21 @@ export async function runChatModeration(
   const combined = [text, caption].filter((s) => s.length > 0).join("\n");
   if (combined.length === 0) return { deleted: false };
 
-  const hit = findHits(combined);
+  let hit = findHits(combined);
+  if (!hit.matched) {
+    // Fall through to learned phrases — admin-curated extensions to the
+    // static lexicon. Loader failure is non-fatal; we just skip.
+    try {
+      const loader = input.loadLearnedPhrases ?? getActiveLearnedPhrasesCached;
+      const learned = await loader();
+      const learnedHit = findHitInPhrases(combined, learned);
+      if (learnedHit.matched) {
+        hit = { matched: true, source: `learned:${learnedHit.phrase}` };
+      }
+    } catch (err) {
+      logger?.warn?.({ err }, "chatModeration: learned-phrase load failed");
+    }
+  }
   if (!hit.matched) return { deleted: false };
 
   const adminSender = isAdmin(fromId);

@@ -176,6 +176,18 @@ export function parseReviewKeepCallback(data: string): number | null {
   const n = Number(data.slice("rq:k:".length));
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
+
+// Learned-phrase remove button callback. id = learned_phrases.id.
+//   "lp:rm:<id>" — admin tapped Remove on /learned listing.
+export function buildLearnedRemoveCallback(id: number): string {
+  return `lp:rm:${Math.trunc(id)}`;
+}
+
+export function parseLearnedRemoveCallback(data: string): number | null {
+  if (!data.startsWith("lp:rm:")) return null;
+  const n = Number(data.slice("lp:rm:".length));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
@@ -999,8 +1011,11 @@ export function buildAdminHelpText(): string {
     "/dbstats — DB diagnostics (entry counts, status breakdown)",
     "/mirrorstats — backup-channel mirror health",
     "/modstats — chat-moderation deletion stats",
-    "/teach — reply to a group msg to flag it for review",
-    "/reviewq — review pending flagged messages",
+    "/teach — reply to a group msg to delete it",
+    "/teach &lt;phrase&gt; — add a phrase to the live lexicon",
+    "/untrain &lt;phrase&gt; — remove a learned phrase",
+    "/learned — list learned phrases (with Remove buttons)",
+    "/reviewq — recent /teach delete history",
   ].join("\n");
 }
 
@@ -1179,6 +1194,48 @@ export function buildReviewItemMarkup(itemId: number): {
       [
         { text: "Delete msg", callback_data: buildReviewDeleteCallback(itemId) },
         { text: "Keep", callback_data: buildReviewKeepCallback(itemId) },
+      ],
+    ],
+  };
+}
+
+// /learned — list active learned phrases, one per row with a Remove
+// button. Header tells the operator how many; empty state encourages
+// /teach <phrase>.
+export function buildLearnedListHeader(count: number): string {
+  if (count === 0) {
+    return [
+      "<b>Learned phrases: 0</b>",
+      "",
+      "Use <code>/teach &lt;phrase&gt;</code> in the group to add one.",
+    ].join("\n");
+  }
+  return `<b>Learned phrases: ${count}</b>`;
+}
+
+export function buildLearnedItemText(input: {
+  id: number;
+  phraseRaw: string;
+  phraseNormalized: string;
+  addedAt: Date;
+}): string {
+  const norm =
+    input.phraseNormalized === input.phraseRaw.trim().toLowerCase()
+      ? ""
+      : ` <i>(${escapeHtml(input.phraseNormalized)})</i>`;
+  return [
+    `<b>#${input.id}</b> — <code>${escapeHtml(input.phraseRaw)}</code>${norm}`,
+    `<i>added ${fmtDateTime(input.addedAt)}</i>`,
+  ].join("\n");
+}
+
+export function buildLearnedItemMarkup(id: number): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Remove", callback_data: buildLearnedRemoveCallback(id) },
       ],
     ],
   };

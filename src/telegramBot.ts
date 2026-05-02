@@ -14,6 +14,11 @@ import {
   buildRemoveEntryConfirmMarkup,
   buildRemoveEntryConfirmText,
   buildReviewQueueItemText,
+  buildLearnedListHeader,
+  buildLearnedItemText,
+  buildLearnedItemMarkup,
+  parseLearnedRemoveCallback,
+  escapeHtml,
   buildSearchPromptReplyMarkup,
   buildSearchPromptText,
   buildWelcomeReplyMarkup,
@@ -87,6 +92,7 @@ import {
   answerTelegramCallbackQuery,
   answerTelegramInlineQuery,
   deleteTelegramMessage,
+  editTelegramMessage,
   forwardTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
@@ -104,6 +110,12 @@ import {
   listRecentTeachItems,
   markReviewItemDecided,
 } from "./core/modReviewStore.ts";
+import {
+  addLearnedPhrase,
+  listActiveLearnedPhrases,
+  removeLearnedPhraseById,
+  removeLearnedPhraseByText,
+} from "./core/learnedPhraseStore.ts";
 import { handleChatGone } from "./core/chatGoneHandler.ts";
 import {
   buildVelocityAlertText,
@@ -761,6 +773,111 @@ async function handleAdminCommand(input: {
     return;
   }
 
+  if (input.command === "/learned") {
+    try {
+      const items = await listActiveLearnedPhrases(50);
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: false,
+      });
+      // Header first, then one message per item with its own Remove button.
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildLearnedListHeader(items.length),
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+      for (const item of items) {
+        await sendTelegramMessage(
+          {
+            chatId: input.chatId,
+            text: buildLearnedItemText({
+              id: item.id,
+              phraseRaw: item.phraseRaw,
+              phraseNormalized: item.phraseNormalized,
+              addedAt: item.addedAt,
+            }),
+            parseMode: "HTML",
+            replyMarkup: buildLearnedItemMarkup(item.id),
+            disableNotification: true,
+          },
+          input.logger,
+        );
+      }
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /learned failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Learned list failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
+    return;
+  }
+
+  if (input.command === "/untrain") {
+    const phraseRaw = input.args.join(" ").trim();
+    if (!phraseRaw) {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: "Usage: <code>/untrain &lt;phrase&gt;</code> — or use /learned for buttons.",
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+      return;
+    }
+    try {
+      const removed = await removeLearnedPhraseByText({
+        rawPhrase: phraseRaw,
+        removedByTelegramId: input.from.id,
+      });
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        entryId: removed?.id ?? null,
+        reason: removed ? "removed" : "not_found",
+        denied: false,
+      });
+      const text = removed
+        ? `Removed #${removed.id}: <code>${escapeHtml(removed.phraseRaw)}</code>.`
+        : `No active learned phrase matched <code>${escapeHtml(phraseRaw)}</code>.`;
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text,
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /untrain failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Untrain failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
+    return;
+  }
+
   if (input.command === "/admin_help") {
     await recordAdminAction({
       adminTelegramId: input.from.id,
@@ -1046,7 +1163,9 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/dbstats" ||
     command === "/mirrorstats" ||
     command === "/modstats" ||
-    command === "/reviewq"
+    command === "/reviewq" ||
+    command === "/learned" ||
+    command === "/untrain"
   ) {
     await handleAdminCommand({
       command,
@@ -1214,11 +1333,13 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/teach") {
-    // Admin-only group command, replied to the offending message.
-    // ONE STEP: deletes the replied message immediately + writes an
-    // audit row. The /teach reply itself is also deleted so the
-    // group stays clean. Operator can review the audit log later via
-    // /reviewq if they need a history.
+    // Admin-only group command. Three forms:
+    //   /teach (reply)           → delete replied msg + audit row.
+    //   /teach <phrase>          → add <phrase> to the live lexicon.
+    //   /teach <phrase> (reply)  → both: delete replied + add phrase.
+    // Whatever the form, the /teach command itself is always deleted to
+    // keep the group surface clean. Confirmation goes to the admin's DM
+    // (best-effort) so the operator gets feedback without group spam.
     if (!isAdmin(message.from?.id)) {
       try {
         await deleteTelegramMessage(
@@ -1231,67 +1352,111 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       return;
     }
     const replied = message.reply_to_message;
-    if (!replied || typeof replied.message_id !== "number") {
+    const hasReply = !!replied && typeof replied.message_id === "number";
+    const phraseRaw = args.join(" ").trim();
+    const hasPhrase = phraseRaw.length > 0;
+
+    if (!hasReply && !hasPhrase) {
       await sendTelegramMessage(
         {
           chatId,
-          text: "Reply to a message with /teach to delete it.",
+          text:
+            "Usage: reply with /teach to delete a message, or /teach &lt;phrase&gt; to add a phrase to the live lexicon.",
+          parseMode: "HTML",
           ...buildReplyOptions(message.message_id, true, messageThreadId),
         },
         logger,
       );
       return;
     }
-    const repliedMessageId = replied.message_id;
-    try {
-      // Record the teach event in the queue table with decision=delete
-      // pre-set, so the row functions as both the audit + the history.
-      const result = await enqueueReviewItem({
-        groupChatId: chatId,
-        groupMessageId: repliedMessageId,
-        senderTelegramId:
-          typeof replied.from?.id === "number" ? replied.from.id : null,
-        senderUsername:
-          typeof replied.from?.username === "string"
-            ? replied.from.username
-            : null,
-        messageText:
-          typeof replied.text === "string"
-            ? replied.text
-            : typeof replied.caption === "string"
-            ? replied.caption
-            : null,
-        flaggedByTelegramId: message.from.id,
-      });
-      await markReviewItemDecided({
-        id: result.id,
-        decidedByTelegramId: message.from.id,
-        decision: "delete",
-      });
-      await recordAdminAction({
-        adminTelegramId: message.from.id,
-        adminUsername: message.from.username ?? null,
-        command: "/teach",
-        targetChatId: chatId,
-        entryId: result.id,
-        denied: false,
-      });
-    } catch (err) {
-      logger?.error?.({ err }, "[/teach] enqueue failed");
+
+    // Branch A: training (phrase given). Add to learned lexicon. Confirm
+    // via DM to the admin so the group surface stays clean.
+    let trainConfirm: string | null = null;
+    if (hasPhrase) {
+      try {
+        const result = await addLearnedPhrase({
+          rawPhrase: phraseRaw,
+          addedByTelegramId: message.from.id,
+        });
+        if (!result.ok) {
+          trainConfirm =
+            result.reason === "too_short"
+              ? `Phrase too short after normalising — needs at least 3 letters.`
+              : result.reason === "no_letters"
+              ? `Phrase needs at least one letter (digits/symbols alone over-match).`
+              : `Phrase too long — keep it under 120 chars.`;
+        } else {
+          trainConfirm = result.alreadyActive
+            ? `Already learned: <code>${escapeHtml(phraseRaw)}</code> (#${result.id}).`
+            : `Learned phrase added (#${result.id}): <code>${escapeHtml(phraseRaw)}</code>\n<i>normalised: ${escapeHtml(result.phraseNormalized)}</i>\n<i>Use /untrain ${escapeHtml(phraseRaw)} or /learned to remove.</i>`;
+          await recordAdminAction({
+            adminTelegramId: message.from.id,
+            adminUsername: message.from.username ?? null,
+            command: "/teach:train",
+            targetChatId: chatId,
+            entryId: result.id,
+            reason: result.alreadyActive ? "already_active" : "added",
+            denied: false,
+          });
+        }
+      } catch (err) {
+        logger?.error?.({ err, phraseRaw }, "[/teach] train failed");
+        trainConfirm = "Training failed — check logs.";
+      }
     }
-    // Delete the offending message.
-    try {
-      await deleteTelegramMessage(
-        { chatId, messageId: repliedMessageId },
-        logger,
-      );
-    } catch (err) {
-      logger?.warn?.(
-        { err, repliedMessageId },
-        "[/teach] message delete failed (non-fatal)",
-      );
+
+    // Branch B: reply form. Delete the replied message + audit row.
+    if (hasReply) {
+      const repliedMessageId = replied.message_id as number;
+      try {
+        const result = await enqueueReviewItem({
+          groupChatId: chatId,
+          groupMessageId: repliedMessageId,
+          senderTelegramId:
+            typeof replied.from?.id === "number" ? replied.from.id : null,
+          senderUsername:
+            typeof replied.from?.username === "string"
+              ? replied.from.username
+              : null,
+          messageText:
+            typeof replied.text === "string"
+              ? replied.text
+              : typeof replied.caption === "string"
+              ? replied.caption
+              : null,
+          flaggedByTelegramId: message.from.id,
+        });
+        await markReviewItemDecided({
+          id: result.id,
+          decidedByTelegramId: message.from.id,
+          decision: "delete",
+        });
+        await recordAdminAction({
+          adminTelegramId: message.from.id,
+          adminUsername: message.from.username ?? null,
+          command: "/teach",
+          targetChatId: chatId,
+          entryId: result.id,
+          denied: false,
+        });
+      } catch (err) {
+        logger?.error?.({ err }, "[/teach] enqueue failed");
+      }
+      try {
+        await deleteTelegramMessage(
+          { chatId, messageId: repliedMessageId },
+          logger,
+        );
+      } catch (err) {
+        logger?.warn?.(
+          { err, repliedMessageId },
+          "[/teach] message delete failed (non-fatal)",
+        );
+      }
     }
-    // Delete the /teach command itself.
+
+    // Always delete the /teach command itself.
     try {
       await deleteTelegramMessage(
         { chatId, messageId: message.message_id },
@@ -1299,6 +1464,23 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       );
     } catch {
       /* ignore */
+    }
+
+    // Best-effort DM confirmation for the train branch. Members who
+    // never /start-ed the bot can't receive DMs — this silently no-ops.
+    if (trainConfirm) {
+      try {
+        await sendTelegramMessage(
+          {
+            chatId: message.from.id,
+            text: trainConfirm,
+            parseMode: "HTML",
+          },
+          logger,
+        );
+      } catch {
+        /* ignore — DM may be blocked */
+      }
     }
     return;
   }
@@ -1528,6 +1710,71 @@ async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
   const chatId = callbackQuery.message?.chat?.id;
   const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
+
+  // /learned Remove button — admin-only soft-delete of a learned phrase.
+  const learnedRemoveId = parseLearnedRemoveCallback(data);
+  if (learnedRemoveId != null && typeof chatId === "number") {
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    const fromId = callbackQuery.from?.id;
+    if (!isAdmin(fromId)) {
+      await sendTelegramMessage(
+        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
+        logger,
+      );
+      return;
+    }
+    try {
+      const removed = await removeLearnedPhraseById({
+        id: learnedRemoveId,
+        removedByTelegramId: fromId!,
+      });
+      await recordAdminAction({
+        adminTelegramId: fromId!,
+        adminUsername: callbackQuery.from?.username ?? null,
+        command: "/learned:remove",
+        targetChatId: chatId,
+        entryId: learnedRemoveId,
+        reason: removed ? "removed" : "already_removed",
+        denied: false,
+      });
+      const text = removed
+        ? `Removed #${removed.id}: <code>${escapeHtml(removed.phraseRaw)}</code>.`
+        : `#${learnedRemoveId} already removed.`;
+      // Edit the original message to reflect the removal — clears the
+      // button so a double-tap can't fire.
+      const messageId = callbackQuery.message?.message_id;
+      if (typeof messageId === "number") {
+        try {
+          await editTelegramMessage(
+            { chatId, messageId, text, parseMode: "HTML" },
+            logger,
+          );
+        } catch {
+          await sendTelegramMessage(
+            { chatId, text, parseMode: "HTML" },
+            logger,
+          );
+        }
+      } else {
+        await sendTelegramMessage(
+          { chatId, text, parseMode: "HTML" },
+          logger,
+        );
+      }
+    } catch (err) {
+      logger?.error?.({ err, learnedRemoveId }, "[/learned] remove failed");
+      await sendTelegramMessage(
+        { chatId, text: `Remove failed: ${err instanceof Error ? err.message : String(err)}` },
+        logger,
+      );
+    }
+    return;
+  }
 
   // /search "See all" button — re-renders the lookup with mode="all".
   const expandUsername = parseLookupExpandCallback(data);
