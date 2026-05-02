@@ -14,7 +14,8 @@ import {
   setArchiveEntryPublishedMessageId,
   setArchiveEntryStatus,
 } from "./archiveStore.ts";
-import { sendTelegramMessage } from "./tools/telegramTools.ts";
+
+const NO_GROUP_POST_SENTINEL = 0;
 
 type PublishableArchiveEntry = {
   id: number;
@@ -101,33 +102,18 @@ export async function publishArchiveEntryRecord(entry: PublishableArchiveEntry, 
     throw new Error(`Failed to reserve archive entry #${entry.id} for publishing.`);
   }
 
-  let published;
-  try {
-    published = await sendTelegramMessage(
-      {
-        chatId: entry.chatId,
-        text: buildArchiveEntryPostText(entry),
-        protectContent: true,
-      },
-      logger,
-    );
-  } catch (error) {
-    if (isDeterministicTelegramApiFailure(error)) {
-      await setArchiveEntryStatus(entry.id, "pending");
-    }
-
-    throw error;
-  }
+  normalizePublishableEntry(entry);
 
   try {
-    await setArchiveEntryPublishedMessageId(entry.id, published.message_id);
+    await setArchiveEntryPublishedMessageId(entry.id, NO_GROUP_POST_SENTINEL);
   } catch (error) {
+    await setArchiveEntryStatus(entry.id, "pending");
     throw new Error(
-      `Telegram message ${published.message_id} was sent for archive entry #${entry.id}, but the database did not record it. Entry left in publishing state for manual recovery: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to mark archive entry #${entry.id} as published: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 
-  return published;
+  return { message_id: NO_GROUP_POST_SENTINEL, reused: false };
 }
 
 export async function publishArchiveEntryById(entryId: number, logger?: any) {

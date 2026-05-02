@@ -54,6 +54,7 @@ import {
   withReviewerDraftLock,
 } from "./mastra/archiveStore.ts";
 import {
+  buildReplyKeyboardRemove,
   buildTargetRequestReplyMarkup,
   buildThreadedGroupReplyOptions,
   shouldSendThreadedLauncherReply,
@@ -64,10 +65,13 @@ import { createOrUpdateUser } from "./mastra/tools/userTools.ts";
 import {
   answerTelegramCallbackQuery,
   buildInlineKeyboard,
+  buildUrlInlineKeyboard,
   deleteTelegramMessage,
   editTelegramMessage,
+  getTelegramBotUsername,
   sendTelegramMessage,
 } from "./mastra/tools/telegramTools.ts";
+import { BOT_COPY } from "./mastra/botCopy.ts";
 import { parseTypedTargetUsername } from "./telegramTargetInput.ts";
 
 type LoggerLike = Pick<Console, "info" | "warn" | "error">;
@@ -385,7 +389,7 @@ async function handleAdminCommand(input: {
       await sendTelegramMessage(
         {
           chatId: input.chatId,
-          text: "Send /remove_entry &lt;id&gt;",
+          text: "Send /remove_entry <id>",
           ...buildReplyOptions(input.replyToMessageId, input.disableNotification),
         },
         input.logger,
@@ -771,6 +775,48 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
   });
 }
 
+async function deliverVouchListViaDm(input: {
+  text: string;
+  groupChatId: number;
+  replyToMessageId: number;
+  fromUserId: number | undefined;
+  logger?: LoggerLike;
+}) {
+  if (input.fromUserId) {
+    try {
+      await sendTelegramMessage(
+        { chatId: input.fromUserId, text: input.text },
+        input.logger,
+      );
+      await sendTelegramMessage(
+        {
+          chatId: input.groupChatId,
+          text: BOT_COPY.dmSent,
+          ...buildReplyOptions(input.replyToMessageId, true),
+        },
+        input.logger,
+      );
+      return;
+    } catch (error) {
+      input.logger?.warn?.("DM delivery failed, falling back to deep-link", { error });
+    }
+  }
+
+  const botUsername = await getTelegramBotUsername(input.logger).catch(() => null);
+  const replyMarkup = botUsername
+    ? buildUrlInlineKeyboard(BOT_COPY.openBotButton, `https://t.me/${botUsername}`)
+    : undefined;
+  await sendTelegramMessage(
+    {
+      chatId: input.groupChatId,
+      text: BOT_COPY.dmStartBotFirst,
+      ...buildReplyOptions(input.replyToMessageId, true),
+      replyMarkup,
+    },
+    input.logger,
+  );
+}
+
 async function handleGroupMessage(message: any, logger?: LoggerLike) {
   const text = typeof message.text === "string" ? message.text.trim() : "";
   if (!text.startsWith("/")) {
@@ -790,21 +836,58 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/recent") {
-    await handleRecentCommand({
-      chatId,
+    const entries = await getRecentArchiveEntries(MAX_RECENT_ENTRIES);
+    const text = buildRecentEntriesText(
+      entries.map((entry) => ({
+        id: entry.id,
+        reviewerUsername: entry.reviewerUsername,
+        targetUsername: entry.targetUsername,
+        entryType: SERVICE_ENTRY_TYPE,
+        result: entry.result as EntryResult,
+        createdAt: entry.createdAt,
+        source: entry.source as EntrySource,
+      })),
+    );
+    await deliverVouchListViaDm({
+      text,
+      groupChatId: chatId,
       replyToMessageId: message.message_id,
-      disableNotification: true,
+      fromUserId: message.from?.id,
       logger,
     });
     return;
   }
 
   if (command === "/lookup") {
-    await handleLookupCommand({
-      chatId,
-      rawUsername: args[0],
+    const targetUsername = normalizeUsername(args[0] ?? "");
+    if (!targetUsername) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "Lookup requires /lookup @username and is limited to admins.",
+          ...buildReplyOptions(message.message_id, true),
+        },
+        logger,
+      );
+      return;
+    }
+    const entries = await getArchiveEntriesForTarget(targetUsername, MAX_LOOKUP_ENTRIES);
+    const text = buildLookupText({
+      targetUsername,
+      entries: entries.map((entry) => ({
+        id: entry.id,
+        reviewerUsername: entry.reviewerUsername,
+        result: entry.result as EntryResult,
+        tags: parseSelectedTags(entry.selectedTags),
+        createdAt: entry.createdAt,
+        source: entry.source as EntrySource,
+      })),
+    });
+    await deliverVouchListViaDm({
+      text,
+      groupChatId: chatId,
       replyToMessageId: message.message_id,
-      disableNotification: true,
+      fromUserId: message.from?.id,
       logger,
     });
     return;

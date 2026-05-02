@@ -1,3 +1,5 @@
+import { BOT_COPY } from "./botCopy.ts";
+
 export const ENTRY_TYPES = ["service", "item", "product"] as const;
 export type EntryType = (typeof ENTRY_TYPES)[number];
 
@@ -153,35 +155,8 @@ export function formatTagList(tags: EntryTag[]): string {
   return tags.map((tag) => TAG_LABELS[tag]).join(", ");
 }
 
-export function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-function fmtUser(username: string): string {
-  return `<b>${escapeHtml(formatUsername(username))}</b>`;
-}
-
-function fmtResult(result: EntryResult): string {
-  return `<b>${escapeHtml(RESULT_LABELS[result])}</b>`;
-}
-
-function fmtTags(tags: EntryTag[]): string {
-  return escapeHtml(formatTagList(tags));
-}
-
-function fmtDate(date: Date): string {
-  return escapeHtml(date.toISOString().slice(0, 10));
-}
-
-function rulesLine(): string {
-  return "Follow Telegram's Terms of Service. No illegal activity, no scams.";
-}
-
-function aboutLine(): string {
-  return "A business hub for local businesses to share and verify service experiences.";
+function formatLabeledLine(label: string, value: string): string {
+  return `${label}: ${value}`;
 }
 
 export function buildArchiveEntryText(input: {
@@ -195,25 +170,18 @@ export function buildArchiveEntryText(input: {
   source?: EntrySource;
   legacySourceTimestamp?: Date | null;
 }): string {
-  const isLegacy = input.source === "legacy_import";
-
-  const lines: string[] = [];
-  if (isLegacy) {
-    lines.push("<b>From the Vault</b>", "");
-  }
-
-  lines.push(
-    `OP: ${fmtUser(input.reviewerUsername)}`,
-    `Target: ${fmtUser(input.targetUsername)}`,
-    `Result: ${fmtResult(input.result)}`,
-    `Tags: ${fmtTags(input.tags)}`,
-  );
-
-  if (isLegacy && input.legacySourceTimestamp) {
-    lines.push(`Original: ${fmtDate(input.legacySourceTimestamp)}`);
-  }
-
-  return lines.join("\n");
+  return [
+    input.source === "legacy_import"
+      ? `🧾 Legacy Entry #${input.entryId}`
+      : `🧾 Entry #${input.entryId}`,
+    "",
+    formatLabeledLine("OP", formatUsername(input.reviewerUsername)),
+    formatLabeledLine("Target", formatUsername(input.targetUsername)),
+    formatLabeledLine("Result", RESULT_LABELS[input.result]),
+    ...(input.source === "legacy_import" && input.legacySourceTimestamp
+      ? [formatLabeledLine("Original", input.legacySourceTimestamp.toISOString().slice(0, 10))]
+      : []),
+  ].join("\n");
 }
 
 export function buildPreviewText(input: {
@@ -223,45 +191,30 @@ export function buildPreviewText(input: {
   tags: EntryTag[];
 }): string {
   return [
-    "<b><u>Preview</u></b>",
+    "Preview",
     "",
-    `OP: ${fmtUser(input.reviewerUsername)}`,
-    `Target: ${fmtUser(input.targetUsername)}`,
-    `Result: ${fmtResult(input.result)}`,
-    `Tags: ${fmtTags(input.tags)}`,
+    formatLabeledLine("OP", formatUsername(input.reviewerUsername)),
+    formatLabeledLine("Target", formatUsername(input.targetUsername)),
+    formatLabeledLine("Result", RESULT_LABELS[input.result]),
+    formatLabeledLine("Tags", formatTagList(input.tags)),
   ].join("\n");
 }
 
 export function buildWelcomeText(): string {
-  return [
-    "<b>Welcome to the Vouch Hub</b>",
-    "",
-    aboutLine(),
-    "",
-    "<b><u>How to Vouch</u></b>",
-    "",
-    "1. Tap <b>Submit Vouch</b> in the group.",
-    "2. Send only the target @username here.",
-    "3. Choose the result and tags.",
-    "4. I post the final entry back to the group.",
-    "",
-    "<b>Rules</b>",
-    rulesLine(),
-  ].join("\n");
+  return BOT_COPY.welcome;
 }
 
 export function buildTargetPromptText(): string {
   return [
-    "<b>Step 1 of 3 — Choose target</b>",
+    "Send the target @username.",
     "",
-    "Send the target @username here.",
-    "You can also tap <b>Choose Target</b> below.",
+    "You can also tap Choose Target below.",
   ].join("\n");
 }
 
 export function buildTypePromptText(targetUsername: string): string {
   return [
-    `Target saved: ${fmtUser(targetUsername)}`,
+    `Target saved: ${formatUsername(targetUsername)}`,
     "",
     "What are you vouching for?",
   ].join("\n");
@@ -269,9 +222,7 @@ export function buildTypePromptText(targetUsername: string): string {
 
 export function buildResultPromptText(targetUsername: string): string {
   return [
-    "<b>Step 2 of 3 — Result</b>",
-    "",
-    `Target: ${fmtUser(targetUsername)}`,
+    formatLabeledLine("Target", formatUsername(targetUsername)),
     "",
     "Choose the result.",
   ].join("\n");
@@ -279,14 +230,29 @@ export function buildResultPromptText(targetUsername: string): string {
 
 export function buildTagPromptText(targetUsername: string, result: EntryResult, tags: EntryTag[]): string {
   return [
-    "<b>Step 3 of 3 — Tags</b>",
+    formatLabeledLine("Target", formatUsername(targetUsername)),
+    formatLabeledLine("Result", RESULT_LABELS[result]),
+    formatLabeledLine("Tags", formatTagList(tags)),
     "",
-    `Target: ${fmtUser(targetUsername)}`,
-    `Result: ${fmtResult(result)}`,
-    `Tags: ${fmtTags(tags)}`,
-    "",
-    "Choose one or more tags, then tap <b>Done</b>.",
+    "Choose one or more tags, then tap Done.",
   ].join("\n");
+}
+
+function formatDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function countByResult<T extends { result: EntryResult }>(entries: T[]) {
+  return {
+    positive: entries.filter((e) => e.result === "positive").length,
+    mixed: entries.filter((e) => e.result === "mixed").length,
+    negative: entries.filter((e) => e.result === "negative").length,
+  };
+}
+
+function formatSummaryRow(counts: { positive: number; mixed: number; negative: number }): string {
+  const e = BOT_COPY.resultEmoji;
+  return `${e.positive} ${counts.positive}   ${e.mixed} ${counts.mixed}   ${e.negative} ${counts.negative}`;
 }
 
 export function buildLookupText(input: {
@@ -301,15 +267,23 @@ export function buildLookupText(input: {
   }>;
 }): string {
   if (input.entries.length === 0) {
-    return `No entries for ${fmtUser(input.targetUsername)}.`;
+    return `No vouches found for ${formatUsername(input.targetUsername)}.`;
   }
 
-  const lines = [`<b><u>${escapeHtml(formatUsername(input.targetUsername))}</u></b>`, ""];
+  const counts = countByResult(input.entries);
+  const lines: string[] = [
+    formatUsername(input.targetUsername),
+    formatSummaryRow(counts),
+    "",
+  ];
+
   for (const entry of input.entries) {
-    const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
-    lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
-    lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
-    lines.push(`Tags: ${fmtTags(entry.tags)}`);
+    const emoji = BOT_COPY.resultEmoji[entry.result];
+    const legacy = entry.source === "legacy_import" ? "  ·  Legacy" : "";
+    lines.push(`${emoji}  ${RESULT_LABELS[entry.result]}  ·  ${formatDate(entry.createdAt)}${legacy}`);
+    lines.push(`   ${formatUsername(entry.reviewerUsername)}`);
+    lines.push(`   ${formatTagList(entry.tags)}`);
+    lines.push(`   #${entry.id}`);
     lines.push("");
   }
 
@@ -326,14 +300,22 @@ export function buildRecentEntriesText(entries: Array<{
   source?: EntrySource;
 }>): string {
   if (entries.length === 0) {
-    return "No entries yet.";
+    return "No vouches yet.";
   }
 
-  const lines = ["<b><u>Recent entries</u></b>", ""];
+  const counts = countByResult(entries);
+  const lines: string[] = [
+    "Recent vouches",
+    formatSummaryRow(counts),
+    "",
+  ];
+
   for (const entry of entries) {
-    const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
-    lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
-    lines.push(`${fmtUser(entry.reviewerUsername)} → ${fmtUser(entry.targetUsername)} • ${fmtDate(entry.createdAt)}`);
+    const emoji = BOT_COPY.resultEmoji[entry.result];
+    const legacy = entry.source === "legacy_import" ? "  ·  Legacy" : "";
+    lines.push(`${emoji}  ${RESULT_LABELS[entry.result]}  ·  ${formatDate(entry.createdAt)}${legacy}`);
+    lines.push(`   ${formatUsername(entry.reviewerUsername)}  →  ${formatUsername(entry.targetUsername)}`);
+    lines.push(`   #${entry.id}`);
     lines.push("");
   }
 
@@ -341,50 +323,34 @@ export function buildRecentEntriesText(entries: Array<{
 }
 
 export function buildLauncherText(): string {
-  return [
-    "<b>Submit a vouch</b>",
-    "Tap below to open the short DM form.",
-  ].join("\n");
+  return BOT_COPY.launcher;
 }
 
 export function buildPinnedGuideText(): string {
-  return [
-    "<b>Welcome to the Vouch Hub</b>",
-    "",
-    aboutLine(),
-    "",
-    "<b><u>How to Vouch</u></b>",
-    "",
-    "1. Tap <b>Submit Vouch</b> below.",
-    "2. In DM, send only the target @username, then use the buttons.",
-    "3. I post the final entry back here.",
-    "",
-    "<b>Rules</b>",
-    rulesLine(),
-  ].join("\n");
+  return BOT_COPY.pinnedGuide;
 }
 
 export function buildGroupLauncherReplyText(): string {
-  return "Tap below to submit your vouch in DM.";
+  return BOT_COPY.groupLauncherReply;
 }
 
 export function buildPublishedDraftText(targetUsername: string, result: EntryResult): string {
   return [
-    "<b>✓ Posted to the group</b>",
+    "Posted to the group.",
     "",
-    `Target: ${fmtUser(targetUsername)}`,
-    `Result: ${fmtResult(result)}`,
+    formatLabeledLine("Target", formatUsername(targetUsername)),
+    formatLabeledLine("Result", RESULT_LABELS[result]),
   ].join("\n");
 }
 
 export function buildBotDescriptionText(): string {
-  return "The vouch hub for our business community — a place where local businesses log and verify service experiences. Open from the group launcher, complete the short DM form, and I post a clean entry back to the group. Lawful use only — follow Telegram's Terms of Service. No illegal activity.";
+  return BOT_COPY.description;
 }
 
 export function buildBotShortDescription(): string {
-  return "Vouch hub for local businesses. Submit in DM from the group launcher. Lawful use only.";
+  return BOT_COPY.shortDescription;
 }
 
 export function buildAdminOnlyText(): string {
-  return "<b>Admin only.</b>";
+  return BOT_COPY.adminOnly;
 }
