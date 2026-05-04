@@ -19,7 +19,9 @@ export type GuidePage = {
   cite?: string;
 };
 
-export type GuideButton = { text: string; callback_data: string };
+export type GuideButton =
+  | { text: string; callback_data: string }
+  | { text: string; url: string };
 
 export type RenderedPage = {
   text: string;
@@ -58,15 +60,19 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
   },
 
   // ── Account leaves ───────────────────────────────────────────────────
+  // Every leaf separates Telegram-confirmed facts from operator-observed
+  // inference, and ends with a [🔗 Source] button so the member can verify
+  // the claim themselves. Where Telegram doesn't publish thresholds
+  // (e.g. exactly what triggers a freeze), the page says so.
   {
     id: "acc_2fa",
     parent: "acc",
     title: "Turn on 2FA",
     body:
       "If someone gets your login code (SIM swap, leaked SMS), they're in your account unless there's a password too.\n\n" +
-      "Settings → Privacy &amp; Security → Two-Step Verification → Set Password.\n\n" +
+      "<b>Settings → Privacy &amp; Security → Two-Step Verification → Set Password.</b>\n\n" +
       "Add a recovery email at the same step. Without one, forgetting your password locks you out permanently — Telegram won't reset it.",
-    cite: "telegram.org/faq#q-what-is-two-step-verification",
+    cite: "https://telegram.org/faq#q-what-is-two-step-verification",
   },
   {
     id: "acc_sessions",
@@ -74,29 +80,30 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     title: "Active sessions audit",
     body:
       "Telegram lets you see every device logged into your account.\n\n" +
-      "Settings → Devices (Android) or Settings → Privacy &amp; Security → Active Sessions (iOS).\n\n" +
+      "<b>Settings → Devices</b> (Android) or <b>Settings → Privacy &amp; Security → Active Sessions</b> (iOS).\n\n" +
       "Check the list. Anything you don't recognise — different city, unknown device — tap it and Terminate. Then change your 2FA password as a precaution.",
-    cite: "telegram.org/faq#q-i-have-lost-my-phone",
+    cite: "https://telegram.org/faq#q-i-have-lost-my-phone",
   },
   {
     id: "acc_freeze",
     parent: "acc",
     title: "What gets accounts frozen",
     body:
-      "Telegram restricts accounts after enough user reports, automation patterns flagged by their systems, or signals from public abuse channels.\n\n" +
-      "Common triggers: bulk-DMing strangers, fast group joins, spam-shaped wording, third-party clients that look like bots.\n\n" +
-      "A frozen account can still receive messages but can't post in groups, write to non-contacts, or join new chats. Severity varies — some lift after days, some are permanent.",
+      "<b>Telegram-confirmed:</b> accounts that violate the Terms of Service get restricted. Telegram does not publish the trigger thresholds.\n\n" +
+      "<b>Operator-observed triggers</b> (no public Telegram source — patterns from frozen-account post-mortems): bulk-DMing strangers, fast group joins, third-party clients that look like bots, content that draws mass user reports.\n\n" +
+      "<b>Effect:</b> a frozen account still receives messages but can't post in groups, write to non-contacts, or join new chats. Severity varies — some lift after days, some are permanent.",
+    cite: "https://telegram.org/tos",
   },
   {
     id: "acc_appeal",
     parent: "acc",
     title: "If your account freezes",
     body:
-      "Open Telegram → tap the warning banner at the top of any chat. That's the official appeal entry point.\n\n" +
+      "<b>Open Telegram → tap the warning banner</b> at the top of any chat. That's the official appeal entry point.\n\n" +
       "Be brief, polite, factual. Say what you were doing and what you weren't.\n\n" +
       "Don't open multiple appeals — duplicates slow review. Wait at least 48h before any follow-up.\n\n" +
       "Reports from third-party tools or community moderators (us included) can't reverse a freeze. Telegram's team is the only path.",
-    cite: "telegram.org/moderation",
+    cite: "https://telegram.org/moderation",
   },
 
   // ── Group leaves ─────────────────────────────────────────────────────
@@ -105,37 +112,43 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     parent: "grp",
     title: "Why \"Request to Join\"",
     body:
-      "An open group can be joined by anyone — including spam accounts, scrapers, and reporters looking for content to report.\n\n" +
-      "Request-to-Join means an admin has to approve every entry. It slows growth on purpose. The trade is worth it: fewer bad actors get in, and the group looks less like a marketplace to Telegram's classifiers.\n\n" +
+      "<b>Telegram feature:</b> Request to Join means an admin must approve every entry — documented in Telegram's group settings.\n\n" +
+      "<b>Why we use it:</b> open groups get joined by spam accounts, scrapers, and report-trolls within minutes of going public. Approval gate filters them out.\n\n" +
+      "<b>Operator-observed bonus:</b> closed-membership groups draw less classifier attention than open ones. No published Telegram threshold for this — it's pattern from comparison communities.\n\n" +
       "If your request takes a while, that's normal. Admins approve in batches.",
+    cite: "https://telegram.org/faq#groups",
   },
   {
     id: "grp_posts",
     parent: "grp",
     title: "Why some posts auto-delete",
     body:
-      "The bot watches for marketplace vocabulary and known scam phrases. If your post hits one, it's deleted and you get a short DM explaining what tripped.\n\n" +
-      "Common triggers: marketplace claim phrases, off-platform contact prompts, payment-method shorthand, coded sales talk.\n\n" +
-      "Not a strike system — no bans, no mutes. Repost in normal language and you're fine. Think it's wrong? Message an admin.",
+      "<b>How it works:</b> I scan every group message against a list of marketplace and scam phrases. Hits get deleted; you get a DM saying what tripped.\n\n" +
+      "<b>Common triggers:</b> marketplace claims, off-platform contact prompts (\"dm me on wickr\"), payment-method shorthand (\"cash app me\"), explicit drug supply asks.\n\n" +
+      "<b>Not a strike system:</b> no bans, no mutes. Repost in normal language. Disagree with a delete? Message an admin.\n\n" +
+      "Full data + moderation policy: DM <code>/policy</code>.",
+    cite: "https://telegram.org/tos",
   },
   {
     id: "grp_bot",
     parent: "grp",
-    title: "What the bot reads",
+    title: "What I read and store",
     body:
-      "The bot reads every message in the group (privacy mode is off — it has to be, for moderation to work).\n\n" +
-      "What it stores: your @username and Telegram ID once you interact with it, vouches you write, and audit/operational logs.\n\n" +
-      "What it doesn't store: full message history, media you didn't send to it, or anything from outside the group.\n\n" +
-      "DM /policy for the full list. /forgetme wipes what you wrote.",
+      "<b>I read every message</b> in the group. Telegram bots have a privacy-mode setting: ON (default — bot sees only commands, replies, mentions) or OFF (bot reads every message in chats it's in). I run with privacy mode OFF — required for moderation to scan posts.\n\n" +
+      "<b>What I store:</b> your @username + Telegram ID after you interact, vouches you write, audit + operational logs.\n\n" +
+      "<b>What I don't:</b> media files, full message history, anything from outside this group.\n\n" +
+      "DM <code>/policy</code> for the full list. <code>/forgetme</code> wipes what you wrote.",
+    cite: "https://core.telegram.org/bots/features#privacy-mode",
   },
   {
     id: "grp_takedown",
     parent: "grp",
     title: "Why groups get taken down",
     body:
-      "Telegram restricts groups after enough user reports, automation flags, or pattern-matches against known scam shapes.\n\n" +
-      "Triggers: bulk-templated bot posts, names that read as marketplace (\"vouches\", \"plug\", \"vendor\"), public visibility plus illegal content reports.\n\n" +
-      "We run private + Request-to-Join, members write their own vouches, and the bot doesn't post templated content. Each of those decisions is what keeps this group up.",
+      "<b>Telegram-confirmed:</b> groups that violate ToS get restricted. Restrictions are usually report-driven + automation-flagged. Thresholds not published.\n\n" +
+      "<b>Operator-observed patterns</b> (from comparing dead vs alive groups in this space): bulk-templated bot output, names that read marketplace (\"vouches\", \"plug\", \"vendor\"), public visibility + scam reports stacking.\n\n" +
+      "<b>Our defences:</b> private group + Request-to-Join, neutral name, member-written vouches (no bot-templated posts), silent moderation. Each choice is to stay clear of those patterns.",
+    cite: "https://telegram.org/moderation",
   },
 
   // ── New here leaves ──────────────────────────────────────────────────
@@ -144,36 +157,38 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     parent: "new",
     title: "Mute notifications",
     body:
-      "Tap the group name at the top → bell icon → choose how long.\n\n" +
+      "<b>Tap the group name at the top → bell icon → choose how long.</b>\n\n" +
       "Options: 1 hour, 8 hours, 2 days, forever.\n\n" +
       "Telegram still shows unread counts in the group list — you just stop getting pings. Tap the bell again any time to turn them back on.",
+    cite: "https://telegram.org/faq#q-how-do-i-mute-or-block-someone",
   },
   {
     id: "new_search",
     parent: "new",
     title: "Find a vouch",
     body:
-      "DM the bot with /search @username — works for any member.\n\n" +
-      "You'll get a summary card: total vouches, breakdown (POS/MIX/NEG), last activity. Tap \"See all\" for the full list.\n\n" +
-      "For new vouches (after the bot was added), use Telegram's native search bar at the top of the group — that catches member-written posts the archive doesn't index yet.",
+      "<b>DM me</b> with <code>/search @username</code> — works for any member.\n\n" +
+      "You'll get a summary card: total vouches, breakdown (POS / MIX / NEG), last activity. Tap \"See all\" for the full list.\n\n" +
+      "<b>For new vouches</b> (after I joined the group), use Telegram's native search bar at the top of the group — that catches member-written posts the archive doesn't index yet.",
   },
   {
     id: "new_vouch",
     parent: "new",
     title: "How to vouch",
     body:
-      "Post a normal message in the group. Tag the @, say what happened in your own words, mark it pos / neg / neutral.\n\n" +
+      "<b>Post a normal message in the group.</b> Tag the @, say what happened in your own words, mark it <b>pos / neg / neutral</b>.\n\n" +
       "Free text — no template, no bot wizard. The clearer you write, the more useful it is for the next person searching them.\n\n" +
-      "Vouch back is expected — if someone vouches you, return the favour after your next deal.",
+      "<b>Vouch back is expected</b> — if someone vouches you, return the favour after your next deal.",
   },
   {
     id: "new_report",
     parent: "new",
     title: "Reporting issues",
     body:
-      "Genuine scammer / threats / weird DMs from a member: forward the evidence to an admin and explain what happened.\n\n" +
-      "Bot bug or weird behaviour: same — admin DM with what you saw.\n\n" +
-      "Don't mass-report inside Telegram (the in-app Report button) unless it's truly serious. Mass reports against community members hurt the group, not the bad actor.",
+      "<b>Genuine scammer / threats / weird DMs from a member:</b> forward the evidence to an admin and explain what happened.\n\n" +
+      "<b>Bot bug or weird behaviour:</b> same — admin DM with what you saw.\n\n" +
+      "<b>Don't mass-report inside Telegram</b> (the in-app Report button) unless it's truly serious. Mass reports against community members hurt the group, not the bad actor — Telegram's restriction system is report-weighted (no public threshold).",
+    cite: "https://telegram.org/moderation",
   },
 
   // ── Telegram facts leaves ────────────────────────────────────────────
@@ -182,39 +197,40 @@ export const GUIDE_PAGES: readonly GuidePage[] = [
     parent: "fact",
     title: "Cloud chats vs Secret chats",
     body:
-      "Cloud chats (the default — DMs, groups, channels) are encrypted between you and Telegram's servers. Telegram can read them if compelled to.\n\n" +
-      "Secret chats are end-to-end encrypted, device-to-device. Telegram can't read them. They're 1:1 only, don't sync across devices, and have to be started manually (tap user → New Secret Chat).\n\n" +
-      "Groups are never end-to-end. Anything you post here is readable by Telegram.",
-    cite: "telegram.org/faq#q-how-secure-is-telegram",
+      "<b>Cloud chats</b> (the default — DMs, groups, channels) are encrypted between you and Telegram's servers. Telegram can read them if compelled to.\n\n" +
+      "<b>Secret chats</b> are end-to-end encrypted, device-to-device. Telegram can't read them. They're 1:1 only, don't sync across devices, and have to be started manually (tap user → New Secret Chat).\n\n" +
+      "<b>Groups are never end-to-end.</b> Anything you post here is readable by Telegram.",
+    cite: "https://telegram.org/faq#q-how-secure-is-telegram",
   },
   {
     id: "fact_moderation",
     parent: "fact",
     title: "What Telegram moderates",
     body:
-      "Telegram's stated policy: they remove illegal pornographic content (especially involving minors), copyright violations on public sticker sets, and content that triggers mass user reports.\n\n" +
+      "<b>Telegram's stated policy:</b> they remove illegal pornographic content (especially involving minors), copyright violations on public sticker sets, and content that triggers mass user reports.\n\n" +
       "They generally don't pre-emptively scan private chats or small groups. Public channels and large public groups get more attention.\n\n" +
-      "Restrictions are user-report-driven, not proactive in most cases.",
-    cite: "telegram.org/faq#q-there-39s-illegal-content-on-telegram",
+      "<b>Restrictions are user-report-driven</b>, not proactive in most cases.",
+    cite: "https://telegram.org/faq#q-there-39s-illegal-content-on-telegram",
   },
   {
     id: "fact_privacy_mode",
     parent: "fact",
     title: "Bot privacy mode explained",
     body:
-      "Bots in groups can be set to \"privacy mode on\" (default) — meaning they only see commands directed at them, replies, and mentions.\n\n" +
-      "Privacy mode off means the bot reads every message. We need this for the moderation lexicon to work — we have to actually see what gets posted to filter scam phrases.\n\n" +
-      "The bot still only stores what /policy lists. Reading isn't the same as storing.",
+      "<b>Telegram bots</b> can be set to <b>privacy mode ON</b> (default — only see commands directed at them, replies, mentions) or <b>OFF</b> (read every message in chat).\n\n" +
+      "<b>I run with privacy mode OFF</b> — required for the moderation lexicon to scan posts.\n\n" +
+      "Reading isn't storing. <code>/policy</code> lists what I keep.",
+    cite: "https://core.telegram.org/bots/features#privacy-mode",
   },
   {
     id: "fact_appeals",
     parent: "fact",
     title: "Official appeal channels",
     body:
-      "Account restricted: tap the warning banner inside Telegram. That's the only official channel.\n\n" +
-      "Group taken down: there's no formal appeal — admins can DM @abuse on Telegram, but responses are rare.\n\n" +
-      "Don't trust @-handles claiming to be \"Telegram support\" or \"official appeals\". Telegram never DMs first.",
-    cite: "telegram.org/moderation",
+      "<b>Account restricted:</b> tap the warning banner inside Telegram. That's the only official channel.\n\n" +
+      "<b>Group taken down:</b> no formal appeal channel — admins can DM <code>@abuse</code>, but responses are rare.\n\n" +
+      "<b>Don't trust @-handles claiming to be \"Telegram support\" or \"official appeals\".</b> Telegram never DMs first.",
+    cite: "https://telegram.org/moderation",
   },
 ];
 
@@ -268,9 +284,17 @@ export function parseGuidePageCallback(data: string): string | null {
 function renderBody(page: GuidePage): string {
   const parts = [`<b>${escapeHtml(page.title)}</b>`, "", page.body];
   if (page.cite) {
-    parts.push("", `<i>Source: ${escapeHtml(page.cite)}</i>`);
+    // Render the source as a plain text line so members who can't see
+    // the inline button (older clients, screenshots, copy-paste) still
+    // get the URL. The [🔗 Source] button below is the one-tap path.
+    const display = page.cite.replace(/^https?:\/\//, "");
+    parts.push("", `<i>Source: ${escapeHtml(display)}</i>`);
   }
   return parts.join("\n");
+}
+
+function isFullUrl(s: string | undefined): s is string {
+  return typeof s === "string" && /^https?:\/\//.test(s);
 }
 
 const BACK_LABEL = "← Back";
@@ -325,9 +349,15 @@ export function buildGuidePage(id: string): RenderedPage | null {
       { text: MENU_LABEL, callback_data: "wc:back" },
     ]);
   } else {
-    // Leaf: [← Back] (parent category) + [🏠 Bot menu] (welcome).
-    // Escape is always one tap regardless of how the leaf was reached
-    // (welcome shortcut button OR /guide → category → leaf).
+    // Leaf:
+    //   [🔗 Source] (when cite is a full URL — opens browser to verify)
+    //   [← Back] (parent category) [🏠 Bot menu] (welcome)
+    // Source button lets the member confirm any factual claim themselves
+    // — un-rebuttable. Escape is always one tap regardless of how the
+    // leaf was reached.
+    if (isFullUrl(page.cite)) {
+      rows.push([{ text: "🔗 Source", url: page.cite }]);
+    }
     rows.push([
       { text: BACK_LABEL, callback_data: buildGuidePageCallback(page.parent) },
       { text: MENU_LABEL, callback_data: "wc:back" },
