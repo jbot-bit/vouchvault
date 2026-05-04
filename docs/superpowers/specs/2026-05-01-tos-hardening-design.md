@@ -1,6 +1,6 @@
 # ToS hardening — copy + data-deletion path
 
-**Status:** in-flight (May 2026).
+**Status:** implemented, with the reporting-channel pointer deliberately omitted (May 2026).
 **Supersedes for spec-locked copy:** the v9 simplification design (2026-04-27) where it overlaps. v9's bot-as-tool architecture is unchanged; this spec adds disclosure surface and a `/forgetme` data-deletion path.
 
 ## Why
@@ -10,7 +10,7 @@
 1. No "I'm an automated tool" disclaimer in welcome / pinned guide / bot description.
 2. No data-deletion path for members.
 
-`docs/research/telegram-tos.md` and `tos-bot-developers.md` push for transparent identification, deletion path, and pointing reporters at `@notoscam` rather than ad-hoc routes.
+`docs/research/telegram-tos.md` and `tos-bot-developers.md` push for transparent identification, deletion path, and official Telegram policy references.
 
 `docs/research/tbc26-knowledge-base.md` warns against compliance-pageant theatre — survivors stay informal. Adds here are minimal, scoped, conversational.
 
@@ -18,20 +18,16 @@
 
 ### 1. `rulesLine()` (welcome + pinned)
 
-Append a fifth bullet:
-
-```
-• Report Telegram ToS violations to @notoscam — that's the official channel.
-```
+Append a short prohibited-use clause without adding a reporting-channel pointer. Final posture: native Telegram reporting UI only; do not surface `@notoscam` in bot copy because it invites reports against the bot itself.
 
 ### 2. `buildWelcomeText` + `buildPinnedGuideText`
 
 Insert two paragraphs near the top, after the heading:
 
 ```
-I'm an automated lookup tool. Members post their own vouches in their own words — I never write vouches for anyone or DM members on my own.
+Automated read-only lookup. Members write vouches; I don't write them or DM first.
 
-Your data: usernames + the vouches mentioning you are stored for lookup. To request deletion, DM /forgetme.
+Your data: usernames + vouches you write are stored for lookup. To request deletion, DM /forgetme.
 ```
 
 ### 3. `buildBotDescriptionText`

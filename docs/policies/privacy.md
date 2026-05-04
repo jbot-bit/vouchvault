@@ -1,10 +1,10 @@
-# Privacy policy — Vouch Hub bot
+# Privacy policy — SC45 bot
 
-_Template. Operator hosts this somewhere public (GitHub Pages, Gist, simple web page) and pastes the URL into `@BotFather` → Edit Bot → Privacy Policy._
+_Template only. Current runbook posture is to keep policy disclosure inside Telegram via `/policy` and a pinned group copy, not a public BotFather URL._
 
 ## Who we are
 
-Community-run Telegram bot for member-to-member vouches. Operated on a volunteer basis; no commercial entity.
+Community-run Telegram bot for member-to-member vouches. Automated read-only lookup/moderation tool; members write vouches in their own words. Operated on a volunteer basis; no commercial entity.
 
 ## What we store
 
@@ -13,6 +13,7 @@ Community-run Telegram bot for member-to-member vouches. Operated on a volunteer
 - Operational metadata: webhook update IDs (deduplication), audit log of admin actions, mirror log linking each group message to its backup-channel forward, invite-link usage.
 
 We do not store message content from any chat outside the configured host group(s).
+The bot does not write vouches for members and does not initiate unsolicited DMs.
 
 ## How we use it
 
@@ -30,11 +31,12 @@ Records persist until deletion is requested or the bot is decommissioned. Webhoo
 
 DM the bot `/forgetme` and reply `YES` to confirm. This permanently deletes:
 
-- every vouch entry where you are the reviewer or the target,
+- every vouch entry where you are the reviewer,
 - your draft state,
 - your first-seen timestamp,
 - your stored profile.
 
+Vouches written about you by other reviewers stay because they are the reviewer's words, not your bot account data.
 Messages mirrored to the backup channel before your deletion request are not automatically removed from Telegram's servers; contact the operator if you need those redacted.
 
 ## Telegram's own policies
@@ -43,7 +45,9 @@ This bot operates on Telegram and is bound by Telegram's terms. Read these:
 
 - Telegram Terms of Service — <https://telegram.org/tos>
 - Telegram Privacy Policy — <https://telegram.org/privacy>
-- Telegram Bot Terms — <https://telegram.org/tos/bots>
+- Telegram Bot Terms for users — <https://telegram.org/tos/bots>
+- Telegram Bot Platform Developer Terms — <https://telegram.org/tos/bot-developers>
+- Telegram Moderation Overview — <https://telegram.org/moderation>
 
 ## Reporting abuse
 

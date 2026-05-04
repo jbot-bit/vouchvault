@@ -14,14 +14,19 @@ import {
   buildRemoveEntryConfirmMarkup,
   buildRemoveEntryConfirmText,
   buildReviewQueueItemText,
+  buildLearnedListHeader,
+  buildLearnedItemText,
+  buildLearnedItemMarkup,
+  buildLearnedPhraseRejectText,
+  parseLearnedRemoveCallback,
+  escapeHtml,
+  buildSearchInvalidHandleText,
   buildSearchPromptReplyMarkup,
   buildSearchPromptText,
   buildWelcomeReplyMarkup,
   buildWelcomeText,
   isReservedTarget,
   isWelcomeCallback,
-  LOOKUP_GROUP_PREVIEW_ENTRIES,
-  LOOKUP_PREVIEW_ENTRIES,
   MAINTENANCE_EVERY_N_UPDATES,
   FREEZE_REASONS,
   formatUsername,
@@ -63,7 +68,7 @@ import {
   memberCallbackLimiter,
   memberLookupLimiter,
 } from "./core/lookupRateLimit.ts";
-import { getTelegramBotId } from "./core/tools/telegramTools.ts";
+import { getTelegramBotId, getTelegramBotUsername } from "./core/tools/telegramTools.ts";
 import {
   completeTelegramUpdate,
   getArchiveCountsForTarget,
@@ -87,6 +92,7 @@ import {
   answerTelegramCallbackQuery,
   answerTelegramInlineQuery,
   deleteTelegramMessage,
+  editTelegramMessage,
   forwardTelegramMessage,
   sendTelegramMessage,
 } from "./core/tools/telegramTools.ts";
@@ -104,6 +110,13 @@ import {
   listRecentTeachItems,
   markReviewItemDecided,
 } from "./core/modReviewStore.ts";
+import {
+  addLearnedPhrase,
+  getLearnedPhraseCount,
+  listActiveLearnedPhrases,
+  removeLearnedPhraseById,
+  removeLearnedPhraseByText,
+} from "./core/learnedPhraseStore.ts";
 import { handleChatGone } from "./core/chatGoneHandler.ts";
 import {
   buildVelocityAlertText,
@@ -111,7 +124,7 @@ import {
   createMemberVelocityState,
   recordMemberEvent,
 } from "./core/memberVelocity.ts";
-import { TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
+import { TelegramApiError, TelegramChatGoneError } from "./core/typedTelegramErrors.ts";
 import { parseChatMigration, shouldMarkChatKicked } from "./core/telegramDispatch.ts";
 import { recordUserFirstSeen } from "./core/userTracking.ts";
 import { extractUpdateUserId } from "./core/webhookUserId.ts";
@@ -174,30 +187,50 @@ async function handleLookupCommand(input: {
   // "admin" → full audit (private NEGs + private_note included).
   // "member" → public view (POS + MIX only, private_note hidden).
   viewerScope: "admin" | "member";
-  // "preview" → first N entries (5 in DM, 3 in group) + buttons.
-  // "all" → up to MAX_LOOKUP_ENTRIES, no button.
-  // "neg" → admin-only NEG-filter view (callback target).
+  // "preview" → summary card only + "View full" button.
+  // "all" → up to MAX_LOOKUP_ENTRIES rows, no button.
+  // "neg" → NEG-filter view (callback target). Visible to members + admins.
   mode?: "preview" | "all" | "neg";
-  // Group surface uses 3-entry preview + URL deep-link button to the
-  // bot DM (so the rest doesn't spam the group). When true, the
-  // "See all" button becomes a t.me/<bot>?start=search_<user> URL.
+  // Group surface renders the same summary card as DM. The "View full"
+  // button becomes a t.me/<bot>?start=search_<user> deep-link so detail
+  // always lands in DM, never in the group.
   inGroup?: boolean;
   replyToMessageId?: number | null;
   messageThreadId?: number | null;
   disableNotification?: boolean;
+  // When set, edit this existing message in place instead of sending a
+  // new one. Used by the DM "View full"/"See NEGs" callbacks so the
+  // summary card morphs into the detail view and the user's chat
+  // doesn't accumulate a stack of bot messages. Falls back to send on
+  // edit failure (message too old, content unchanged, etc.).
+  editTargetMessageId?: number;
   logger?: LoggerLike;
 }) {
-  const targetUsername = normalizeUsername(input.rawUsername ?? "");
+  const rawTrimmed = (input.rawUsername ?? "").trim();
+  const targetUsername = normalizeUsername(rawTrimmed);
   if (!targetUsername) {
-    // In groups we keep the old terse copy + no markup — group surface
-    // doesn't benefit from switch_inline_query_current_chat there.
-    // In DM (default), surface the inline-mode tap-to-search button so
-    // members don't need to remember the /search syntax.
+    // Two failure shapes:
+    //  - empty arg → newbie hint (DM gets a tap-to-search button)
+    //  - non-empty but invalid handle → tell them what shape is expected,
+    //    so a typo'd /search doesn't silently re-render the same prompt
+    if (rawTrimmed.length > 0) {
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildSearchInvalidHandleText(rawTrimmed),
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+      return;
+    }
     if (input.inGroup) {
       await sendTelegramMessage(
         {
           chatId: input.chatId,
-          text: "Search requires /search @username.",
+          text: "Use <code>/search @username</code> to look someone up.",
+          parseMode: "HTML",
           ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
         },
         input.logger,
@@ -207,6 +240,7 @@ async function handleLookupCommand(input: {
         {
           chatId: input.chatId,
           text: buildSearchPromptText(),
+          parseMode: "HTML",
           replyMarkup: buildSearchPromptReplyMarkup(),
         },
         input.logger,
@@ -226,28 +260,12 @@ async function handleLookupCommand(input: {
     getArchiveCountsForTarget(targetUsername),
     getAuthoredCountForReviewer(targetUsername),
   ]);
-  // Member view filters out NEGs in both display AND counts (the
-  // existence of NEGs is itself private — admins only).
-  const visibleEntries =
-    input.viewerScope === "admin"
-      ? entries
-      : entries.filter((entry) => entry.result !== "negative");
-  const counts =
-    input.viewerScope === "admin"
-      ? { ...rawCounts, authoredCount }
-      : {
-          total: rawCounts.positive + rawCounts.mixed,
-          positive: rawCounts.positive,
-          mixed: rawCounts.mixed,
-          negative: 0,
-          firstAt: rawCounts.firstAt,
-          lastAt: rawCounts.lastAt,
-          recentCount: rawCounts.recentCount,
-          recentCount30d: rawCounts.recentCount30d,
-          distinctReviewers: rawCounts.distinctReviewers,
-          distinctReviewers12mo: rawCounts.distinctReviewers12mo,
-          authoredCount,
-        };
+  // Members see every result (POS / MIX / NEG) per owner directive — the
+  // point of the system is community-visible reputation, including
+  // negatives. Only `private_note` (admin-attached note on a NEG) stays
+  // admin-only; that's filtered at the entry-render level below.
+  const visibleEntries = entries;
+  const counts = { ...rawCounts, authoredCount };
   input.logger?.info?.(
     {
       targetUsername,
@@ -260,50 +278,130 @@ async function handleLookupCommand(input: {
     },
     "[Search] query executed",
   );
-  const previewLimit = input.inGroup ? LOOKUP_GROUP_PREVIEW_ENTRIES : LOOKUP_PREVIEW_ENTRIES;
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@+/, "") || null;
+  let botUsername: string | null = null;
+  if (input.inGroup) {
+    try {
+      botUsername = await getTelegramBotUsername(input.logger);
+    } catch (err) {
+      input.logger?.warn?.({ err }, "[Search] bot username lookup failed; omitting group expand buttons");
+    }
+  }
   const replyMarkup = buildLookupReplyMarkup({
     targetUsername,
-    totalShown:
-      mode === "preview" ? Math.min(visibleEntries.length, previewLimit) : visibleEntries.length,
+    // Preview is summary-only on every surface, so totalShown is always 0
+    // for preview mode — the button shows whenever there's anything to
+    // expand. For "all" / "neg" the rendered entry rows ARE the detail.
+    totalShown: mode === "preview" ? 0 : visibleEntries.length,
     totalAvailable: counts.total,
     mode,
-    // NEG-button: admin-only, only shown when target has at least one
-    // negative entry. rawCounts.negative is the unfiltered ground truth
-    // (member-view counts.negative is forced to 0).
-    negCount: input.viewerScope === "admin" ? rawCounts.negative : 0,
-    isAdmin: input.viewerScope === "admin",
-    // Group context: deep-link "See all" into the bot DM so the full
-    // result lands privately, not in the group.
+    // NEG-button visible to all viewers per owner directive (community
+    // transparency). Hidden when target has no NEGs.
+    negCount: rawCounts.negative,
+    inGroup: input.inGroup === true,
     inGroupBotUsername: input.inGroup && botUsername ? botUsername : undefined,
   });
+  const text = buildLookupText({
+    targetUsername,
+    isFrozen: profile?.isFrozen ?? false,
+    freezeReason: profile?.freezeReason ?? null,
+    counts,
+    mode,
+    viewerScope: input.viewerScope,
+    entries: visibleEntries.map((entry) => ({
+      id: entry.id,
+      reviewerUsername: entry.reviewerUsername,
+      result: entry.result as EntryResult,
+      tags: parseSelectedTags(entry.selectedTags),
+      createdAt: entry.createdAt,
+      source: entry.source as EntrySource,
+      privateNote: input.viewerScope === "admin" ? entry.privateNote ?? null : null,
+    })),
+  });
+
+  // Edit-in-place when the caller asked us to (DM "View full" / "See
+  // NEGs" callbacks). Falls back to send on edit failure for genuine
+  // errors (message older than 48h, etc.). For "message is not
+  // modified" we silently swallow — that's a double-tap-on-stale-button
+  // race and falling back to send would create the spam vector
+  // (multiple identical replies stacking in DM).
+  if (input.editTargetMessageId) {
+    try {
+      await editTelegramMessage(
+        {
+          chatId: input.chatId,
+          messageId: input.editTargetMessageId,
+          text,
+          // Always pass replyMarkup explicitly so the keyboard updates
+          // (or empties when the new view has no further drill-downs).
+          replyMarkup: replyMarkup ?? { inline_keyboard: [] },
+        },
+        input.logger,
+      );
+      return;
+    } catch (err) {
+      const desc =
+        err instanceof TelegramApiError ? err.description.toLowerCase() : "";
+      if (desc.includes("message is not modified")) {
+        // No-op edit — the user double-tapped or the rendered content
+        // matches what's already shown. Don't fall back to send.
+        input.logger?.info?.(
+          { editTargetMessageId: input.editTargetMessageId },
+          "[Search] edit was no-op (double-tap suppressed)",
+        );
+        return;
+      }
+      input.logger?.warn?.(
+        { err, editTargetMessageId: input.editTargetMessageId },
+        "[Search] edit-in-place failed, falling back to send",
+      );
+    }
+  }
+
   await sendTelegramMessage(
     {
       chatId: input.chatId,
-      text: buildLookupText({
-        targetUsername,
-        isFrozen: profile?.isFrozen ?? false,
-        freezeReason: profile?.freezeReason ?? null,
-        counts,
-        mode,
-        previewLimit,
-        viewerScope: input.viewerScope,
-        entries: visibleEntries.map((entry) => ({
-          id: entry.id,
-          reviewerUsername: entry.reviewerUsername,
-          result: entry.result as EntryResult,
-          tags: parseSelectedTags(entry.selectedTags),
-          createdAt: entry.createdAt,
-          source: entry.source as EntrySource,
-          privateNote: input.viewerScope === "admin" ? entry.privateNote ?? null : null,
-          bodyText: entry.bodyText ?? null,
-        })),
-      }),
+      text,
       ...(replyMarkup ? { replyMarkup } : {}),
       ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
     },
     input.logger,
   );
+}
+
+// Delivers the full learned-phrase list (header + one button-row per
+// item) to a target chat (always the admin's DM in the /learned-from-
+// group flow). Throws if Telegram refuses delivery — caller decides
+// whether to surface that to the user or fall back to a group ack.
+async function deliverLearnedListToDm(
+  adminTelegramId: number,
+  logger?: LoggerLike,
+): Promise<void> {
+  const items = await listActiveLearnedPhrases(50);
+  await sendTelegramMessage(
+    {
+      chatId: adminTelegramId,
+      text: buildLearnedListHeader(items.length),
+      parseMode: "HTML",
+    },
+    logger,
+  );
+  for (const item of items) {
+    await sendTelegramMessage(
+      {
+        chatId: adminTelegramId,
+        text: buildLearnedItemText({
+          id: item.id,
+          phraseRaw: item.phraseRaw,
+          phraseNormalized: item.phraseNormalized,
+          addedAt: item.addedAt,
+        }),
+        parseMode: "HTML",
+        replyMarkup: buildLearnedItemMarkup(item.id),
+        disableNotification: true,
+      },
+      logger,
+    );
+  }
 }
 
 async function handleAdminCommand(input: {
@@ -314,6 +412,11 @@ async function handleAdminCommand(input: {
   messageThreadId?: number | null;
   disableNotification?: boolean;
   from: any;
+  // True when the command was issued in a group (vs admin DM). Lets
+  // commands that would otherwise spam the group (/learned with N
+  // inline-button messages) redirect to DM, and lets /untrain self-
+  // delete the command + DM the result for symmetry with /teach.
+  inGroup?: boolean;
   logger?: LoggerLike;
 }) {
   if (!isAdmin(input.from?.id)) {
@@ -761,6 +864,199 @@ async function handleAdminCommand(input: {
     return;
   }
 
+  if (input.command === "/learned") {
+    try {
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        denied: false,
+      });
+      // In group, never dump the full list — that's up to 50 inline-
+      // button messages. Try to deliver the list to the admin's DM
+      // (best-effort: silently skipped if the admin never /start-ed
+      // the bot) and leave a one-line ack in the group, then delete the
+      // command itself for hygiene.
+      if (input.inGroup) {
+        const count = await getLearnedPhraseCount();
+        let dmDelivered = false;
+        try {
+          await deliverLearnedListToDm(input.from.id, input.logger);
+          dmDelivered = true;
+        } catch (err) {
+          input.logger?.info?.(
+            { err, adminId: input.from.id },
+            "[/learned] DM delivery failed (admin likely hasn't /start-ed)",
+          );
+        }
+        // Best-effort delete of the /learned command msg.
+        if (typeof input.replyToMessageId === "number") {
+          try {
+            await deleteTelegramMessage(
+              { chatId: input.chatId, messageId: input.replyToMessageId },
+              input.logger,
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        if (!dmDelivered) {
+          await sendTelegramMessage(
+            {
+              chatId: input.chatId,
+              text: `Learned phrases: ${count}. <i>Open the bot in DM and run /learned to manage them.</i>`,
+              parseMode: "HTML",
+              disableNotification: true,
+            },
+            input.logger,
+          );
+        }
+        return;
+      }
+      const items = await listActiveLearnedPhrases(50);
+      // DM path: full list with Remove buttons.
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: buildLearnedListHeader(items.length),
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+      for (const item of items) {
+        await sendTelegramMessage(
+          {
+            chatId: input.chatId,
+            text: buildLearnedItemText({
+              id: item.id,
+              phraseRaw: item.phraseRaw,
+              phraseNormalized: item.phraseNormalized,
+              addedAt: item.addedAt,
+            }),
+            parseMode: "HTML",
+            replyMarkup: buildLearnedItemMarkup(item.id),
+            disableNotification: true,
+          },
+          input.logger,
+        );
+      }
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /learned failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Learned list failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
+    return;
+  }
+
+  if (input.command === "/untrain") {
+    const phraseRaw = input.args.join(" ").trim();
+    if (!phraseRaw) {
+      // Group: redirect to DM + delete cmd for hygiene. DM: inline.
+      if (input.inGroup && typeof input.replyToMessageId === "number") {
+        try {
+          await deleteTelegramMessage(
+            { chatId: input.chatId, messageId: input.replyToMessageId },
+            input.logger,
+          );
+        } catch {
+          /* ignore */
+        }
+        try {
+          await sendTelegramMessage(
+            {
+              chatId: input.from.id,
+              text: "Usage: <code>/untrain &lt;phrase&gt;</code> — or /learned for inline Remove buttons.",
+              parseMode: "HTML",
+            },
+            input.logger,
+          );
+        } catch {
+          /* admin hasn't /start-ed — silently skip */
+        }
+        return;
+      }
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: "Usage: <code>/untrain &lt;phrase&gt;</code> — or use /learned for buttons.",
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+      return;
+    }
+    try {
+      const removed = await removeLearnedPhraseByText({
+        rawPhrase: phraseRaw,
+        removedByTelegramId: input.from.id,
+      });
+      await recordAdminAction({
+        adminTelegramId: input.from.id,
+        adminUsername: input.from.username ?? null,
+        command: input.command,
+        targetChatId: input.chatId,
+        entryId: removed?.id ?? null,
+        reason: removed ? "removed" : "not_found",
+        denied: false,
+      });
+      const text = removed
+        ? `Removed #${removed.id}: <code>${escapeHtml(removed.phraseRaw)}</code>.`
+        : `No active learned phrase matched <code>${escapeHtml(phraseRaw)}</code>.`;
+      // Group: delete cmd msg + DM confirm to admin (symmetry with /teach
+      // <phrase>). DM: inline reply.
+      if (input.inGroup) {
+        if (typeof input.replyToMessageId === "number") {
+          try {
+            await deleteTelegramMessage(
+              { chatId: input.chatId, messageId: input.replyToMessageId },
+              input.logger,
+            );
+          } catch {
+            /* ignore */
+          }
+        }
+        try {
+          await sendTelegramMessage(
+            { chatId: input.from.id, text, parseMode: "HTML" },
+            input.logger,
+          );
+        } catch {
+          /* admin DM blocked — silent */
+        }
+        return;
+      }
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text,
+          parseMode: "HTML",
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    } catch (err) {
+      input.logger?.error?.({ err }, "[Admin] /untrain failed");
+      await sendTelegramMessage(
+        {
+          chatId: input.chatId,
+          text: `Untrain failed: ${err instanceof Error ? err.message : String(err)}`,
+          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
+        },
+        input.logger,
+      );
+    }
+    return;
+  }
+
   if (input.command === "/admin_help") {
     await recordAdminAction({
       adminTelegramId: input.from.id,
@@ -845,24 +1141,40 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
             return;
           }
         }
+        // Deep-link from the group "See all in DM" button — render the
+        // expanded list directly. Otherwise the user lands on a second
+        // summary card and has to tap "View full" again.
         await handleLookupCommand({
           chatId,
           rawUsername: target,
           viewerScope: isAdminCaller ? "admin" : "member",
+          mode: "all",
           logger,
         });
         return;
       }
     }
-    // Admin-only NEG deep-link from group "See N NEG in DM" button.
-    // Non-admins fall through to welcome (admin gate below also catches).
+    // NEG deep-link from group "See N NEG in DM" button. Visible to
+    // members + admins per owner directive (NEGs are community-visible).
     if (command === "/start" && payload && payload.startsWith("neg_")) {
       const target = payload.slice("neg_".length);
-      if (/^[a-z0-9_]{5,32}$/i.test(target) && isAdmin(fromId)) {
+      if (/^[a-z0-9_]{5,32}$/i.test(target)) {
+        const isAdminCaller = isAdmin(fromId);
+        if (!isAdminCaller && typeof fromId === "number") {
+          const limited = memberLookupLimiter.tryConsume(fromId);
+          if (!limited.allowed) {
+            const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+            await sendTelegramMessage(
+              { chatId, text: `Slow down — ${seconds}s.` },
+              logger,
+            );
+            return;
+          }
+        }
         await handleLookupCommand({
           chatId,
           rawUsername: target,
-          viewerScope: "admin",
+          viewerScope: isAdminCaller ? "admin" : "member",
           mode: "neg",
           logger,
         });
@@ -921,12 +1233,10 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
           text: buildMeText({
             username: normalized,
             counts: {
-              total: counts.positive + counts.mixed,
+              total: counts.positive + counts.mixed + counts.negative,
               positive: counts.positive,
               mixed: counts.mixed,
-              // NEG count not surfaced to self — the existence of NEGs
-              // is admin-only per v9 design.
-              negative: 0,
+              negative: counts.negative,
               firstAt: counts.firstAt,
               lastAt: counts.lastAt,
             },
@@ -1034,6 +1344,66 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     return;
   }
 
+  // /teach <phrase> — DM training-only path. The reply form (delete a
+  // group msg) is meaningless in DM, so reject it with a usage hint.
+  // The training logic itself is identical to the group path; we
+  // reuse it inline here so the admin can train without leaving DM.
+  if (command === "/teach") {
+    if (!isAdmin(fromId)) {
+      await sendTelegramMessage(
+        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
+        logger,
+      );
+      return;
+    }
+    const phraseRaw = args.join(" ").trim();
+    if (!phraseRaw) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "Usage: <code>/teach &lt;phrase&gt;</code> to add a phrase to the live lexicon. (Reply form only works in the group.)",
+          parseMode: "HTML",
+        },
+        logger,
+      );
+      return;
+    }
+    try {
+      const result = await addLearnedPhrase({
+        rawPhrase: phraseRaw,
+        addedByTelegramId: fromId!,
+      });
+      let text: string;
+      if (!result.ok) {
+        text = buildLearnedPhraseRejectText(result.reason);
+      } else {
+        text = result.alreadyActive
+          ? `Already learned: <code>${escapeHtml(phraseRaw)}</code> (#${result.id}).`
+          : `Learned phrase added (#${result.id}): <code>${escapeHtml(phraseRaw)}</code>\n<i>normalised: ${escapeHtml(result.phraseNormalized)}</i>\n<i>Use /untrain ${escapeHtml(phraseRaw)} or /learned to remove.</i>`;
+        await recordAdminAction({
+          adminTelegramId: fromId!,
+          adminUsername: fromUsername,
+          command: "/teach:train",
+          targetChatId: null,
+          entryId: result.id,
+          reason: result.alreadyActive ? "already_active" : "added",
+          denied: false,
+        });
+      }
+      await sendTelegramMessage(
+        { chatId, text, parseMode: "HTML" },
+        logger,
+      );
+    } catch (err) {
+      logger?.error?.({ err, phraseRaw }, "[/teach DM] train failed");
+      await sendTelegramMessage(
+        { chatId, text: "Training failed — check logs." },
+        logger,
+      );
+    }
+    return;
+  }
+
   if (
     command === "/freeze" ||
     command === "/unfreeze" ||
@@ -1046,13 +1416,16 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/dbstats" ||
     command === "/mirrorstats" ||
     command === "/modstats" ||
-    command === "/reviewq"
+    command === "/reviewq" ||
+    command === "/learned" ||
+    command === "/untrain"
   ) {
     await handleAdminCommand({
       command,
       args,
       chatId,
       from: message.from,
+      inGroup: false,
       logger,
     });
     return;
@@ -1181,29 +1554,42 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/search" || command === "/lookup") {
-    if (!isAdmin(message.from?.id)) {
-      await recordAdminAction({
-        adminTelegramId: message.from?.id ?? 0,
-        adminUsername: message.from?.username ?? null,
-        command,
-        targetChatId: chatId,
-        targetUsername: args[0] ?? null,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: buildAdminOnlyText(),
-          ...buildReplyOptions(message.message_id, true, messageThreadId),
-        },
-        logger,
-      );
-      return;
+    // Group /search opens to all members. Admins still get the full
+    // audit (private_note included) via viewerScope=admin; members get
+    // the public view (private_note hidden, NEGs visible). Member-rate-
+    // limit mirrors the DM path so a flood of /search calls in group
+    // can't be used to fan out detail-view DMs faster than once per
+    // LOOKUP_INTERVAL_MS.
+    const fromId = message.from?.id;
+    const isAdminCaller = isAdmin(fromId);
+    if (!isAdminCaller && typeof fromId === "number") {
+      const limited = memberLookupLimiter.tryConsume(fromId);
+      if (!limited.allowed) {
+        const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+        await sendTelegramMessage(
+          {
+            chatId,
+            text: `Slow down — ${seconds}s.`,
+            ...buildReplyOptions(message.message_id, true, messageThreadId),
+          },
+          logger,
+        );
+        return;
+      }
     }
+    await recordAdminAction({
+      adminTelegramId: fromId ?? 0,
+      adminUsername: message.from?.username ?? null,
+      command,
+      targetChatId: chatId,
+      targetUsername: args[0] ?? null,
+      reason: isAdminCaller ? null : "member",
+      denied: false,
+    });
     await handleLookupCommand({
       chatId,
       rawUsername: args[0],
-      viewerScope: "admin",
+      viewerScope: isAdminCaller ? "admin" : "member",
       inGroup: true,
       replyToMessageId: message.message_id,
       messageThreadId,
@@ -1214,11 +1600,13 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
   }
 
   if (command === "/teach") {
-    // Admin-only group command, replied to the offending message.
-    // ONE STEP: deletes the replied message immediately + writes an
-    // audit row. The /teach reply itself is also deleted so the
-    // group stays clean. Operator can review the audit log later via
-    // /reviewq if they need a history.
+    // Admin-only group command. Three forms:
+    //   /teach (reply)           → delete replied msg + audit row.
+    //   /teach <phrase>          → add <phrase> to the live lexicon.
+    //   /teach <phrase> (reply)  → both: delete replied + add phrase.
+    // Whatever the form, the /teach command itself is always deleted to
+    // keep the group surface clean. Confirmation goes to the admin's DM
+    // (best-effort) so the operator gets feedback without group spam.
     if (!isAdmin(message.from?.id)) {
       try {
         await deleteTelegramMessage(
@@ -1231,67 +1619,120 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       return;
     }
     const replied = message.reply_to_message;
-    if (!replied || typeof replied.message_id !== "number") {
-      await sendTelegramMessage(
-        {
-          chatId,
-          text: "Reply to a message with /teach to delete it.",
-          ...buildReplyOptions(message.message_id, true, messageThreadId),
-        },
-        logger,
-      );
+    const hasReply = !!replied && typeof replied.message_id === "number";
+    const phraseRaw = args.join(" ").trim();
+    const hasPhrase = phraseRaw.length > 0;
+
+    if (!hasReply && !hasPhrase) {
+      // Group hygiene: never leave a visible "Usage:" reply in chat —
+      // delete the /teach command and DM the admin with the hint
+      // (best-effort; silently no-ops if the admin hasn't /start-ed).
+      try {
+        await deleteTelegramMessage(
+          { chatId, messageId: message.message_id },
+          logger,
+        );
+      } catch {
+        /* ignore */
+      }
+      try {
+        await sendTelegramMessage(
+          {
+            chatId: message.from.id,
+            text:
+              "Usage: reply with <code>/teach</code> to delete a message, or <code>/teach &lt;phrase&gt;</code> to add a phrase to the live lexicon.",
+            parseMode: "HTML",
+          },
+          logger,
+        );
+      } catch {
+        /* admin DM blocked — silent */
+      }
       return;
     }
-    const repliedMessageId = replied.message_id;
-    try {
-      // Record the teach event in the queue table with decision=delete
-      // pre-set, so the row functions as both the audit + the history.
-      const result = await enqueueReviewItem({
-        groupChatId: chatId,
-        groupMessageId: repliedMessageId,
-        senderTelegramId:
-          typeof replied.from?.id === "number" ? replied.from.id : null,
-        senderUsername:
-          typeof replied.from?.username === "string"
-            ? replied.from.username
-            : null,
-        messageText:
-          typeof replied.text === "string"
-            ? replied.text
-            : typeof replied.caption === "string"
-            ? replied.caption
-            : null,
-        flaggedByTelegramId: message.from.id,
-      });
-      await markReviewItemDecided({
-        id: result.id,
-        decidedByTelegramId: message.from.id,
-        decision: "delete",
-      });
-      await recordAdminAction({
-        adminTelegramId: message.from.id,
-        adminUsername: message.from.username ?? null,
-        command: "/teach",
-        targetChatId: chatId,
-        entryId: result.id,
-        denied: false,
-      });
-    } catch (err) {
-      logger?.error?.({ err }, "[/teach] enqueue failed");
+
+    // Branch A: training (phrase given). Add to learned lexicon. Confirm
+    // via DM to the admin so the group surface stays clean.
+    let trainConfirm: string | null = null;
+    if (hasPhrase) {
+      try {
+        const result = await addLearnedPhrase({
+          rawPhrase: phraseRaw,
+          addedByTelegramId: message.from.id,
+        });
+        if (!result.ok) {
+          trainConfirm = buildLearnedPhraseRejectText(result.reason);
+        } else {
+          trainConfirm = result.alreadyActive
+            ? `Already learned: <code>${escapeHtml(phraseRaw)}</code> (#${result.id}).`
+            : `Learned phrase added (#${result.id}): <code>${escapeHtml(phraseRaw)}</code>\n<i>normalised: ${escapeHtml(result.phraseNormalized)}</i>\n<i>Use /untrain ${escapeHtml(phraseRaw)} or /learned to remove.</i>`;
+          await recordAdminAction({
+            adminTelegramId: message.from.id,
+            adminUsername: message.from.username ?? null,
+            command: "/teach:train",
+            targetChatId: chatId,
+            entryId: result.id,
+            reason: result.alreadyActive ? "already_active" : "added",
+            denied: false,
+          });
+        }
+      } catch (err) {
+        logger?.error?.({ err, phraseRaw }, "[/teach] train failed");
+        trainConfirm = "Training failed — check logs.";
+      }
     }
-    // Delete the offending message.
-    try {
-      await deleteTelegramMessage(
-        { chatId, messageId: repliedMessageId },
-        logger,
-      );
-    } catch (err) {
-      logger?.warn?.(
-        { err, repliedMessageId },
-        "[/teach] message delete failed (non-fatal)",
-      );
+
+    // Branch B: reply form. Delete the replied message + audit row.
+    if (hasReply) {
+      const repliedMessageId = replied.message_id as number;
+      try {
+        const result = await enqueueReviewItem({
+          groupChatId: chatId,
+          groupMessageId: repliedMessageId,
+          senderTelegramId:
+            typeof replied.from?.id === "number" ? replied.from.id : null,
+          senderUsername:
+            typeof replied.from?.username === "string"
+              ? replied.from.username
+              : null,
+          messageText:
+            typeof replied.text === "string"
+              ? replied.text
+              : typeof replied.caption === "string"
+              ? replied.caption
+              : null,
+          flaggedByTelegramId: message.from.id,
+        });
+        await markReviewItemDecided({
+          id: result.id,
+          decidedByTelegramId: message.from.id,
+          decision: "delete",
+        });
+        await recordAdminAction({
+          adminTelegramId: message.from.id,
+          adminUsername: message.from.username ?? null,
+          command: "/teach",
+          targetChatId: chatId,
+          entryId: result.id,
+          denied: false,
+        });
+      } catch (err) {
+        logger?.error?.({ err }, "[/teach] enqueue failed");
+      }
+      try {
+        await deleteTelegramMessage(
+          { chatId, messageId: repliedMessageId },
+          logger,
+        );
+      } catch (err) {
+        logger?.warn?.(
+          { err, repliedMessageId },
+          "[/teach] message delete failed (non-fatal)",
+        );
+      }
     }
-    // Delete the /teach command itself.
+
+    // Always delete the /teach command itself.
     try {
       await deleteTelegramMessage(
         { chatId, messageId: message.message_id },
@@ -1299,6 +1740,23 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       );
     } catch {
       /* ignore */
+    }
+
+    // Best-effort DM confirmation for the train branch. Members who
+    // never /start-ed the bot can't receive DMs — this silently no-ops.
+    if (trainConfirm) {
+      try {
+        await sendTelegramMessage(
+          {
+            chatId: message.from.id,
+            text: trainConfirm,
+            parseMode: "HTML",
+          },
+          logger,
+        );
+      } catch {
+        /* ignore — DM may be blocked */
+      }
     }
     return;
   }
@@ -1314,7 +1772,9 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/admin_help" ||
     command === "/dbstats" ||
     command === "/mirrorstats" ||
-    command === "/modstats"
+    command === "/modstats" ||
+    command === "/learned" ||
+    command === "/untrain"
   ) {
     await handleAdminCommand({
       command,
@@ -1324,6 +1784,7 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       messageThreadId,
       disableNotification: true,
       from: message.from,
+      inGroup: true,
       logger,
     });
     // Admin-only delete: a non-admin attempt hits the "admin only"
@@ -1461,11 +1922,21 @@ async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
   const rawQuery = typeof inlineQuery.query === "string" ? inlineQuery.query.trim() : "";
   const targetUsername = normalizeUsername(rawQuery);
   if (!targetUsername) {
-    // Empty / malformed query — return zero results. Telegram shows the
-    // "no results" placeholder; cache briefly per-user so a member typing
-    // doesn't burn DB queries on every keystroke.
+    // Empty / malformed query — return zero results, but surface a
+    // persistent "Open bot DM" button at the top of the dropdown so
+    // members who don't know inline-mode syntax have an obvious escape
+    // hatch to the canonical DM /search flow.
     await answerTelegramInlineQuery(
-      { inlineQueryId, results: [], cacheTime: 5, isPersonal: true },
+      {
+        inlineQueryId,
+        results: [],
+        cacheTime: 5,
+        isPersonal: true,
+        // start_parameter is required for the button to actually open
+        // the bot DM. Tapping fires /start menu — falls through the
+        // /start handler's deep-link branches and renders the welcome.
+        button: { text: "Open the bot DM to /search", startParameter: "menu" },
+      },
       logger,
     );
     return;
@@ -1479,6 +1950,7 @@ async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
       targetUsername,
       positive: 0,
       mixed: 0,
+      negative: 0,
       total: 0,
       lastAt: null,
       isFrozen: false,
@@ -1490,19 +1962,24 @@ async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
     return;
   }
 
-  const [counts, profile] = await Promise.all([
+  const [counts, profile, botUsername] = await Promise.all([
     getArchiveCountsForTarget(targetUsername),
     getBusinessProfileByUsername(targetUsername),
+    getTelegramBotUsername(logger).catch(() => null),
   ]);
-  // Member-scope: total = POS+MIX, NEG counts and existence stripped.
-  const visibleTotal = counts.positive + counts.mixed;
+  // NEG counts visible to all viewers per owner directive. botUsername
+  // (when resolvable) attaches a "📋 See full in DM" deep-link to the
+  // inline-shared message — anyone who sees the summary can tap through
+  // to the full list in their own DM with the bot.
   const result = buildInlineLookupResult({
     targetUsername,
     positive: counts.positive,
     mixed: counts.mixed,
-    total: visibleTotal,
+    negative: counts.negative,
+    total: counts.positive + counts.mixed + counts.negative,
     lastAt: counts.lastAt,
     isFrozen: profile?.isFrozen ?? false,
+    botUsername,
   });
   await answerTelegramInlineQuery(
     {
@@ -1517,7 +1994,7 @@ async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
   logger?.info?.(
     {
       targetUsername,
-      visibleTotal,
+      total: counts.positive + counts.mixed + counts.negative,
       isFrozen: profile?.isFrozen ?? false,
       isAdminCaller,
     },
@@ -1527,47 +2004,16 @@ async function handleInlineQuery(inlineQuery: any, logger?: LoggerLike) {
 
 async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
   const chatId = callbackQuery.message?.chat?.id;
+  const chatType =
+    typeof callbackQuery.message?.chat?.type === "string"
+      ? callbackQuery.message.chat.type
+      : null;
+  const callbackFromGroup = chatType === "group" || chatType === "supergroup";
   const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
 
-  // /search "See all" button — re-renders the lookup with mode="all".
-  const expandUsername = parseLookupExpandCallback(data);
-  if (expandUsername && typeof chatId === "number") {
-    if (callbackQuery.id) {
-      await answerTelegramCallbackQuery(
-        { callbackQueryId: callbackQuery.id, chatId },
-        logger,
-      );
-    }
-    const fromId = callbackQuery.from?.id;
-    const isAdminCaller = isAdmin(fromId);
-    // Member rate-limiting: even the expand button consumes a slot
-    // because it triggers a fresh DB read + send.
-    if (!isAdminCaller && typeof fromId === "number") {
-      const limited = memberLookupLimiter.tryConsume(fromId);
-      if (!limited.allowed) {
-        const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
-        await sendTelegramMessage(
-          { chatId, text: `Slow down — ${seconds}s.` },
-          logger,
-        );
-        return;
-      }
-    }
-    await handleLookupCommand({
-      chatId,
-      rawUsername: expandUsername,
-      viewerScope: isAdminCaller ? "admin" : "member",
-      mode: "all",
-      logger,
-    });
-    return;
-  }
-
-  // /search "See N NEG" button — admin-only. Re-renders with mode="neg",
-  // showing only negative entries. Members can't trip this even if they
-  // somehow get the callback_data string because we re-check admin here.
-  const negUsername = parseLookupNegCallback(data);
-  if (negUsername && typeof chatId === "number") {
+  // /learned Remove button — admin-only soft-delete of a learned phrase.
+  const learnedRemoveId = parseLearnedRemoveCallback(data);
+  if (learnedRemoveId != null && typeof chatId === "number") {
     if (callbackQuery.id) {
       await answerTelegramCallbackQuery(
         { callbackQueryId: callbackQuery.id, chatId },
@@ -1577,18 +2023,238 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     const fromId = callbackQuery.from?.id;
     if (!isAdmin(fromId)) {
       await sendTelegramMessage(
-        { chatId, text: "<b>Admin only.</b>", parseMode: "HTML" },
+        { chatId, text: buildAdminOnlyText(), parseMode: "HTML" },
         logger,
       );
       return;
     }
-    await handleLookupCommand({
-      chatId,
-      rawUsername: negUsername,
-      viewerScope: "admin",
-      mode: "neg",
-      logger,
-    });
+    try {
+      const removed = await removeLearnedPhraseById({
+        id: learnedRemoveId,
+        removedByTelegramId: fromId!,
+      });
+      await recordAdminAction({
+        adminTelegramId: fromId!,
+        adminUsername: callbackQuery.from?.username ?? null,
+        command: "/learned:remove",
+        targetChatId: chatId,
+        entryId: learnedRemoveId,
+        reason: removed ? "removed" : "already_removed",
+        denied: false,
+      });
+      const text = removed
+        ? `Removed #${removed.id}: <code>${escapeHtml(removed.phraseRaw)}</code>.`
+        : `#${learnedRemoveId} already removed.`;
+      // Edit the original message to reflect the removal — clears the
+      // button so a double-tap can't fire.
+      const messageId = callbackQuery.message?.message_id;
+      if (typeof messageId === "number") {
+        try {
+          await editTelegramMessage(
+            { chatId, messageId, text, parseMode: "HTML" },
+            logger,
+          );
+        } catch {
+          await sendTelegramMessage(
+            { chatId, text, parseMode: "HTML" },
+            logger,
+          );
+        }
+      } else {
+        await sendTelegramMessage(
+          { chatId, text, parseMode: "HTML" },
+          logger,
+        );
+      }
+    } catch (err) {
+      logger?.error?.({ err, learnedRemoveId }, "[/learned] remove failed");
+      await sendTelegramMessage(
+        { chatId, text: `Remove failed: ${err instanceof Error ? err.message : String(err)}` },
+        logger,
+      );
+    }
+    return;
+  }
+
+  // /search "See all" button — re-renders the lookup with mode="all".
+  const expandUsername = parseLookupExpandCallback(data);
+  if (expandUsername && typeof chatId === "number") {
+    const fromId = callbackQuery.from?.id;
+    const responseChatId = callbackFromGroup && typeof fromId === "number" ? fromId : chatId;
+    if (callbackFromGroup && typeof fromId !== "number") {
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: "Open the bot DM and run /search there.",
+            showAlert: true,
+          },
+          logger,
+        );
+      }
+      return;
+    }
+    const isAdminCaller = isAdmin(fromId);
+    // Member rate-limiting: even the expand button consumes a slot
+    // because it triggers a fresh DB read + send.
+    if (!isAdminCaller && typeof fromId === "number") {
+      const limited = memberLookupLimiter.tryConsume(fromId);
+      if (!limited.allowed) {
+        const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+        if (callbackQuery.id) {
+          await answerTelegramCallbackQuery(
+            {
+              callbackQueryId: callbackQuery.id,
+              chatId,
+              text: `Slow down — ${seconds}s.`,
+              showAlert: callbackFromGroup,
+            },
+            logger,
+          );
+        } else if (!callbackFromGroup) {
+          await sendTelegramMessage(
+            { chatId: responseChatId, text: `Slow down — ${seconds}s.` },
+            logger,
+          );
+        }
+        return;
+      }
+    }
+    // DM: edit the existing summary card into the full list so the chat
+    // doesn't accumulate a stack of bot messages. Group: still send-new
+    // because we're rendering into the user's DM (different chat from
+    // the message that carried the button).
+    const editTargetMessageId =
+      !callbackFromGroup && typeof callbackQuery.message?.message_id === "number"
+        ? (callbackQuery.message.message_id as number)
+        : undefined;
+    try {
+      await handleLookupCommand({
+        chatId: responseChatId,
+        rawUsername: expandUsername,
+        viewerScope: isAdminCaller ? "admin" : "member",
+        mode: "all",
+        editTargetMessageId,
+        logger,
+      });
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: callbackFromGroup ? "Sent in DM." : undefined,
+          },
+          logger,
+        );
+      }
+    } catch (err) {
+      logger?.warn?.({ err, fromId, expandUsername }, "[Search] callback expand delivery failed");
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: callbackFromGroup
+              ? "I couldn't DM you. Open the bot DM, press Start, then try again."
+              : "Search failed.",
+            showAlert: true,
+          },
+          logger,
+        );
+      } else if (!callbackFromGroup) {
+        await sendTelegramMessage({ chatId, text: "Search failed." }, logger);
+      }
+    }
+    return;
+  }
+
+  // /search "See N NEG" button — visible to members + admins. Re-renders
+  // with mode="neg", showing only negative entries. Admins additionally
+  // see private_note. Member rate-limit applies as on the DM /search path.
+  const negUsername = parseLookupNegCallback(data);
+  if (negUsername && typeof chatId === "number") {
+    const fromId = callbackQuery.from?.id;
+    const responseChatId = callbackFromGroup && typeof fromId === "number" ? fromId : chatId;
+    if (callbackFromGroup && typeof fromId !== "number") {
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: "Open the bot DM and run /search there.",
+            showAlert: true,
+          },
+          logger,
+        );
+      }
+      return;
+    }
+    const isAdminCaller = isAdmin(fromId);
+    if (!isAdminCaller && typeof fromId === "number") {
+      const limited = memberLookupLimiter.tryConsume(fromId);
+      if (!limited.allowed) {
+        const seconds = Math.max(1, Math.ceil(limited.retryAfterMs / 1000));
+        if (callbackQuery.id) {
+          await answerTelegramCallbackQuery(
+            {
+              callbackQueryId: callbackQuery.id,
+              chatId,
+              text: `Slow down — ${seconds}s.`,
+              showAlert: callbackFromGroup,
+            },
+            logger,
+          );
+        } else if (!callbackFromGroup) {
+          await sendTelegramMessage(
+            { chatId: responseChatId, text: `Slow down — ${seconds}s.` },
+            logger,
+          );
+        }
+        return;
+      }
+    }
+    const negEditTargetMessageId =
+      !callbackFromGroup && typeof callbackQuery.message?.message_id === "number"
+        ? (callbackQuery.message.message_id as number)
+        : undefined;
+    try {
+      await handleLookupCommand({
+        chatId: responseChatId,
+        rawUsername: negUsername,
+        viewerScope: isAdminCaller ? "admin" : "member",
+        mode: "neg",
+        editTargetMessageId: negEditTargetMessageId,
+        logger,
+      });
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: callbackFromGroup ? "Sent in DM." : undefined,
+          },
+          logger,
+        );
+      }
+    } catch (err) {
+      logger?.warn?.({ err, fromId, negUsername }, "[Search] callback NEG delivery failed");
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: callbackFromGroup
+              ? "I couldn't DM you. Open the bot DM, press Start, then try again."
+              : "Search failed.",
+            showAlert: true,
+          },
+          logger,
+        );
+      } else if (!callbackFromGroup) {
+        await sendTelegramMessage({ chatId, text: "Search failed." }, logger);
+      }
+    }
     return;
   }
 
@@ -1817,10 +2483,10 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
             text: buildMeText({
               username: normalized,
               counts: {
-                total: counts.positive + counts.mixed,
+                total: counts.positive + counts.mixed + counts.negative,
                 positive: counts.positive,
                 mixed: counts.mixed,
-                negative: 0,
+                negative: counts.negative,
                 firstAt: counts.firstAt,
                 lastAt: counts.lastAt,
               },

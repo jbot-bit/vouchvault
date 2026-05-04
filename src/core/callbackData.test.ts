@@ -2,12 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildLearnedRemoveCallback,
   buildLookupExpandCallback,
   buildLookupNegCallback,
   buildRemoveEntryCancelCallback,
   buildRemoveEntryConfirmCallback,
   buildReviewDeleteCallback,
   buildReviewKeepCallback,
+  parseLearnedRemoveCallback,
   parseLookupExpandCallback,
   parseLookupNegCallback,
 } from "./archive.ts";
@@ -26,6 +28,8 @@ const KNOWN_CALLBACKS: string[] = [
   // Review-queue ids: bigserial; bound the same way.
   buildReviewDeleteCallback(2147483647),
   buildReviewKeepCallback(2147483647),
+  // Learned-phrase ids: bigserial; same bound.
+  buildLearnedRemoveCallback(2147483647),
 ];
 
 test("every callback data string is <= 64 bytes", () => {
@@ -60,4 +64,14 @@ test("parseLookupNegCallback rejects invalid payloads", () => {
   assert.equal(parseLookupNegCallback("lk:n:"), null);
   assert.equal(parseLookupNegCallback("lk:n:bad-username"), null);
   assert.equal(parseLookupNegCallback("lk:a:bobbiz"), null);
+});
+
+test("learned-remove callback round-trips id and rejects junk", () => {
+  const cb = buildLearnedRemoveCallback(42);
+  assert.equal(cb, "lp:rm:42");
+  assert.equal(parseLearnedRemoveCallback(cb), 42);
+  assert.equal(parseLearnedRemoveCallback("lp:rm:"), null);
+  assert.equal(parseLearnedRemoveCallback("lp:rm:abc"), null);
+  assert.equal(parseLearnedRemoveCallback("lp:rm:-1"), null);
+  assert.equal(parseLearnedRemoveCallback("rq:d:42"), null);
 });

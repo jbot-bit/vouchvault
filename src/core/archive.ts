@@ -176,6 +176,39 @@ export function parseReviewKeepCallback(data: string): number | null {
   const n = Number(data.slice("rq:k:".length));
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
+
+// Learned-phrase remove button callback. id = learned_phrases.id.
+//   "lp:rm:<id>" — admin tapped Remove on /learned listing.
+export function buildLearnedRemoveCallback(id: number): string {
+  return `lp:rm:${Math.trunc(id)}`;
+}
+
+// Single source of truth for /teach validator-failure copy. Keeps the
+// group + DM paths in sync, and the exhaustive switch makes TS error
+// when new reasons are added to the validator without copy.
+export type LearnedPhraseRejectReason =
+  | "too_short"
+  | "no_letters"
+  | "too_long";
+
+export function buildLearnedPhraseRejectText(
+  reason: LearnedPhraseRejectReason,
+): string {
+  switch (reason) {
+    case "too_short":
+      return "Phrase too short after normalising — needs at least 4 letters.";
+    case "no_letters":
+      return "Phrase needs letters (digits/symbols alone over-match).";
+    case "too_long":
+      return "Phrase too long — keep it under 120 chars.";
+  }
+}
+
+export function parseLearnedRemoveCallback(data: string): number | null {
+  if (!data.startsWith("lp:rm:")) return null;
+  const n = Number(data.slice("lp:rm:".length));
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 export const STALE_UPDATE_PROCESSING_MINUTES = 10;
 export const PROCESSED_UPDATE_RETENTION_DAYS = 14;
 export const MAINTENANCE_EVERY_N_UPDATES = 200;
@@ -403,7 +436,7 @@ function fmtStatusLine(
 }
 
 const DEFAULT_RULES_TEXT = [
-  "Rules: Telegram ToS, vouch people you actually know, no opinions, no minors.",
+  "Rules: Telegram ToS, vouch people you actually know, no opinions, no minors, no illegal activity.",
 ].join("\n");
 
 function rulesLine(): string {
@@ -424,11 +457,17 @@ function rulesLine(): string {
 // is the only surface.
 export function buildPolicyText(): string {
   return [
-    "Stored: your @ and Telegram id once you DM, plus vouches you write.",
+    "<b>SC45 bot policy</b>",
     "",
-    "DM <code>/forgetme</code> to wipe yours. Vouches others wrote about you stay — their words, not your data.",
+    "Automated read-only lookup/moderation tool. Members write vouches in their own words; the bot does not write vouches or DM first.",
     "",
-    "Telegram's ToS, Privacy and Bot Terms apply.",
+    "Stored: your Telegram id/@ after you interact, vouches you write, and operational/audit logs. DM <code>/forgetme</code> to wipe vouches you wrote + your bot account record. Vouches others wrote about you stay — their words, not your data.",
+    "",
+    "Rules: no spam/scams, no threats or violence, no sexual content involving minors, no illegal goods or services.",
+    "",
+    "Telegram Terms of Service: https://telegram.org/tos",
+    "",
+    'More: <a href="https://telegram.org/privacy">Privacy</a> · <a href="https://telegram.org/tos/bots">Bot Terms</a> · <a href="https://telegram.org/tos/bot-developers">Developer Terms</a> · <a href="https://telegram.org/moderation">Moderation</a>',
   ].join("\n");
 }
 
@@ -446,6 +485,7 @@ function envOverride(key: string): string | null {
 
 const DEFAULT_WELCOME_TEXT = [
   "<b>SC45</b>",
+  "Automated read-only lookup. Members write vouches; I don't write them or DM first.",
   "",
   "<code>/search @username</code> — look up vouches.",
   "<code>/me</code> — your own.",
@@ -457,6 +497,7 @@ const DEFAULT_WELCOME_TEXT = [
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
   "<b>SC45</b>",
+  "Automated read-only lookup. Members write vouches; I don't write them or DM first.",
   "",
   "DM the bot:",
   "<code>/search @username</code> — look up.",
@@ -490,7 +531,10 @@ export function buildWelcomeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "Search", switch_inline_query_current_chat: "@" }],
+      // Inline-mode tap: prefills "@" so the member starts typing the
+      // handle directly. "Search someone" mirrors the /me-keyboard label
+      // so the affordance reads the same on every surface.
+      [{ text: "🔍 Search someone", switch_inline_query_current_chat: "@" }],
       [
         { text: "Me", callback_data: "wc:me" },
         { text: "Policy", callback_data: "wc:policy" },
@@ -522,6 +566,14 @@ export function buildSearchPromptText(): string {
   return "Tap below or send <code>/search @username</code>.";
 }
 
+// Invalid-handle response when the caller passed a non-empty argument
+// that fails the @-handle shape. Tells the newbie what shape is expected
+// instead of silently re-rendering the prompt.
+export function buildSearchInvalidHandleText(rawInput: string): string {
+  const cleaned = escapeHtml(rawInput.slice(0, 32));
+  return `<code>${cleaned}</code> isn't a valid Telegram @username. Use <code>/search @username</code> (5–32 letters, digits, or underscores).`;
+}
+
 export function buildSearchPromptReplyMarkup(): {
   inline_keyboard: Array<
     Array<{ text: string; switch_inline_query_current_chat: string }>
@@ -551,12 +603,14 @@ export function buildPinnedGuideText(): string {
 export function buildBotDescriptionText(): string {
   return [
     "Look up vouches in SC45.",
+    "Automated read-only tool — member-initiated only.",
     "",
     "/search @user — search.",
     "/me — your own.",
     "/forgetme — wipe yours.",
+    "/policy — data + Telegram rules.",
     "",
-    "Read-only. Members write the vouches.",
+    "Members write the vouches. Telegram ToS applies.",
   ].join("\n");
 }
 
@@ -620,15 +674,13 @@ export function buildLookupText(input: {
     createdAt: Date;
     source?: EntrySource;
     privateNote?: string | null;
-    bodyText?: string | null;
   }>;
-  // "preview" → show first previewLimit entries (with "see all" + "see NEG" buttons)
-  // "all" → show all entries (capped by Telegram char ceiling)
-  // "neg" → show ONLY negative entries (admin-only callback)
+  // "preview" → summary card only (counts + freshness); detail rows live
+  //              behind the "View full" button (DM callback or group → DM
+  //              deep-link). This is the default surface for /search.
+  // "all" → render every passed-in entry (capped by Telegram char ceiling).
+  // "neg" → render only negative entries.
   mode?: "preview" | "all" | "neg";
-  // Override how many entries the preview shows. Default 5 (DM); group
-  // surface uses 3 to keep replies compact.
-  previewLimit?: number;
   // "admin" → renders frozen status terse. "member" → appends "(caution
   // when transacting)" so the freeze tag is interpretable. Defaults to
   // "admin" so untouched callers keep their existing copy.
@@ -749,11 +801,41 @@ export function buildLookupText(input: {
         } by ${fmtUser(input.targetUsername)} about other members</i>`
       : null;
 
-  const previewLimit = input.previewLimit ?? LOOKUP_PREVIEW_ENTRIES;
+  // Preview mode is always a tight summary card — entry rows live behind
+  // the "View full" button (DM callback or group → DM deep-link). Owner
+  // directive: clear, concise, looks good. Drop the "Status: Active"
+  // filler line for the common case, fold tenure/recent/reviewer detail
+  // into one line, and skip the "by @x about other members" prose since
+  // the heading already names the target.
+  if (mode === "preview") {
+    // Tight one-liner under the heading: counts + breakdown + last-seen,
+    // all folded into a single line so the group post stays small. The
+    // inline-keyboard buttons are the affordance for drill-down — no
+    // need for a "Tap below" footer.
+    const tail: string[] = [];
+    if (input.counts.lastAt) {
+      const days = Math.floor(
+        (Date.now() - input.counts.lastAt.getTime()) / (24 * 60 * 60 * 1000),
+      );
+      const ago =
+        days <= 0
+          ? "today"
+          : days === 1
+          ? "1d ago"
+          : days < 60
+          ? `${days}d ago`
+          : `${Math.floor(days / 30)}mo ago`;
+      tail.push(`last ${ago}`);
+    }
+    const oneLine = tail.length > 0 ? `${summaryLine} · ${tail.join(" · ")}` : summaryLine;
+    const lines = [heading];
+    if (input.isFrozen) lines.push(statusLine);
+    lines.push(oneLine);
+    return lines.join("\n");
+  }
+
   const visibleEntries =
-    mode === "preview"
-      ? input.entries.slice(0, previewLimit)
-      : mode === "neg"
+    mode === "neg"
       ? input.entries.filter((e) => e.result === "negative")
       : input.entries;
   const lines = [heading, statusLine, summaryLine];
@@ -764,9 +846,6 @@ export function buildLookupText(input: {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
     lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
-    if (entry.bodyText && entry.bodyText.trim().length > 0) {
-      lines.push(`<i>${escapeHtml(truncateBody(entry.bodyText))}</i>`);
-    }
     if (entry.tags.length > 0) {
       lines.push(`<b>Tags:</b> ${fmtTags(entry.tags)}`);
     }
@@ -798,12 +877,16 @@ export function buildNegDeepLinkUrl(botUsername: string, targetUsername: string)
 }
 
 // Returns the inline-keyboard for /search responses.
-// In DM (no botUsername / inGroup=false): callback button(s):
+// In DM (inGroup=false): callback button(s) re-render in the same DM:
 //   📋 See all N vouches — preview mode + more entries available
-//   ⚠️ See N NEG — admin-only
-// In group (botUsername + inGroup=true): URL deep-link button instead:
-//   📋 See all in DM — opens bot DM, /start payload triggers /search
-// Buttons stack in a single column. Returns null if no button applies.
+//   ⚠️ See N NEG[s] — when target has any
+// In group (inGroup=true + inGroupBotUsername set): URL deep-link button
+// into the bot DM, so the detail surface is always private:
+//   📋 See all N in DM — opens bot DM, /start payload triggers /search
+//   ⚠️ See N NEG[s] in DM — opens bot DM in NEG view
+// Returns null when no button applies — including the in-group case
+// where the bot username lookup failed (we never want to fall back to a
+// callback here: a callback can't open a DM, so it'd silently no-op).
 type InlineKbButton =
   | { text: string; callback_data: string }
   | { text: string; url: string };
@@ -813,16 +896,25 @@ export function buildLookupReplyMarkup(input: {
   totalShown: number;
   totalAvailable: number;
   mode: "preview" | "all" | "neg";
-  // Admin-only NEG-view button. Set negCount > 0 + isAdmin true to render.
+  // NEG-view button. Set negCount > 0 to render. Members see this too —
+  // NEGs are public to the community per owner directive.
   negCount?: number;
-  isAdmin?: boolean;
-  // Group-context: when set, the See-all button becomes a URL deep-link
-  // into the bot DM. NEG button stays as a callback (it'll re-render
-  // in the same surface).
+  // Whether the surface rendering this markup is the group chat. When
+  // true, "view full" buttons MUST be URL deep-links into the DM. If
+  // inGroupBotUsername is missing (transient lookup failure) we omit the
+  // button entirely rather than emit a callback that would try to render
+  // detail in the group.
+  inGroup?: boolean;
   inGroupBotUsername?: string;
 }): { inline_keyboard: InlineKbButton[][] } | null {
   const buttons: InlineKbButton[][] = [];
-  const inGroup = !!input.inGroupBotUsername;
+  const inGroup = input.inGroup === true;
+  // In-group with no resolvable bot username → bail out. The callback
+  // fallback used to silently render detail in the group; that's the
+  // exact bug we're fixing here.
+  if (inGroup && !input.inGroupBotUsername) {
+    return null;
+  }
 
   // "See all" — only in preview mode + more entries to show.
   if (
@@ -832,7 +924,7 @@ export function buildLookupReplyMarkup(input: {
     if (inGroup) {
       buttons.push([
         {
-          text: `📋 See all ${input.totalAvailable} in DM`,
+          text: `📋 See all ${input.totalAvailable} vouches`,
           url: buildSearchDeepLinkUrl(input.inGroupBotUsername!, input.targetUsername),
         },
       ]);
@@ -846,13 +938,11 @@ export function buildLookupReplyMarkup(input: {
     }
   }
 
-  // "See NEGs" — admin-only. NEG existence is private from members per
-  // the v9 design; admins get a quick-access button when target has any.
-  // Hidden when already in NEG view to avoid a no-op button.
-  // In group: URL deep-link to DM so the NEG list never appears in
-  // the group chat. In DM: callback (response goes to the same DM).
+  // "See NEGs" — public to all viewers. Hidden when already in NEG view
+  // to avoid a no-op button.
+  // In group: URL deep-link to DM so the NEG list lands privately. In
+  // DM: callback (re-renders in the same DM).
   if (
-    input.isAdmin === true &&
     typeof input.negCount === "number" &&
     input.negCount > 0 &&
     input.mode !== "neg"
@@ -861,7 +951,7 @@ export function buildLookupReplyMarkup(input: {
     if (inGroup) {
       buttons.push([
         {
-          text: `⚠️ See ${input.negCount} ${noun} in DM`,
+          text: `⚠️ See ${input.negCount} ${noun}`,
           url: buildNegDeepLinkUrl(input.inGroupBotUsername!, input.targetUsername),
         },
       ]);
@@ -928,6 +1018,26 @@ export function buildModerationWarnText(input: {
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
       : "ping an admin";
   return `Removed in <b>${escapedGroup}</b>. To appeal, ${adminPointer}.`;
+}
+
+// Group-visible warn that lands after a moderation delete. Deliberately
+// generic: no phrase trigger leaked (would help attackers tune around
+// it), no offender @-tag (avoids public callout). Auto-deletes after a
+// short window so the group doesn't accumulate moderation noise.
+export const MODERATION_GROUP_WARN_TTL_MS = 20_000;
+
+export function buildModerationGroupWarnText(input: {
+  hitSource: string;
+  adminBotUsername?: string | null;
+}): string {
+  if (input.hitSource.startsWith("regex_vouch_")) {
+    return "Vouches go in as plain messages — tag the @, say what happened.";
+  }
+  const adminPointer =
+    input.adminBotUsername && input.adminBotUsername.length > 0
+      ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code> to appeal.`
+      : "Ping an admin to appeal.";
+  return `Removed (off-policy). ${adminPointer}`;
 }
 
 export function buildDbStatsText(input: {
@@ -999,8 +1109,11 @@ export function buildAdminHelpText(): string {
     "/dbstats — DB diagnostics (entry counts, status breakdown)",
     "/mirrorstats — backup-channel mirror health",
     "/modstats — chat-moderation deletion stats",
-    "/teach — reply to a group msg to flag it for review",
-    "/reviewq — review pending flagged messages",
+    "/teach — reply to a group msg to delete it",
+    "/teach &lt;phrase&gt; — add a phrase to the live lexicon",
+    "/untrain &lt;phrase&gt; — remove a learned phrase",
+    "/learned — list learned phrases (with Remove buttons)",
+    "/reviewq — recent /teach delete history",
   ].join("\n");
 }
 
@@ -1027,12 +1140,14 @@ export function buildMeText(input: {
   const lines: string[] = [handle];
   if (input.counts.total > 0) {
     const breakdown: string[] = [];
-    if (input.counts.positive > 0) breakdown.push(`${input.counts.positive} POS`);
-    if (input.counts.mixed > 0) breakdown.push(`${input.counts.mixed} MIX`);
-    const visibleTotal = input.counts.positive + input.counts.mixed;
-    const noun = visibleTotal === 1 ? "vouch" : "vouches";
+    if (input.counts.positive > 0) breakdown.push(`✅ ${input.counts.positive} POS`);
+    if (input.counts.mixed > 0) breakdown.push(`⚖️ ${input.counts.mixed} MIX`);
+    if (input.counts.negative > 0) breakdown.push(`⚠️ ${input.counts.negative} NEG`);
+    const noun = input.counts.total === 1 ? "vouch" : "vouches";
     lines.push(
-      `<b>${visibleTotal} ${noun}</b>${breakdown.length > 0 ? ` (${breakdown.join(", ")})` : ""}`,
+      `<b>${input.counts.total} ${noun}</b>${
+        breakdown.length > 0 ? ` — ${breakdown.join(" · ")}` : ""
+      }`,
     );
     if (input.counts.lastAt) {
       const days = Math.floor(
@@ -1184,6 +1299,48 @@ export function buildReviewItemMarkup(itemId: number): {
   };
 }
 
+// /learned — list active learned phrases, one per row with a Remove
+// button. Header tells the operator how many; empty state encourages
+// /teach <phrase>.
+export function buildLearnedListHeader(count: number): string {
+  if (count === 0) {
+    return [
+      "<b>Learned phrases: 0</b>",
+      "",
+      "Use <code>/teach &lt;phrase&gt;</code> in the group to add one.",
+    ].join("\n");
+  }
+  return `<b>Learned phrases: ${count}</b>`;
+}
+
+export function buildLearnedItemText(input: {
+  id: number;
+  phraseRaw: string;
+  phraseNormalized: string;
+  addedAt: Date;
+}): string {
+  const norm =
+    input.phraseNormalized === input.phraseRaw.trim().toLowerCase()
+      ? ""
+      : ` <i>(${escapeHtml(input.phraseNormalized)})</i>`;
+  return [
+    `<b>#${input.id}</b> — <code>${escapeHtml(input.phraseRaw)}</code>${norm}`,
+    `<i>added ${fmtDateTime(input.addedAt)}</i>`,
+  ].join("\n");
+}
+
+export function buildLearnedItemMarkup(id: number): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [
+        { text: "Remove", callback_data: buildLearnedRemoveCallback(id) },
+      ],
+    ],
+  };
+}
+
 // /modstats — chat-moderation deletion volume + top offenders. Reads from
 // admin_audit_log filtered to command='chat_moderation:delete'.
 export function buildModStatsText(input: {
@@ -1223,14 +1380,14 @@ export function buildModStatsText(input: {
 }
 
 // Inline mode: condensed one-liner used as the InputTextMessageContent
-// when a member picks an inline result. Member-scope only — NEG count
-// and existence is admin-only and must never appear here. Empty / reserved
+// when a member picks an inline result. NEG counts are visible to all
+// viewers (community transparency, per owner directive). Empty / reserved
 // targets get a clear "no result" copy instead of a silent dropdown.
 export function buildInlineSummaryText(input: {
   targetUsername: string;
-  // Always pass POS+MIX only; caller should not pass NEG counts.
   positive: number;
   mixed: number;
+  negative: number;
   total: number;
   lastAt: Date | null;
   isFrozen: boolean;
@@ -1245,6 +1402,7 @@ export function buildInlineSummaryText(input: {
   const breakdown: string[] = [];
   if (input.positive > 0) breakdown.push(`✅ ${input.positive} POS`);
   if (input.mixed > 0) breakdown.push(`⚖️ ${input.mixed} MIX`);
+  if (input.negative > 0) breakdown.push(`⚠️ ${input.negative} NEG`);
   let line = `${formatUsername(input.targetUsername)} — ${input.total} ${noun}`;
   if (breakdown.length > 0) line += ` (${breakdown.join(" · ")})`;
   if (input.isFrozen) line += " · ⚠️ frozen — caution when transacting";
@@ -1269,6 +1427,7 @@ export function buildInlineSummaryTitle(input: {
   targetUsername: string;
   positive: number;
   mixed: number;
+  negative: number;
   total: number;
   isFrozen: boolean;
 }): string {
@@ -1286,16 +1445,29 @@ export function buildInlineSummaryTitle(input: {
 // InlineQueryResultArticle constructor. id must be unique per (query, result);
 // a deterministic id derived from the normalized handle is fine because
 // Telegram caches by (query, user, id).
+//
+// botUsername (when given) attaches a "📋 See full in DM" deep-link to
+// the resulting message. Anyone who sees an inline-shared summary —
+// the sender, or recipients in a different chat — can tap through to
+// the bot DM and run /search there. Skipped for empty/reserved targets
+// (no point deep-linking to nothing).
 export function buildInlineLookupResult(input: {
   targetUsername: string;
   positive: number;
   mixed: number;
+  negative: number;
   total: number;
   lastAt: Date | null;
   isFrozen: boolean;
+  botUsername?: string | null;
 }): Record<string, unknown> {
   const description = buildInlineSummaryText(input);
-  return {
+  const showDeepLink =
+    input.total > 0 &&
+    !isReservedTarget(input.targetUsername) &&
+    typeof input.botUsername === "string" &&
+    input.botUsername.length > 0;
+  const result: Record<string, unknown> = {
     type: "article",
     id: `vv:${input.targetUsername}`.slice(0, 64),
     title: buildInlineSummaryTitle(input),
@@ -1306,6 +1478,19 @@ export function buildInlineLookupResult(input: {
       link_preview_options: { is_disabled: true },
     },
   };
+  if (showDeepLink) {
+    result.reply_markup = {
+      inline_keyboard: [
+        [
+          {
+            text: "📋 See full in DM",
+            url: buildSearchDeepLinkUrl(input.botUsername!, input.targetUsername),
+          },
+        ],
+      ],
+    };
+  }
+  return result;
 }
 
 export function buildFrozenListText(

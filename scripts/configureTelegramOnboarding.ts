@@ -18,24 +18,33 @@ type CliOptions = {
   botUsername: string | null;
 };
 
-// Minimal user-facing menu, per takedown-resilience spec §3.5.
-// Admin commands (/freeze, /unfreeze, /frozen_list, /remove_entry,
-// /recover_entry, /search, /lookup, /pause, /unpause, /admin_help) keep
-// working when typed; they are intentionally kept off the BotFather slash
-// popup so the bot's visible command surface stays small. Admins can run
-// /admin_help in DM for the full reference.
+// User-facing slash-popup menu. Admin commands (/freeze, /unfreeze,
+// /frozen_list, /remove_entry, /recover_entry, /pause, /unpause,
+// /admin_help, /teach, /untrain, /learned, /reviewq, /dbstats,
+// /mirrorstats, /modstats) keep working when typed; intentionally kept
+// off the BotFather popup so the visible surface stays small. Admins
+// run /admin_help in DM for the full reference.
+//
+// v9 commands: members write vouches as plain group messages, the bot
+// is read-only lookup. Old wizard-era /cancel + "vouch flow" copy is
+// gone; /search is the primary surface.
 const DEFAULT_COMMANDS: BotCommand[] = [
-  { command: "help", description: "How the Vouch Hub works" },
+  { command: "search", description: "Look up vouches on @user" },
+  { command: "help", description: "How this bot works" },
 ];
 
 const PRIVATE_COMMANDS: BotCommand[] = [
-  { command: "start", description: "Welcome / open the vouch flow" },
-  { command: "cancel", description: "Cancel your in-progress draft" },
-  { command: "help", description: "How the Vouch Hub works" },
+  { command: "start", description: "Welcome + commands list" },
+  { command: "search", description: "Look up vouches on @user" },
+  { command: "me", description: "Your own vouch summary" },
+  { command: "forgetme", description: "Wipe vouches you wrote + your bot record" },
+  { command: "policy", description: "What's stored + Telegram rules" },
+  { command: "help", description: "How this bot works" },
 ];
 
 const GROUP_COMMANDS: BotCommand[] = [
-  { command: "help", description: "How the Vouch Hub works" },
+  { command: "search", description: "Look up vouches on @user (reply lands in DM)" },
+  { command: "help", description: "How this bot works" },
 ];
 
 const ADMIN_COMMANDS: BotCommand[] = [];
@@ -50,6 +59,13 @@ function printUsage() {
       "  TELEGRAM_BOT_TOKEN is required unless you only use --dry-run.",
       "  If --guide-chat-id is supplied, the script will post the pinned guide with the launcher button.",
       "  --pin-guide only applies when --guide-chat-id is provided.",
+      "  BOT_DISPLAY_NAME (env) overrides the BotFather display name (default: 'Vouch Hub').",
+      "",
+      "Manual @BotFather steps the script can NOT do (do these once via @BotFather):",
+      "  /setinline       — enable inline mode (welcome '🔍 Search someone' button uses it)",
+      "  /setjoingroups   — enable group-add (so the bot can be added to the host group)",
+      "  /setprivacy      — DISABLE privacy mode (mirror + lexicon need all messages)",
+      "  Privacy Policy   — set the bot's privacy URL once docs/policies/privacy.md is hosted",
     ].join("\n"),
   );
 }
@@ -161,8 +177,12 @@ async function resolveBotUsername(explicitUsername: string | null): Promise<stri
   return me.username.replace(/^@+/, "");
 }
 
-function buildLauncherUrl(botUsername: string, chatId: number): string {
-  return `https://t.me/${botUsername}?start=vouch_${chatId}`;
+// v9: members post vouches as plain group messages; there's no DM
+// wizard launcher anymore. Pinned-guide button (when --guide-chat-id is
+// passed) deep-links to /search instead — it's the primary user-facing
+// surface and the "Look someone up" affordance most newbies want.
+function buildSearchLauncherUrl(botUsername: string): string {
+  return `https://t.me/${botUsername}`;
 }
 
 async function setCommands(scope: Record<string, unknown> | null, commands: BotCommand[]) {
@@ -182,17 +202,23 @@ async function main() {
   const description = buildBotDescriptionText();
   const shortDescription = buildBotShortDescription();
 
+  // BotFather display name. Defaults to a generic "Vouch Hub" so the
+  // bot's identity surface doesn't read as community-coded (research
+  // §2.3 + classifier-targeting empirics). Override per deployment via
+  // env when needed.
+  const botName = process.env.BOT_DISPLAY_NAME?.trim() || "Vouch Hub";
+
   if (options.dryRun) {
     const botUsername =
       options.botUsername ??
       process.env.TELEGRAM_BOT_USERNAME?.replace(/^@+/, "") ??
       "your_bot_username";
-    const guideUrl =
-      options.guideChatId == null ? null : buildLauncherUrl(botUsername, options.guideChatId);
+    const launcherUrl = buildSearchLauncherUrl(botUsername);
 
     console.info(
       JSON.stringify(
         {
+          name: botName,
           description,
           shortDescription,
           commands: {
@@ -202,7 +228,7 @@ async function main() {
             admins: ADMIN_COMMANDS,
           },
           pinnedGuideText: buildPinnedGuideText(),
-          launcherUrl: guideUrl,
+          launcherUrl: options.guideChatId != null ? launcherUrl : null,
         },
         null,
         2,
@@ -213,12 +239,40 @@ async function main() {
 
   const botUsername = await resolveBotUsername(options.botUsername);
 
-  await callTelegramAPI("setMyName", { name: "Vouch Hub" });
+  await callTelegramAPI("setMyName", { name: botName });
   await callTelegramAPI("setMyDescription", {
     description,
   });
   await callTelegramAPI("setMyShortDescription", {
     short_description: shortDescription,
+  });
+
+  // Pre-populate the admin-rights checklist that Telegram surfaces when
+  // an operator adds the bot to a new group (Bot API setMyDefaultAdmin
+  // istratorRights). v9 chat moderation needs can_delete_messages; the
+  // mirror works with privacy-mode-OFF + bot membership alone, no extra
+  // rights required. Pre-checking the box avoids the silent-failure
+  // path where moderation runs but Telegram refuses the delete because
+  // can_delete_messages was unchecked at add-time. (Research §8.2.)
+  await callTelegramAPI("setMyDefaultAdministratorRights", {
+    rights: {
+      is_anonymous: false,
+      can_manage_chat: true,
+      can_delete_messages: true,
+      can_manage_video_chats: false,
+      can_restrict_members: false,
+      can_promote_members: false,
+      can_change_info: false,
+      can_invite_users: false,
+      can_post_messages: false,
+      can_edit_messages: false,
+      can_pin_messages: false,
+      can_post_stories: false,
+      can_edit_stories: false,
+      can_delete_stories: false,
+      can_manage_topics: false,
+    },
+    for_channels: false,
   });
 
   await setCommands(null, DEFAULT_COMMANDS);
@@ -235,7 +289,7 @@ async function main() {
       disable_notification: true,
       reply_markup: {
         inline_keyboard: [
-          [{ text: "Submit Vouch", url: buildLauncherUrl(botUsername, options.guideChatId) }],
+          [{ text: "🔍 Open the bot DM", url: buildSearchLauncherUrl(botUsername) }],
         ],
       },
     });

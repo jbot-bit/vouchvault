@@ -95,7 +95,9 @@ Telegram caps `callback_data` at 64 bytes UTF-8. There is a test (`callbackData.
 - Policy: lexicon hit → delete the message + DM warn. **No bans, no mutes, no strikes.** Hostile actors who keep posting hits keep having their posts vanish; operators handle persistent abusers manually via Telegram-native UI.
 - Bot exemptions: `is_bot` flag + id-equals-bot + `via_bot` set → skip moderation entirely (so the bot doesn't moderate its own vouch posts or inline-bot relays).
 - Admin sender → audit row tagged `(admin_exempt)`, no enforcement.
-- Lexicon updates = edit `PHRASES` (or `REGEX_PATTERNS`) in the lexicon module + push. Railway redeploys; new container has the new lexicon. No admin command, no hot-reload.
+- Lexicon updates have two paths:
+  - **Static** (commit-time): edit `PHRASES` / `REGEX_PATTERNS` in the lexicon module + push. Railway redeploys.
+  - **Live-trainable** (admin-curated, runtime): `learned_phrases` table (migration 0016). `/teach <phrase>` adds, `/untrain <phrase>` or the `/learned` Remove button soft-deletes. `runChatModeration` checks the static lexicon first, then `getActiveLearnedPhrasesCached()` (60s in-mem TTL; invalidated on add/remove so admin edits propagate immediately within the process). Pure validator + phrase-pass live in `chatModerationLexicon.ts` (`validateLearnedPhrase`, `findHitInPhrases`). Soft-delete keeps the audit trail — every learned phrase is editable / reversible.
 - `runChatModeration` is wired into `handleGroupMessage` (first thing after migration handling) and `processTelegramUpdate`'s `edited_message` branch. Bot self-skip prevents moderating its own published vouches even if they coincidentally match.
 - Admin-rights visibility: `logBotAdminStatusForChats` runs fire-and-forget at boot in `server.ts` and logs the bot's admin status per allowed chat. Without admin rights with `can_delete_messages`, moderation silently fails — boot log is the only signal.
 - Test approach: pure helpers unit-tested; orchestration verified manually via the e2e checklist in `DEPLOY.md` §14. The `chat_moderation:delete` audit rows in `admin_audit_log` are the runtime evidence.

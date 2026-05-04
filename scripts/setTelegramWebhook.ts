@@ -157,6 +157,11 @@ async function main() {
       // Operator must run `npm run telegram:webhook` after deploy to refresh
       // server-side allowed_updates state (telegram-references.md gotcha).
       "chat_join_request",
+      // Inline-mode handler (handleInlineQuery) renders trust-headline
+      // previews when a member taps "🔍 Search someone" in the welcome
+      // keyboard. Without this, Telegram drops inline_query updates
+      // server-side and the inline search silently no-ops.
+      "inline_query",
     ],
     max_connections: 10,
     drop_pending_updates: true,

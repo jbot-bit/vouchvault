@@ -45,12 +45,13 @@ test("welcome text is terse, SC45-branded, points at /search /me /forgetme /poli
   assert.match(text, /<code>\/policy<\/code>/);
   assert.match(text, /Tag the @, say what happened/);
   assert.match(text, /Telegram ToS/);
+  assert.match(text, /Automated read-only lookup/);
   // No reporting-channel pointer; no AI-flavoured headers.
   assert.equal(text.includes("@notoscam"), false);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
-  // Length sanity — full output incl. rules line should fit ~600 chars.
-  assert.ok(text.length <= 600, `welcome is ${text.length} chars`);
+  // Length sanity — full output incl. rules line should stay compact.
+  assert.ok(text.length <= 700, `welcome is ${text.length} chars`);
 });
 
 test("pinned guide is terse and points at the DM commands", () => {
@@ -59,9 +60,10 @@ test("pinned guide is terse and points at the DM commands", () => {
   assert.match(text, /<code>\/search @username<\/code>/);
   assert.match(text, /<code>\/forgetme<\/code>/);
   assert.match(text, /Tag the @, say what happened/);
+  assert.match(text, /Automated read-only lookup/);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
-  assert.ok(text.length <= 600, `pinned guide is ${text.length} chars`);
+  assert.ok(text.length <= 700, `pinned guide is ${text.length} chars`);
 });
 
 test("bot description is short and human, ≤512 chars", () => {
@@ -70,7 +72,9 @@ test("bot description is short and human, ≤512 chars", () => {
   assert.match(desc, /\/search @user/);
   assert.match(desc, /\/me/);
   assert.match(desc, /\/forgetme/);
-  assert.match(desc, /Read-only/);
+  assert.match(desc, /Automated read-only/);
+  assert.match(desc, /\/policy/);
+  assert.match(desc, /Telegram ToS applies/);
   assert.equal(desc.includes("Vouch Hub"), false);
   assert.equal(desc.includes("Submit Vouch"), false);
   assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
@@ -87,11 +91,33 @@ test("rules line is one short sentence, no header, no bullets", () => {
     assert.match(text, /Telegram ToS/);
     assert.match(text, /vouch people you actually know/);
     assert.match(text, /no minors/);
+    assert.match(text, /no illegal activity/);
     // No header / no bullet markers — the goal is human prose.
     assert.equal(text.includes("<b>Rules</b>"), false);
     assert.equal(text.includes("• "), false);
     assert.equal(text.includes("@notoscam"), false);
   }
+});
+
+test("policy text includes guardian points and official Telegram links", () => {
+  const text = buildPolicyText();
+  assert.match(text, /Automated read-only lookup\/moderation tool/);
+  assert.match(text, /does not write vouches or DM first/);
+  assert.match(text, /Stored:/);
+  assert.match(text, /\/forgetme/);
+  assert.match(text, /Vouches others wrote about you stay/);
+  assert.match(text, /no spam\/scams/);
+  assert.match(text, /illegal goods or services/);
+  // Telegram ToS URL must be visible as plain text on its own line, not
+  // hidden behind an <a> tag — owner directive after the original copy
+  // buried it inside a · separated link chain.
+  assert.match(text, /^Telegram Terms of Service: https:\/\/telegram\.org\/tos$/m);
+  assert.match(text, /https:\/\/telegram\.org\/privacy/);
+  assert.match(text, /https:\/\/telegram\.org\/tos\/bots/);
+  assert.match(text, /https:\/\/telegram\.org\/tos\/bot-developers/);
+  assert.match(text, /https:\/\/telegram\.org\/moderation/);
+  assert.equal(text.includes("@notoscam"), false);
+  assert.ok(text.length <= 1200, `policy is ${text.length} chars`);
 });
 
 test("locked copy uses 'review' not 'verify' to avoid the marketplace ML keyword cluster", () => {
@@ -177,6 +203,7 @@ test("buildLookupText renders synthetic user<id> as tg://user?id deep-link, not 
     isFrozen: false,
     freezeReason: null,
     counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    mode: "all",
     entries: [
       {
         id: 1,
@@ -199,6 +226,7 @@ test("buildLookupText renders fwd_<hash> synthetic as plain '(unknown reviewer)'
     isFrozen: false,
     freezeReason: null,
     counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    mode: "all",
     entries: [
       {
         id: 2,
@@ -219,6 +247,7 @@ test("buildLookupText still renders real @-handles as bold @-mentions", () => {
     isFrozen: false,
     freezeReason: null,
     counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    mode: "all",
     entries: [
       {
         id: 3,
@@ -238,6 +267,7 @@ test("buildLookupText renders admin-only note when present, HTML-escaped", () =>
     isFrozen: false,
     freezeReason: null,
     counts: { total: 1, positive: 0, mixed: 0, negative: 1 },
+    mode: "all",
     entries: [
       {
         id: 7,
@@ -260,6 +290,7 @@ test("buildLookupText omits the note line when private_note is null", () => {
     isFrozen: false,
     freezeReason: null,
     counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    mode: "all",
     entries: [
       {
         id: 7,
@@ -281,6 +312,7 @@ test("buildLookupText shows Active status + summary line under heading", () => {
     isFrozen: false,
     freezeReason: null,
     counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
+    mode: "all",
     entries: [
       {
         id: 42,
@@ -339,7 +371,10 @@ test("buildLookupText summary line shows total + breakdown across results", () =
   assert.match(text, /⚠️ 1 NEG/);
 });
 
-test("buildLookupText preview mode renders only first 5 of 8 entries", () => {
+test("buildLookupText preview mode is summary-only — no entry rows ever", () => {
+  // Preview is the default DM /search response. Owner directive: members
+  // should see a tight summary card and use "View full" to expand into
+  // a private detail render — never a wall of vouches inline.
   const entries = Array.from({ length: 8 }, (_, i) => ({
     id: i + 1,
     reviewerUsername: `r${i}`,
@@ -355,15 +390,41 @@ test("buildLookupText preview mode renders only first 5 of 8 entries", () => {
     entries,
     mode: "preview",
   });
-  assert.match(text, /<b>#1<\/b>/);
-  assert.match(text, /<b>#5<\/b>/);
-  assert.equal(text.includes("<b>#6</b>"), false);
+  assert.match(text, /<b>8 vouches<\/b>/);
+  for (let i = 1; i <= 8; i += 1) {
+    assert.equal(text.includes(`<b>#${i}</b>`), false, `#${i} should not appear in preview`);
+  }
+  assert.equal(text.includes("By @r0"), false);
 });
 
-test("buildLookupReplyMarkup: shows See-all button in preview mode when total > shown", () => {
+test("buildLookupText preview includes a compact Last-Xd-ago freshness line when lastAt is given", () => {
+  // Recent date so the relative-ago renderer hits the days/months branch.
+  const lastAt = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000);
+  const text = buildLookupText({
+    targetUsername: "bobbiz",
+    isFrozen: false,
+    freezeReason: null,
+    counts: {
+      total: 3,
+      positive: 3,
+      mixed: 0,
+      negative: 0,
+      lastAt,
+      distinctReviewers: 2,
+    },
+    entries: [],
+    mode: "preview",
+  });
+  assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
+  assert.match(text, /<b>3 vouches<\/b> — ✅ 3 POS · last 5d ago/);
+  // No "Status: Active" filler in the common case.
+  assert.equal(text.includes("Status: Active"), false);
+});
+
+test("buildLookupReplyMarkup: shows See-all callback in DM preview mode when total > shown", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "bobbiz",
-    totalShown: 5,
+    totalShown: 0,
     totalAvailable: 23,
     mode: "preview",
   });
@@ -372,6 +433,47 @@ test("buildLookupReplyMarkup: shows See-all button in preview mode when total > 
   assert.match(m!.inline_keyboard[0]![0]!.text, /📋 See all 23 vouches/);
   const b0 = m!.inline_keyboard[0]![0]! as { callback_data: string };
   assert.equal(b0.callback_data, "lk:a:bobbiz");
+});
+
+test("buildLookupReplyMarkup: group surface shows DM deep-link button for any non-empty result", () => {
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 0,
+    totalAvailable: 1,
+    mode: "preview",
+    inGroup: true,
+    inGroupBotUsername: "sc45_bot",
+  });
+  assert.ok(m, "should return markup");
+  const btn = m!.inline_keyboard[0]![0]! as { url: string; text: string };
+  assert.match(btn.text, /See all 1 vouches/);
+  assert.equal(btn.url, "https://t.me/sc45_bot?start=search_bobbiz");
+});
+
+test("buildLookupReplyMarkup: in-group with no botUsername returns null — never falls back to a callback", () => {
+  // Regression: missing bot username used to fall through to a callback,
+  // which renders the full result inside the group. Owner-reported bug:
+  // expand button should *only* be a URL deep-link in group; otherwise
+  // omit it (the user can DM the bot directly).
+  const m = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 0,
+    totalAvailable: 5,
+    mode: "preview",
+    inGroup: true,
+    inGroupBotUsername: undefined,
+  });
+  assert.equal(m, null);
+
+  const m2 = buildLookupReplyMarkup({
+    targetUsername: "bobbiz",
+    totalShown: 0,
+    totalAvailable: 5,
+    mode: "preview",
+    negCount: 2,
+    inGroup: true,
+  });
+  assert.equal(m2, null);
 });
 
 test("buildLookupReplyMarkup: no buttons when preview shows all entries", () => {
@@ -384,14 +486,13 @@ test("buildLookupReplyMarkup: no buttons when preview shows all entries", () => 
   assert.equal(m, null);
 });
 
-test("buildLookupReplyMarkup: admin gets See-NEG button when negCount > 0", () => {
+test("buildLookupReplyMarkup: every viewer gets See-NEG button when negCount > 0", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "bobbiz",
-    totalShown: 5,
+    totalShown: 0,
     totalAvailable: 23,
     mode: "preview",
     negCount: 1,
-    isAdmin: true,
   });
   assert.ok(m);
   assert.equal(m!.inline_keyboard.length, 2);
@@ -408,19 +509,17 @@ test("buildLookupReplyMarkup: NEG plural label", () => {
     totalAvailable: 5,
     mode: "preview",
     negCount: 3,
-    isAdmin: true,
   });
   assert.match(m!.inline_keyboard[0]![0]!.text, /⚠️ See 3 NEGs/);
 });
 
-test("buildLookupReplyMarkup: members never see NEG button (privacy)", () => {
+test("buildLookupReplyMarkup: NEG button hidden when negCount is 0", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "bobbiz",
     totalShown: 5,
     totalAvailable: 5,
     mode: "preview",
-    negCount: 3,
-    isAdmin: false,
+    negCount: 0,
   });
   assert.equal(m, null);
 });
@@ -428,26 +527,27 @@ test("buildLookupReplyMarkup: members never see NEG button (privacy)", () => {
 test("buildLookupReplyMarkup: in-group context replaces See-all callback with DM deep-link URL", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "coastcontra",
-    totalShown: 3,
+    totalShown: 0,
     totalAvailable: 73,
     mode: "preview",
+    inGroup: true,
     inGroupBotUsername: "sc45_bot",
   });
   assert.ok(m);
   assert.equal(m!.inline_keyboard.length, 1);
   const btn = m!.inline_keyboard[0]![0]! as { url: string; text: string };
-  assert.match(btn.text, /📋 See all 73 in DM/);
+  assert.match(btn.text, /📋 See all 73 vouches/);
   assert.equal(btn.url, "https://t.me/sc45_bot?start=search_coastcontra");
 });
 
 test("buildLookupReplyMarkup: in-group with NEG → both buttons are URL deep-links to DM", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "coastcontra",
-    totalShown: 3,
+    totalShown: 0,
     totalAvailable: 73,
     mode: "preview",
     negCount: 1,
-    isAdmin: true,
+    inGroup: true,
     inGroupBotUsername: "sc45_bot",
   });
   assert.ok(m);
@@ -461,28 +561,6 @@ test("buildLookupReplyMarkup: in-group with NEG → both buttons are URL deep-li
   assert.equal((m!.inline_keyboard[1]![0]! as any).callback_data, undefined);
 });
 
-test("buildLookupText respects previewLimit override (group surface uses 3)", () => {
-  const entries = Array.from({ length: 8 }, (_, i) => ({
-    id: i + 1,
-    reviewerUsername: `r${i}`,
-    result: "positive" as const,
-    tags: [],
-    createdAt: new Date(Date.UTC(2026, 3, 5)),
-  }));
-  const text = buildLookupText({
-    targetUsername: "bobbiz",
-    isFrozen: false,
-    freezeReason: null,
-    counts: { total: 8, positive: 8, mixed: 0, negative: 0 },
-    entries,
-    mode: "preview",
-    previewLimit: 3,
-  });
-  assert.match(text, /<b>#1<\/b>/);
-  assert.match(text, /<b>#3<\/b>/);
-  assert.equal(text.includes("<b>#4</b>"), false);
-});
-
 test("buildLookupReplyMarkup: no NEG button when already in neg mode", () => {
   const m = buildLookupReplyMarkup({
     targetUsername: "bobbiz",
@@ -490,7 +568,6 @@ test("buildLookupReplyMarkup: no NEG button when already in neg mode", () => {
     totalAvailable: 1,
     mode: "neg",
     negCount: 1,
-    isAdmin: true,
   });
   assert.equal(m, null);
 });
@@ -515,7 +592,10 @@ test("buildLookupText all mode renders every entry passed in", () => {
   assert.match(text, /<b>#8<\/b>/);
 });
 
-test("buildLookupText surfaces rich freshness: tenure + recent windows + reviewer diversity", () => {
+test("buildLookupText (mode=all) surfaces rich freshness: tenure + recent windows + reviewer diversity", () => {
+  // Detail surfaces (mode="all" / "neg") keep the rich freshness block.
+  // Preview is intentionally summarised down — see the compact-preview
+  // test above.
   const text = buildLookupText({
     targetUsername: "bobbiz",
     isFrozen: false,
@@ -533,6 +613,7 @@ test("buildLookupText surfaces rich freshness: tenure + recent windows + reviewe
       distinctReviewers12mo: 3,
     },
     entries: [],
+    mode: "all",
   });
   assert.match(text, /<b>50 vouches<\/b>/);
   assert.match(text, /Active 15\/01\/2022 → 01\/04\/2026/);
@@ -540,8 +621,8 @@ test("buildLookupText surfaces rich freshness: tenure + recent windows + reviewe
   assert.match(text, /28 distinct reviewers \(3 in last 12mo\)/);
 });
 
-test("buildLookupText surfaces authored count as a footnote line when > 0", () => {
-  const text = buildLookupText({
+test("buildLookupText: authored count omitted from preview, verbose in detail", () => {
+  const preview = buildLookupText({
     targetUsername: "coastcontra",
     isFrozen: false,
     freezeReason: null,
@@ -554,7 +635,25 @@ test("buildLookupText surfaces authored count as a footnote line when > 0", () =
     },
     entries: [],
   });
-  assert.match(text, /<i>Authored: 35 vouches by <b>@coastcontra<\/b> about other members<\/i>/);
+  // Preview is the tight one-liner — authored count is detail-only now.
+  assert.equal(preview.includes("Wrote"), false);
+  assert.equal(preview.includes("Authored"), false);
+
+  const detail = buildLookupText({
+    targetUsername: "coastcontra",
+    isFrozen: false,
+    freezeReason: null,
+    counts: {
+      total: 23,
+      positive: 23,
+      mixed: 0,
+      negative: 0,
+      authoredCount: 35,
+    },
+    entries: [],
+    mode: "all",
+  });
+  assert.match(detail, /<i>Authored: 35 vouches by <b>@coastcontra<\/b> about other members<\/i>/);
 });
 
 test("buildLookupText omits authored line when authoredCount is 0 or unset", () => {
@@ -599,30 +698,6 @@ test("buildLookupText omits freshness line when no aggregate stats given", () =>
   assert.equal(text.includes("Last:"), false);
   assert.equal(text.includes("Recent ("), false);
   assert.equal(text.includes("distinct reviewer"), false);
-});
-
-test("buildLookupText renders truncated body text when present", () => {
-  const longBody = "x".repeat(500);
-  const text = buildLookupText({
-    targetUsername: "bobbiz",
-    isFrozen: false,
-    freezeReason: null,
-    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
-    entries: [
-      {
-        id: 1,
-        reviewerUsername: "alice",
-        result: "positive",
-        tags: [],
-        createdAt: new Date(Date.UTC(2026, 3, 5)),
-        bodyText: `Bobbiz did a great job. ${longBody}`,
-      },
-    ],
-  });
-  assert.match(text, /Bobbiz did a great job/);
-  assert.match(text, /…/);
-  // Body line is rendered as <i>...</i>
-  assert.match(text, /<i>Bobbiz did a great job/);
 });
 
 test("fmtDate renders dd/mm/yyyy in UTC", () => {
@@ -737,10 +812,11 @@ test("buildPolicyText is short, names what's stored + the deletion path, no @not
   const text = buildPolicyText();
   assert.match(text, /Stored:/);
   assert.match(text, /<code>\/forgetme<\/code>/);
-  assert.match(text, /Telegram's ToS/i);
+  assert.match(text, /Telegram Terms of Service/i);
+  assert.match(text, /Bot Terms/i);
   assert.equal(text.includes("@notoscam"), false);
   assert.equal(text.includes("Full policy:"), false);
-  assert.ok(text.length <= 400, `policy is ${text.length} chars`);
+  assert.ok(text.length <= 1200, `policy is ${text.length} chars`);
 });
 
 test("buildDbStatsText shows status breakdown + sample rows when data is present", () => {
