@@ -15,11 +15,13 @@ export type AccountAgeCheck =
 //
 // A null firstSeen means we haven't recorded this user before — the
 // guard treats this as "just appeared" (age 0) and blocks with the
-// full 24h remaining. The wizard's responsibility is to call
-// recordUserFirstSeen() in parallel (or the webhook ingress should);
-// this function does NOT mutate state. Returning allowed:true on null
-// would fail-open and let throwaway accounts vouch on first contact —
-// the exact threat KB:F5.6 captures.
+// full 24h remaining. The webhook ingress (processTelegramUpdate →
+// recordUserFirstSeen) is responsible for the parallel write so that
+// a returning user has firstSeen set; this function does NOT mutate
+// state. Returning allowed:true on null would fail-open and let
+// throwaway accounts pass any future age gate on first contact — the
+// exact threat KB:F5.6 captures. v9 has no live caller (the DM wizard
+// that consumed this is gone); kept for the portal / future surfaces.
 export function checkAccountAge(
   firstSeen: Date | null,
   now: Date = new Date(),

@@ -124,6 +124,7 @@ export async function editTelegramMessage(
     text: string;
     parseMode?: "Markdown" | "HTML" | "MarkdownV2";
     replyMarkup?: Record<string, unknown>;
+    linkPreviewOptions?: { isDisabled?: boolean };
   },
   logger?: any,
 ) {
@@ -136,6 +137,13 @@ export async function editTelegramMessage(
         text: input.text,
         parse_mode: input.parseMode ?? "HTML",
         reply_markup: input.replyMarkup,
+        ...(input.linkPreviewOptions
+          ? {
+              link_preview_options: {
+                is_disabled: input.linkPreviewOptions.isDisabled,
+              },
+            }
+          : {}),
       },
       logger,
       input.chatId,

@@ -249,11 +249,13 @@ export const MARKETPLACE_USERNAME_SUBSTRINGS: ReadonlyArray<string> = [
   "lsd", "acid_", "_acid", "tabs_", "_tabs",
   "ket_", "ketamine",
   "legit_seller", "vouched_vendor", "approved_seller",
-  // Chat-moderation phrase tokens that could appear in a vouch target's
-  // username. Closes the evasion vector where @pm_me_now would otherwise
-  // pass the deny-list and the bot would publish a vouch heading
-  // containing 'pm me now' (chat-mod doesn't scan the bot's own posts;
-  // this stops the artefact at the vouch-submission gate). See spec v4 §4.9.
+  // Chat-moderation phrase tokens that could appear in a target's
+  // username. Closes the evasion where @pm_me_now would otherwise pass
+  // the deny-list and surface as a search target — the @-mention in
+  // /search responses + inline summaries would render the offending
+  // substring in bot output. Under v9 there is no bot-published vouch
+  // heading anymore, but the substring still leaks via the lookup
+  // surfaces. Originally spec v4 §4.9.
   "pm_", "_pm",
   "selling", "_selling", "selling_",
   "buying", "_buying", "buying_",
@@ -484,27 +486,26 @@ function envOverride(key: string): string | null {
 }
 
 const DEFAULT_WELCOME_TEXT = [
-  "<b>SC45</b>",
-  "Automated read-only lookup. Members write vouches; I don't write them or DM first.",
+  "<b>SC45</b> · vouch lookup",
   "",
-  "<code>/search @username</code> — look up vouches.",
-  "<code>/me</code> — your own.",
-  "<code>/forgetme</code> — wipe yours.",
-  "<code>/policy</code> — what's stored.",
+  "Look up other members, see your own stats, or learn how the group works.",
   "",
-  "Vouch by posting in the group. Tag the @, say what happened, mark it <b>pos / neg / neutral</b>. Vouch back is expected.",
+  "<b>In the group:</b> post vouches as plain messages. Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
+  "",
+  "<b>Here:</b> tap below — or type <code>/search</code>, <code>/guide</code>, <code>/me</code>, <code>/policy</code>, <code>/forgetme</code>.",
+  "",
+  "Automated read-only lookup. I don't write vouches or DM first.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
   "<b>SC45</b>",
-  "Automated read-only lookup. Members write vouches; I don't write them or DM first.",
+  "<b>Post vouches here.</b> Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
   "",
-  "DM the bot:",
-  "<code>/search @username</code> — look up.",
+  "Automated read-only lookup bot — DM it to:",
+  "<code>/search @username</code> — see vouch history before you deal.",
+  "<code>/guide</code> — how-to + safety basics.",
   "<code>/forgetme</code> — wipe yours.",
   "<code>/policy</code> — data handling.",
-  "",
-  "Vouch by posting in this group. Tag the @, say what happened, mark it <b>pos / neg / neutral</b>. Vouch back is expected.",
 ].join("\n");
 
 export function buildWelcomeText(): string {
@@ -512,15 +513,12 @@ export function buildWelcomeText(): string {
   return `${body}\n\n${rulesLine()}`;
 }
 
-// Inline keyboard for the welcome / /start surface. Three discoverability
-// shortcuts:
-//   1. switch_inline_query_current_chat — taps into inline-mode in the
-//      current DM with a "@" prefix prefilled, so the member can type
-//      a username and see the trust-headline preview without learning
-//      the inline-mode invocation pattern.
-//   2. callback to /me — surfaces the self-summary path.
-//   3. callback to /policy — surfaces the data-handling page.
-// Buttons stack two-then-one for mobile-friendly tap targets.
+// Inline keyboard for the welcome / /start surface — info-bot style.
+// Four actions in three rows: a wide Search button at top (uses
+// inline-mode for the "type to search" affordance), then How-it-works
+// + My-stats split, then Account & data (sub-menu housing policy +
+// forget). All callback-based actions edit the welcome message in
+// place so the chat doesn't accumulate stacked bot replies.
 export function buildWelcomeReplyMarkup(): {
   inline_keyboard: Array<
     Array<
@@ -531,19 +529,66 @@ export function buildWelcomeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      // Inline-mode tap: prefills "@" so the member starts typing the
-      // handle directly. "Search someone" mirrors the /me-keyboard label
-      // so the affordance reads the same on every surface.
-      [{ text: "🔍 Search someone", switch_inline_query_current_chat: "@" }],
+      [{ text: "🔍 Search a user", switch_inline_query_current_chat: "@" }],
       [
-        { text: "Me", callback_data: "wc:me" },
-        { text: "Policy", callback_data: "wc:policy" },
+        { text: "📖 How it works", callback_data: "wc:guide" },
+        { text: "👤 My stats", callback_data: "wc:me" },
       ],
+      [{ text: "⚙️ Account & data", callback_data: "wc:account" }],
     ],
   };
 }
 
-// Inline keyboard for /me.
+// Account sub-menu: policy + forget + back. Reached from the welcome
+// "Account & data" button. Edit-in-place — replaces the welcome.
+export function buildAccountSubpageText(): string {
+  return [
+    "<b>Account &amp; data</b>",
+    "",
+    "What I store and how to delete it.",
+    "",
+    "<b>📜 Policy</b> — what's kept, why, and the Telegram rules that apply.",
+    "<b>🗑 Forget me</b> — two-step delete: wipes vouches you've written + your bot account record. Vouches others wrote about you stay (their words, not your data).",
+  ].join("\n");
+}
+
+export function buildAccountSubpageMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [{ text: "📜 Policy", callback_data: "wc:policy" }],
+      [{ text: "🗑 Forget me", callback_data: "wc:forget" }],
+      [{ text: "← Back", callback_data: "wc:back" }],
+    ],
+  };
+}
+
+// Single Back-to-menu button row. Used as the markup for any leaf
+// rendered via edit-in-place from the welcome menu (My stats, Policy)
+// AND when the user types the underlying command directly (/me,
+// /policy) so they always have a clear way back.
+export function buildBackToMenuMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [[{ text: "← Back to menu", callback_data: "wc:back" }]],
+  };
+}
+
+// Markup for the policy surface — single Back-to-menu button. Used
+// both when a member taps "Policy" via the welcome menu and when they
+// type /policy directly so they always have a clear way back.
+export function buildPolicyReplyMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [[{ text: "← Back to menu", callback_data: "wc:back" }]],
+  };
+}
+
+// Markup for a freshly-typed /me. Keeps the inline-mode "Search a user"
+// affordance + a clear path back to the welcome menu.
 export function buildMeReplyMarkup(): {
   inline_keyboard: Array<
     Array<
@@ -554,8 +599,8 @@ export function buildMeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "Search someone", switch_inline_query_current_chat: "@" }],
-      [{ text: "Forget me", callback_data: "wc:forget" }],
+      [{ text: "🔍 Search a user", switch_inline_query_current_chat: "@" }],
+      [{ text: "← Back to menu", callback_data: "wc:back" }],
     ],
   };
 }
@@ -586,12 +631,25 @@ export function buildSearchPromptReplyMarkup(): {
   };
 }
 
-// Welcome-callback prefixes ("wc:me" / "wc:policy" / "wc:forget"). All
-// fixed-length, well under the 64-byte cap.
-export function isWelcomeCallback(data: string): "me" | "policy" | "forget" | null {
+// Welcome-menu callback prefixes. All fixed-length under the 64-byte
+// cap. Each maps to an edit-in-place action on the welcome message
+// (except "forget" which kicks off a destructive flow with its own
+// confirm UI as a fresh message).
+export type WelcomeCallback =
+  | "me"
+  | "policy"
+  | "forget"
+  | "guide"
+  | "account"
+  | "back";
+
+export function isWelcomeCallback(data: string): WelcomeCallback | null {
   if (data === "wc:me") return "me";
   if (data === "wc:policy") return "policy";
   if (data === "wc:forget") return "forget";
+  if (data === "wc:guide") return "guide";
+  if (data === "wc:account") return "account";
+  if (data === "wc:back") return "back";
   return null;
 }
 
@@ -609,13 +667,14 @@ export function buildBotDescriptionText(): string {
     "/me — your own.",
     "/forgetme — wipe yours.",
     "/policy — data + Telegram rules.",
+    "/guide — short safety + how-to cards.",
     "",
     "Members write the vouches. Telegram ToS applies.",
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Look up SC45 vouches. DM /search @user.";
+  return "Look up SC45 vouches. DM /search @user. Type /guide for help.";
 }
 
 const SAFE_LIMIT = 3900;
@@ -696,11 +755,14 @@ export function buildLookupText(input: {
   );
   const mode = input.mode ?? "preview";
 
-  // Reserved-target short-circuit: vouching the bot itself or a
-  // Telegram-reserved handle (telegram, botfather, etc.) is rejected
-  // upstream; here we explain why a /search for one returns nothing.
+  // Reserved-target short-circuit: bot's own handle, Telegram service
+  // handles (telegram, botfather, etc.), and marketplace-substring
+  // names (vendor, plug, scammer, etc.) all return a single neutral
+  // "no lookup" response rather than a counts card. Pre-v9 this read
+  // "Can't vouch the bot" — that copy implied a /vouch command that
+  // no longer exists.
   if (isReservedTarget(input.targetUsername)) {
-    return [heading, "", "Can't vouch the bot."].join("\n");
+    return [heading, "", "Reserved handle — no lookup."].join("\n");
   }
 
   if (input.counts.total === 0) {
@@ -721,6 +783,8 @@ export function buildLookupText(input: {
         )} about other members</i>`,
       );
     }
+    lines.push("");
+    lines.push("<i>New here? Type /guide.</i>");
     return lines.join("\n");
   }
 
@@ -1001,23 +1065,42 @@ export function buildAccountTooNewText(hoursRemaining: number): string {
   ].join("\n");
 }
 
-// Chat-moderation DM warning. v9: there is no "Submit Vouch" launcher
-// anymore; vouches are normal group messages. The vouch-shape branch
-// still refers a member back into the group rather than into a wizard.
+// Chat-moderation DM warning. v9: vouches are normal group messages
+// (members post them in their own words) and the lexicon no longer
+// has vouch_* regexes — only marketplace/scam-shape patterns. So
+// every hit is a real off-policy delete.
 export function buildModerationWarnText(input: {
   groupName: string;
-  hitSource: string; // e.g. "phrase", "regex_buy_shape", "regex_vouch_for_username", "compound_buy_solicit"
+  hitSource: string; // e.g. "phrase", "regex_buy_shape", "compound_buy_solicit"
   adminBotUsername?: string | null;
 }): string {
   const escapedGroup = escapeHtml(input.groupName);
-  if (input.hitSource.startsWith("regex_vouch_")) {
-    return `Removed in <b>${escapedGroup}</b>. Post the vouch as a normal message — tag the @, say what happened.`;
-  }
   const adminPointer =
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
       : "ping an admin";
   return `Removed in <b>${escapedGroup}</b>. To appeal, ${adminPointer}.`;
+}
+
+// Inline keyboard for the moderation warn DM — single "Why?" button that
+// deep-links into the bot DM at /guide grp_posts. Returns null when the
+// bot username can't be resolved (caller-supplied) so we never emit a
+// broken url.
+export function buildModerationWarnReplyMarkup(input: {
+  botUsername?: string | null;
+}): { inline_keyboard: Array<Array<{ text: string; url: string }>> } | null {
+  const u = input.botUsername?.trim().replace(/^@+/, "") ?? "";
+  if (!u) return null;
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: "📖 Why? →",
+          url: `https://t.me/${encodeURIComponent(u)}?start=guide_grp_posts`,
+        },
+      ],
+    ],
+  };
 }
 
 // Group-visible warn that lands after a moderation delete. Deliberately
@@ -1030,9 +1113,6 @@ export function buildModerationGroupWarnText(input: {
   hitSource: string;
   adminBotUsername?: string | null;
 }): string {
-  if (input.hitSource.startsWith("regex_vouch_")) {
-    return "Vouches go in as plain messages — tag the @, say what happened.";
-  }
   const adminPointer =
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code> to appeal.`
@@ -1102,7 +1182,6 @@ export function buildAdminHelpText(): string {
     "/unfreeze @x — allow entries again",
     "/frozen_list — show frozen profiles",
     "/remove_entry &lt;id&gt; — delete an entry (with confirm)",
-    "/recover_entry &lt;id&gt; — clear stuck publishing",
     "/search @x — full audit list (alias: /lookup)",
     "/pause — pause new vouches",
     "/unpause — resume vouches",
@@ -1393,7 +1472,7 @@ export function buildInlineSummaryText(input: {
   isFrozen: boolean;
 }): string {
   if (isReservedTarget(input.targetUsername)) {
-    return `${formatUsername(input.targetUsername)} — read-only lookup tool, not a person.`;
+    return `${formatUsername(input.targetUsername)} — reserved handle, no lookup.`;
   }
   if (input.total === 0) {
     return `${formatUsername(input.targetUsername)} — no vouches yet.`;
@@ -1432,7 +1511,7 @@ export function buildInlineSummaryTitle(input: {
   isFrozen: boolean;
 }): string {
   if (isReservedTarget(input.targetUsername)) {
-    return `${formatUsername(input.targetUsername)} — not a person`;
+    return `${formatUsername(input.targetUsername)} — no lookup`;
   }
   if (input.total === 0) {
     return `${formatUsername(input.targetUsername)} — no vouches`;

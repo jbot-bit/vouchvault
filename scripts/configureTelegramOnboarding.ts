@@ -19,17 +19,18 @@ type CliOptions = {
 };
 
 // User-facing slash-popup menu. Admin commands (/freeze, /unfreeze,
-// /frozen_list, /remove_entry, /recover_entry, /pause, /unpause,
-// /admin_help, /teach, /untrain, /learned, /reviewq, /dbstats,
-// /mirrorstats, /modstats) keep working when typed; intentionally kept
-// off the BotFather popup so the visible surface stays small. Admins
-// run /admin_help in DM for the full reference.
+// /frozen_list, /remove_entry, /pause, /unpause, /admin_help, /teach,
+// /untrain, /learned, /reviewq, /dbstats, /mirrorstats, /modstats)
+// keep working when typed; intentionally kept off the BotFather popup
+// so the visible surface stays small. Admins run /admin_help in DM
+// for the full reference.
 //
 // v9 commands: members write vouches as plain group messages, the bot
 // is read-only lookup. Old wizard-era /cancel + "vouch flow" copy is
 // gone; /search is the primary surface.
 const DEFAULT_COMMANDS: BotCommand[] = [
   { command: "search", description: "Look up vouches on @user" },
+  { command: "guide", description: "Safety + how-to" },
   { command: "help", description: "How this bot works" },
 ];
 
@@ -37,6 +38,7 @@ const PRIVATE_COMMANDS: BotCommand[] = [
   { command: "start", description: "Welcome + commands list" },
   { command: "search", description: "Look up vouches on @user" },
   { command: "me", description: "Your own vouch summary" },
+  { command: "guide", description: "Safety + how-to cards" },
   { command: "forgetme", description: "Wipe vouches you wrote + your bot record" },
   { command: "policy", description: "What's stored + Telegram rules" },
   { command: "help", description: "How this bot works" },
@@ -44,6 +46,7 @@ const PRIVATE_COMMANDS: BotCommand[] = [
 
 const GROUP_COMMANDS: BotCommand[] = [
   { command: "search", description: "Look up vouches on @user (reply lands in DM)" },
+  { command: "guide", description: "Open safety + how-to in DM" },
   { command: "help", description: "How this bot works" },
 ];
 

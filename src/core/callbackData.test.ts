@@ -13,6 +13,7 @@ import {
   parseLookupExpandCallback,
   parseLookupNegCallback,
 } from "./archive.ts";
+import { buildGuidePageCallback } from "./guideContent.ts";
 
 // Telegram caps callback_data at 64 bytes UTF-8. Any new callback prefix
 // must be added here to keep the ceiling check honest.
@@ -30,6 +31,10 @@ const KNOWN_CALLBACKS: string[] = [
   buildReviewKeepCallback(2147483647),
   // Learned-phrase ids: bigserial; same bound.
   buildLearnedRemoveCallback(2147483647),
+  // Guide page ids: regex-bound to [a-z0-9_]{1,24}. Worst case is 24
+  // chars + "gd:p:" prefix = 29 bytes.
+  buildGuidePageCallback("a".repeat(24)),
+  buildGuidePageCallback("grp_posts"),
 ];
 
 test("every callback data string is <= 64 bytes", () => {

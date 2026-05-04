@@ -44,23 +44,18 @@ export const PHRASES: ReadonlyArray<string> = [
   "xmr only",
 ];
 
-// Format-perfect artefacts + vouch-shape patterns. Empirical scan:
-// 0 wallets, 0 emails, ~10 phones, 41 off-platform-comm references,
-// 136 t.me invite links across 24k messages. Vouch-shape patterns
-// catch members trying to type their own vouches in chat instead
-// of going through the bot's DM flow — those are reportable artefacts
-// (unstructured "vouch" claims in the public chat) and only the bot
-// should publish vouch-shaped content. The bot's own posts are skipped
-// upstream via the is_bot + id-equals-bot check, so the bot's heading
-// "POS Vouch > @target" doesn't moderate itself.
+// Format-perfect artefacts. Empirical scan: 0 wallets, 0 emails,
+// ~10 phones, 41 off-platform-comm references, 136 t.me invite links
+// across 24k messages. v9 deleted the prior vouch_* patterns —
+// member-typed vouches ("Pos vouch @x", "vouching for @y") are now
+// the load-bearing group product, not contraband. The welcome /
+// pinned text instructs members to post vouches as plain messages;
+// moderating that shape contradicts the welcome.
 const REGEX_PATTERNS: ReadonlyArray<{ name: string; re: RegExp }> = [
   { name: "tme_invite",         re: /t\.me\/\+|t\.me\/joinchat|telegram\.me\/\+/i },
   { name: "phone",              re: /\b\+?\d[\d\s\-]{7,}\d\b/ },
   { name: "crypto_wallet",      re: /\b(bc1[a-z0-9]{20,90}|[13][a-km-zA-HJ-NP-Z1-9]{25,34}|0x[a-fA-F0-9]{40}|T[1-9A-HJ-NP-Za-km-z]{33})\b/ },
   { name: "email",              re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/ },
-  { name: "vouch_heading",      re: /\b(?:pos|neg|mix)\s+vouch\b/i },
-  { name: "vouch_for_username", re: /\bvouch(?:ing|ed)?\b[^\n]{0,30}@[A-Za-z]/i },
-  { name: "vouch_shorthand",    re: /[+\-]vouch\b/i },
   // 2026-05 expansion. The patterns below were derived from common
   // sales/solicitation shapes seen across multiple takedown corpora.
   // Each is high-precision on its own: a hostile reporter reading a

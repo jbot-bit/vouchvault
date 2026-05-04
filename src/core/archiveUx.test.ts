@@ -21,13 +21,7 @@ import {
   fmtDate,
   fmtDateTime,
 } from "./archive.ts";
-import {
-  buildReplyKeyboardRemove,
-  buildTargetRequestReplyMarkup,
-  buildThreadedGroupReplyOptions,
-  shouldSendThreadedLauncherReply,
-  TARGET_USER_REQUEST_ID,
-} from "./telegramUx.ts";
+import { buildThreadedGroupReplyOptions } from "./telegramUx.ts";
 
 // ---- v9 locked-text assertions ----
 //
@@ -36,14 +30,19 @@ import {
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text is terse, SC45-branded, points at /search /me /forgetme /policy", () => {
+test("welcome text is terse, SC45-branded, points at /search /me /guide /policy /forgetme", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>SC45<\/b>/);
-  assert.match(text, /<code>\/search @username<\/code>/);
-  assert.match(text, /<code>\/me<\/code>/);
-  assert.match(text, /<code>\/forgetme<\/code>/);
-  assert.match(text, /<code>\/policy<\/code>/);
+  // Action-led summary first; then the in-group vouch instruction;
+  // then a list of typeable shortcuts (the buttons cover the same set).
+  assert.match(text, /Look up other members/);
+  assert.match(text, /post vouches as plain messages/);
   assert.match(text, /Tag the @, say what happened/);
+  assert.match(text, /<code>\/search<\/code>/);
+  assert.match(text, /<code>\/guide<\/code>/);
+  assert.match(text, /<code>\/me<\/code>/);
+  assert.match(text, /<code>\/policy<\/code>/);
+  assert.match(text, /<code>\/forgetme<\/code>/);
   assert.match(text, /Telegram ToS/);
   assert.match(text, /Automated read-only lookup/);
   // No reporting-channel pointer; no AI-flavoured headers.
@@ -59,6 +58,7 @@ test("pinned guide is terse and points at the DM commands", () => {
   assert.match(text, /<b>SC45<\/b>/);
   assert.match(text, /<code>\/search @username<\/code>/);
   assert.match(text, /<code>\/forgetme<\/code>/);
+  assert.match(text, /<code>\/guide<\/code>/);
   assert.match(text, /Tag the @, say what happened/);
   assert.match(text, /Automated read-only lookup/);
   assert.equal(text.includes("Vouch Hub"), false);
@@ -74,13 +74,14 @@ test("bot description is short and human, ≤512 chars", () => {
   assert.match(desc, /\/forgetme/);
   assert.match(desc, /Automated read-only/);
   assert.match(desc, /\/policy/);
+  assert.match(desc, /\/guide/);
   assert.match(desc, /Telegram ToS applies/);
   assert.equal(desc.includes("Vouch Hub"), false);
   assert.equal(desc.includes("Submit Vouch"), false);
   assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
 
   const short = buildBotShortDescription();
-  assert.equal(short, "Look up SC45 vouches. DM /search @user.");
+  assert.equal(short, "Look up SC45 vouches. DM /search @user. Type /guide for help.");
   assert.ok(short.length <= 120);
 });
 
@@ -132,34 +133,18 @@ test("locked copy uses 'review' not 'verify' to avoid the marketplace ML keyword
   }
 });
 
-test("telegram UX helpers favor threaded quiet replies", () => {
-  // v9: only /lookup remains as a group command surface; /vouch is gone.
-  assert.equal(shouldSendThreadedLauncherReply("/lookup"), false);
+test("buildThreadedGroupReplyOptions builds quiet reply-thread options", () => {
   assert.deepEqual(buildThreadedGroupReplyOptions(99), {
     replyToMessageId: 99,
     allowSendingWithoutReply: true,
     disableNotification: true,
   });
-  assert.deepEqual(buildTargetRequestReplyMarkup(), {
-    keyboard: [
-      [
-        {
-          text: "Choose Target",
-          request_users: {
-            request_id: TARGET_USER_REQUEST_ID,
-            user_is_bot: false,
-            max_quantity: 1,
-            request_name: true,
-            request_username: true,
-          },
-        },
-      ],
-    ],
-    resize_keyboard: true,
-    one_time_keyboard: true,
-    input_field_placeholder: "Choose a target",
+  assert.deepEqual(buildThreadedGroupReplyOptions(99, 7), {
+    replyToMessageId: 99,
+    allowSendingWithoutReply: true,
+    disableNotification: true,
+    messageThreadId: 7,
   });
-  assert.deepEqual(buildReplyKeyboardRemove(), { remove_keyboard: true });
 });
 
 test("buildFrozenListText shows 'No frozen profiles.' when empty", () => {
@@ -718,7 +703,6 @@ test("buildAdminHelpText lists every admin command (v9 — /search primary, /loo
     "/unfreeze @x",
     "/frozen_list",
     "/remove_entry",
-    "/recover_entry",
     "/search @x",
     "/pause",
     "/unpause",
@@ -802,7 +786,7 @@ test("env override falls back to default when env is empty / whitespace", () => 
   try {
     const text = buildWelcomeText();
     assert.match(text, /<b>SC45<\/b>/);
-    assert.match(text, /\/search @username/);
+    assert.match(text, /Look up other members/);
   } finally {
     delete process.env.BOT_WELCOME_TEXT;
   }
@@ -881,16 +865,21 @@ test("buildAccountTooNewText uses locked headline", () => {
   assert.match(text, /We wait for new accounts to establish/);
 });
 
-test("buildModerationWarnText: vouch-shape branch points back into the group (no wizard)", () => {
+test("buildModerationWarnText: every hit gets the appeal line (no vouch-shape branch post-v9)", () => {
+  // v9 removed vouch_* lexicon patterns; member-typed vouches are
+  // load-bearing group content, not contraband. So there's no longer a
+  // "we removed your vouch — please post a vouch" contradictory branch.
+  // Every lexicon hit now means a real off-policy delete and gets the
+  // appeal pointer.
   const text = buildModerationWarnText({
     groupName: "VouchVault",
-    hitSource: "regex_vouch_for_username",
+    hitSource: "phrase",
     adminBotUsername: null,
   });
   assert.match(text, /Removed in <b>VouchVault<\/b>/);
-  assert.match(text, /Post the vouch as a normal message/);
-  // v9: no Submit Vouch launcher anymore.
+  assert.match(text, /To appeal, ping an admin/);
   assert.equal(text.includes("Submit Vouch"), false);
+  assert.equal(text.includes("Post the vouch as a normal message"), false);
 });
 
 test("buildModerationWarnText: buy/sell branch with admin-bot username points at the admin bot", () => {
