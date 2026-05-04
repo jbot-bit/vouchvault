@@ -115,21 +115,23 @@ test("buildGuideRoot returns 2x2 categories + Bot-menu back row", () => {
   assert.equal(backBtn.callback_data, "wc:back");
 });
 
-test("buildGuidePage(category) lists 4 leaves + Back row", () => {
+test("buildGuidePage(category) lists 4 leaves + [Back, Bot menu] row", () => {
   const cat = buildGuidePage("acc");
   assert.ok(cat);
   const rows = cat!.replyMarkup.inline_keyboard;
-  assert.equal(rows.length, 5, "4 leaf rows + 1 back row");
+  assert.equal(rows.length, 5, "4 leaf rows + 1 back/menu row");
   for (let i = 0; i < 4; i += 1) {
     assert.equal(rows[i]!.length, 1);
   }
-  const back = rows[4]!;
-  assert.equal(back.length, 1);
-  assert.match(back[0]!.text, /Back/);
-  assert.equal(back[0]!.callback_data, buildGuidePageCallback("root"));
+  const navRow = rows[4]!;
+  assert.equal(navRow.length, 2);
+  assert.match(navRow[0]!.text, /Back/);
+  assert.equal(navRow[0]!.callback_data, buildGuidePageCallback("root"));
+  assert.match(navRow[1]!.text, /Bot menu/);
+  assert.equal(navRow[1]!.callback_data, "wc:back");
 });
 
-test("buildGuidePage(leaf) renders body + Back/Menu row", () => {
+test("buildGuidePage(leaf) renders body + [Back to category, Bot menu] row", () => {
   const leaf = buildGuidePage("grp_posts");
   assert.ok(leaf);
   assert.match(leaf!.text, /Why some posts auto-delete/);
@@ -138,9 +140,12 @@ test("buildGuidePage(leaf) renders body + Back/Menu row", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0]!.length, 2);
   assert.match(rows[0]![0]!.text, /Back/);
-  assert.match(rows[0]![1]!.text, /Menu/);
+  assert.match(rows[0]![1]!.text, /Bot menu/);
   assert.equal(rows[0]![0]!.callback_data, buildGuidePageCallback("grp"));
-  assert.equal(rows[0]![1]!.callback_data, buildGuidePageCallback("root"));
+  // Leaf "Bot menu" routes all the way back to the welcome (wc:back),
+  // not just to the /guide root — one-tap escape regardless of how
+  // the leaf was reached.
+  assert.equal(rows[0]![1]!.callback_data, "wc:back");
 });
 
 test("buildGuidePage(leaf with cite) appends italic Source line", () => {
