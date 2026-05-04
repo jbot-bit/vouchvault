@@ -30,22 +30,21 @@ import { buildThreadedGroupReplyOptions } from "./telegramUx.ts";
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text is short, SC45-branded, leads with safety + ToS framing", () => {
+test("welcome text is tight, SC45-branded, leads with read-only + ToS framing", () => {
   const text = buildWelcomeText();
-  // Brand line + load-bearing OPSEC anchors (read-only, no DM-first,
-  // ToS-compliant) + in-group vouch instruction + tap-below CTA.
+  // Brand line + load-bearing OPSEC anchors in one italic sentence
+  // (read-only memory, no DM-first, ToS) + how-vouching-works + CTA.
   // T&S reviewers landing on the bot DM after a hostile report read
   // these anchors first.
   assert.match(text, /<b>SC45 lookup bot<\/b>/);
-  assert.match(text, /Automated read-only lookup/);
-  assert.match(text, /don't write vouches/);
+  assert.match(text, /Read-only memory/);
+  assert.match(text, /don't post for you/);
   assert.match(text, /DM first/);
-  assert.match(text, /Telegram's Terms of Service/);
-  assert.match(text, /Vouches go in the group/);
+  assert.match(text, /Telegram ToS/);
+  assert.match(text, /How vouching works/);
   assert.match(text, /tag the @/i);
   assert.match(text, /pos \/ neg \/ neutral/);
-  assert.match(text, /Tap a question below/);
-  assert.match(text, /Telegram ToS/);
+  assert.match(text, /What do you need/);
   // No reporting-channel pointer; no AI-flavoured headers.
   assert.equal(text.includes("@notoscam"), false);
   assert.equal(text.includes("Vouch Hub"), false);
@@ -793,7 +792,7 @@ test("env override falls back to default when env is empty / whitespace", () => 
   try {
     const text = buildWelcomeText();
     assert.match(text, /<b>SC45 lookup bot<\/b>/);
-    assert.match(text, /Vouches go in the group/);
+    assert.match(text, /Read-only memory/);
   } finally {
     delete process.env.BOT_WELCOME_TEXT;
   }

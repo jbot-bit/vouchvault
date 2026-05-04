@@ -487,11 +487,11 @@ function envOverride(key: string): string | null {
 
 const DEFAULT_WELCOME_TEXT = [
   "<b>SC45 lookup bot</b>",
-  "<i>Automated read-only lookup. I don't write vouches, post on your behalf, or DM first. Operates within Telegram's Terms of Service.</i>",
+  "<i>Read-only memory of every vouch in the group. I don't post for you, write vouches, or DM first. Telegram ToS applies.</i>",
   "",
-  "<b>Vouches go in the group</b> as plain messages, member-written. Tag the @, say what happened, mark <b>pos / neg / neutral</b>.",
+  "<b>How vouching works:</b> post in the group, tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back's expected.",
   "",
-  "Look people up, check your own stats, or read the group rules. Tap a question below.",
+  "What do you need?",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
