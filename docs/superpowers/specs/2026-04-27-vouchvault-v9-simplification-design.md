@@ -114,6 +114,10 @@ Estimated diff: ~30% reduction in `telegramBot.ts`; ~50% reduction in `archive.t
 
 The DB rows backing this are the legacy V3 import (already correct: `status='published'`, `published_message_id IS NULL`). As the new group fills with native member posts, group native search (top-of-group bar) covers the new content; `/lookup` covers legacy + cross-references.
 
+> **v9.x amendment (2026-05-04, /guide):** `/guide` is now a member-facing surface alongside `/search`, `/me`, `/forgetme`, `/policy`. DM-only how-to (4 categories × 4 leaves), navigated by inline-keyboard with edit-in-place. Group `/guide` replies with a single deep-link button into the DM. Cross-linked from the auto-delete warn DM (`📖 Why? →` → `/start guide_grp_posts`) and the empty-result `/search` footer. Welcome / pinned / bot-profile copy adds one line each. No DB, no admin gate.
+
+> **v9.x amendment (2026-05-04, vouch_* lexicon removal):** `chatModerationLexicon.ts` previously carried three regexes (`vouch_heading`, `vouch_for_username`, `vouch_shorthand`) inherited from the v6 architecture, when the DM wizard was the only sanctioned vouch-publish path. v9 inverted that rule — members post vouches as plain group messages, that's the load-bearing product. The regexes auto-deleted exactly the content the welcome instructs members to post. Removed 2026-05-04, with a regression-guard test asserting member-typed `Pos vouch @x` / `Neg vouch @y` / `+vouch @z` shapes do NOT match the lexicon. The lexicon now only catches marketplace claims, scam phrases, off-platform contact, and price/quantity shapes — not the act of vouching.
+
 ---
 
 ## §6 What stays unchanged

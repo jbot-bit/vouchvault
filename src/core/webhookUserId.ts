@@ -1,9 +1,11 @@
-// Pure helper for the v6 account-age guard wiring (V3.5.3, KB:F5.6).
+// Pure helper for the account-age tracking wiring (V3.5.3, KB:F5.6).
 //
 // Extracts the originating user's telegram_id from any Telegram Update
 // payload shape. Used by processTelegramUpdate to record a first-seen
-// timestamp for every observed user_id, which the wizard then reads
-// at start to gate <24h accounts.
+// timestamp for every observed user_id. Under v9 nothing currently
+// reads the timestamp at gate-time (the DM wizard that did is gone),
+// but the write keeps running so any future age-gating surface (e.g.
+// the portal) has the historical first-seen data to consult.
 //
 // No DB or Telegram-tools imports — safe to load in test contexts.
 

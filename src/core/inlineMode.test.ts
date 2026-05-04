@@ -31,7 +31,7 @@ test("inline summary: reserved target short-circuits", () => {
     lastAt: null,
     isFrozen: false,
   });
-  assert.match(text, /not a person/);
+  assert.match(text, /reserved handle, no lookup/);
 });
 
 test("inline summary: includes total + breakdown + last-active", () => {
@@ -91,7 +91,7 @@ test("buildInlineSummaryTitle for reserved/empty/populated", () => {
       total: 0,
       isFrozen: false,
     }),
-    /not a person/,
+    /no lookup/,
   );
   assert.match(
     buildInlineSummaryTitle({

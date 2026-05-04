@@ -249,11 +249,13 @@ export const MARKETPLACE_USERNAME_SUBSTRINGS: ReadonlyArray<string> = [
   "lsd", "acid_", "_acid", "tabs_", "_tabs",
   "ket_", "ketamine",
   "legit_seller", "vouched_vendor", "approved_seller",
-  // Chat-moderation phrase tokens that could appear in a vouch target's
-  // username. Closes the evasion vector where @pm_me_now would otherwise
-  // pass the deny-list and the bot would publish a vouch heading
-  // containing 'pm me now' (chat-mod doesn't scan the bot's own posts;
-  // this stops the artefact at the vouch-submission gate). See spec v4 §4.9.
+  // Chat-moderation phrase tokens that could appear in a target's
+  // username. Closes the evasion where @pm_me_now would otherwise pass
+  // the deny-list and surface as a search target — the @-mention in
+  // /search responses + inline summaries would render the offending
+  // substring in bot output. Under v9 there is no bot-published vouch
+  // heading anymore, but the substring still leaks via the lookup
+  // surfaces. Originally spec v4 §4.9.
   "pm_", "_pm",
   "selling", "_selling", "selling_",
   "buying", "_buying", "buying_",
@@ -485,26 +487,25 @@ function envOverride(key: string): string | null {
 
 const DEFAULT_WELCOME_TEXT = [
   "<b>SC45</b>",
-  "Automated read-only lookup. Members write vouches; I don't write them or DM first.",
+  "<b>Post vouches in the group.</b> Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
   "",
-  "<code>/search @username</code> — look up vouches.",
-  "<code>/me</code> — your own.",
+  "I'm an Automated read-only lookup — DM me to:",
+  "<code>/search @username</code> — see their vouch history before you deal.",
+  "<code>/me</code> — your own summary.",
+  "<code>/guide</code> — how-to + safety basics.",
   "<code>/forgetme</code> — wipe yours.",
   "<code>/policy</code> — what's stored.",
-  "",
-  "Vouch by posting in the group. Tag the @, say what happened, mark it <b>pos / neg / neutral</b>. Vouch back is expected.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
   "<b>SC45</b>",
-  "Automated read-only lookup. Members write vouches; I don't write them or DM first.",
+  "<b>Post vouches here.</b> Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
   "",
-  "DM the bot:",
-  "<code>/search @username</code> — look up.",
+  "Automated read-only lookup bot — DM it to:",
+  "<code>/search @username</code> — see vouch history before you deal.",
+  "<code>/guide</code> — how-to + safety basics.",
   "<code>/forgetme</code> — wipe yours.",
   "<code>/policy</code> — data handling.",
-  "",
-  "Vouch by posting in this group. Tag the @, say what happened, mark it <b>pos / neg / neutral</b>. Vouch back is expected.",
 ].join("\n");
 
 export function buildWelcomeText(): string {
@@ -609,13 +610,14 @@ export function buildBotDescriptionText(): string {
     "/me — your own.",
     "/forgetme — wipe yours.",
     "/policy — data + Telegram rules.",
+    "/guide — short safety + how-to cards.",
     "",
     "Members write the vouches. Telegram ToS applies.",
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Look up SC45 vouches. DM /search @user.";
+  return "Look up SC45 vouches. DM /search @user. Type /guide for help.";
 }
 
 const SAFE_LIMIT = 3900;
@@ -696,11 +698,14 @@ export function buildLookupText(input: {
   );
   const mode = input.mode ?? "preview";
 
-  // Reserved-target short-circuit: vouching the bot itself or a
-  // Telegram-reserved handle (telegram, botfather, etc.) is rejected
-  // upstream; here we explain why a /search for one returns nothing.
+  // Reserved-target short-circuit: bot's own handle, Telegram service
+  // handles (telegram, botfather, etc.), and marketplace-substring
+  // names (vendor, plug, scammer, etc.) all return a single neutral
+  // "no lookup" response rather than a counts card. Pre-v9 this read
+  // "Can't vouch the bot" — that copy implied a /vouch command that
+  // no longer exists.
   if (isReservedTarget(input.targetUsername)) {
-    return [heading, "", "Can't vouch the bot."].join("\n");
+    return [heading, "", "Reserved handle — no lookup."].join("\n");
   }
 
   if (input.counts.total === 0) {
@@ -721,6 +726,8 @@ export function buildLookupText(input: {
         )} about other members</i>`,
       );
     }
+    lines.push("");
+    lines.push("<i>New here? Type /guide.</i>");
     return lines.join("\n");
   }
 
@@ -1001,23 +1008,42 @@ export function buildAccountTooNewText(hoursRemaining: number): string {
   ].join("\n");
 }
 
-// Chat-moderation DM warning. v9: there is no "Submit Vouch" launcher
-// anymore; vouches are normal group messages. The vouch-shape branch
-// still refers a member back into the group rather than into a wizard.
+// Chat-moderation DM warning. v9: vouches are normal group messages
+// (members post them in their own words) and the lexicon no longer
+// has vouch_* regexes — only marketplace/scam-shape patterns. So
+// every hit is a real off-policy delete.
 export function buildModerationWarnText(input: {
   groupName: string;
-  hitSource: string; // e.g. "phrase", "regex_buy_shape", "regex_vouch_for_username", "compound_buy_solicit"
+  hitSource: string; // e.g. "phrase", "regex_buy_shape", "compound_buy_solicit"
   adminBotUsername?: string | null;
 }): string {
   const escapedGroup = escapeHtml(input.groupName);
-  if (input.hitSource.startsWith("regex_vouch_")) {
-    return `Removed in <b>${escapedGroup}</b>. Post the vouch as a normal message — tag the @, say what happened.`;
-  }
   const adminPointer =
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code>`
       : "ping an admin";
   return `Removed in <b>${escapedGroup}</b>. To appeal, ${adminPointer}.`;
+}
+
+// Inline keyboard for the moderation warn DM — single "Why?" button that
+// deep-links into the bot DM at /guide grp_posts. Returns null when the
+// bot username can't be resolved (caller-supplied) so we never emit a
+// broken url.
+export function buildModerationWarnReplyMarkup(input: {
+  botUsername?: string | null;
+}): { inline_keyboard: Array<Array<{ text: string; url: string }>> } | null {
+  const u = input.botUsername?.trim().replace(/^@+/, "") ?? "";
+  if (!u) return null;
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: "📖 Why? →",
+          url: `https://t.me/${encodeURIComponent(u)}?start=guide_grp_posts`,
+        },
+      ],
+    ],
+  };
 }
 
 // Group-visible warn that lands after a moderation delete. Deliberately
@@ -1030,9 +1056,6 @@ export function buildModerationGroupWarnText(input: {
   hitSource: string;
   adminBotUsername?: string | null;
 }): string {
-  if (input.hitSource.startsWith("regex_vouch_")) {
-    return "Vouches go in as plain messages — tag the @, say what happened.";
-  }
   const adminPointer =
     input.adminBotUsername && input.adminBotUsername.length > 0
       ? `DM <code>@${escapeHtml(input.adminBotUsername)}</code> to appeal.`
@@ -1102,7 +1125,6 @@ export function buildAdminHelpText(): string {
     "/unfreeze @x — allow entries again",
     "/frozen_list — show frozen profiles",
     "/remove_entry &lt;id&gt; — delete an entry (with confirm)",
-    "/recover_entry &lt;id&gt; — clear stuck publishing",
     "/search @x — full audit list (alias: /lookup)",
     "/pause — pause new vouches",
     "/unpause — resume vouches",
@@ -1393,7 +1415,7 @@ export function buildInlineSummaryText(input: {
   isFrozen: boolean;
 }): string {
   if (isReservedTarget(input.targetUsername)) {
-    return `${formatUsername(input.targetUsername)} — read-only lookup tool, not a person.`;
+    return `${formatUsername(input.targetUsername)} — reserved handle, no lookup.`;
   }
   if (input.total === 0) {
     return `${formatUsername(input.targetUsername)} — no vouches yet.`;
@@ -1432,7 +1454,7 @@ export function buildInlineSummaryTitle(input: {
   isFrozen: boolean;
 }): string {
   if (isReservedTarget(input.targetUsername)) {
-    return `${formatUsername(input.targetUsername)} — not a person`;
+    return `${formatUsername(input.targetUsername)} — no lookup`;
   }
   if (input.total === 0) {
     return `${formatUsername(input.targetUsername)} — no vouches`;

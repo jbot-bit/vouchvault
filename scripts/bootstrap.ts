@@ -154,7 +154,6 @@ const ADMIN_COMMANDS = [
   { command: "unfreeze", description: "Unfreeze a profile" },
   { command: "frozen_list", description: "List frozen profiles" },
   { command: "remove_entry", description: "Remove an entry by id" },
-  { command: "recover_entry", description: "Recover a stuck entry" },
   { command: "pause", description: "Pause posting in a chat" },
   { command: "unpause", description: "Resume posting" },
   { command: "dbstats", description: "DB diagnostics" },

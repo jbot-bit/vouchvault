@@ -9,12 +9,14 @@
 // reliable cut-points, set the constants below — no change required
 // at the call site.
 //
-// **This is NEVER a primary gate.** The primary account-age gate
+// **This is NEVER a primary gate.** The primary account-age signal
 // stays in `accountAge.ts` + `userTracking.ts` (when did *this bot*
-// first observe the user). This signal is observation-only; the
-// wizard logs it with `audit_only_signal: true` so an operator can
-// later correlate suspected throwaways with their numeric-id band
-// without the bot having silently blocked anyone based on a guess.
+// first observe the user). This module is observation-only; any future
+// caller that wants the band should log it with `audit_only_signal:
+// true` so an operator can later correlate suspected throwaways with
+// their numeric-id band without the bot having silently blocked anyone
+// based on a guess. v9 has no live caller (the DM wizard that consumed
+// this is gone); kept for the portal / future age-gating surfaces.
 
 export type UserIdBand = "likely_old" | "likely_new" | "unknown";
 

@@ -89,54 +89,25 @@ test("findHits: catches an email", () => {
   if (r.matched) assert.equal(r.source, "regex_email");
 });
 
-test("findHits: catches POS/NEG/MIX vouch headings (member-typed fake vouches)", () => {
-  for (const text of ["POS Vouch @bobbiz", "neg vouch @x", "Mix Vouch for someone"]) {
-    const r = findHits(text);
-    assert.equal(r.matched, true, text);
-    if (r.matched) assert.equal(r.source, "regex_vouch_heading");
-  }
-});
-
-test("findHits: catches 'vouch for @username' in member chat", () => {
+test("findHits: member-typed vouches do NOT match (v9: vouches are load-bearing group content)", () => {
+  // v9 deleted the prior vouch_* regex patterns. Members posting
+  // "Pos vouch @x cash correct" / "Neg vouch @y robbed me" / "+vouch @z"
+  // is exactly what the welcome message asks for; moderating them was
+  // a v6-era leftover that contradicted v9.
   for (const text of [
+    "POS Vouch @bobbiz",
+    "neg vouch @x",
+    "Mix Vouch for someone",
     "I vouch for @some_user, solid bloke",
     "vouching for @x",
     "vouched for @y last week",
-  ]) {
-    const r = findHits(text);
-    assert.equal(r.matched, true, text);
-    if (r.matched) assert.equal(r.source, "regex_vouch_for_username");
-  }
-});
-
-test("findHits: catches +vouch / -vouch shorthand", () => {
-  // +vouch @x can match either vouch_for_username (if @-mention nearby)
-  // or vouch_shorthand. Either source classifies as a vouch hit and
-  // routes to the same DM warning — assert it's a vouch_* hit, not
-  // which specific regex won.
-  for (const text of ["+vouch @x", "-vouch @y for being a scammer", "+vouch"]) {
-    const r = findHits(text);
-    assert.equal(r.matched, true, text);
-    if (r.matched) {
-      assert.ok(
-        r.source.startsWith("regex_vouch_"),
-        `expected vouch_* match, got ${r.source} for "${text}"`,
-      );
-    }
-  }
-});
-
-test("findHits: passes 'vouch' in casual speech without an @-mention", () => {
-  // Members can say 'the vouch system is great' / 'I gave a vouch
-  // yesterday' without triggering — the vouch_for_username pattern
-  // requires an @-mention within 30 chars.
-  for (const text of [
+    "+vouch @x",
+    "-vouch @y for being a scammer",
     "the vouch system is great",
     "I gave a vouch yesterday",
-    "vouching is the best feature",
   ]) {
     const r = findHits(text);
-    assert.equal(r.matched, false, text);
+    assert.equal(r.matched, false, `should NOT match: "${text}"`);
   }
 });
 

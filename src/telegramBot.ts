@@ -43,6 +43,13 @@ import {
 } from "./core/archive.ts";
 import { runChatModeration } from "./core/chatModeration.ts";
 import {
+  buildGuidePage,
+  buildGuidePageCallback,
+  buildGuideRoot,
+  parseGuidePageCallback,
+  parseGuideStartPayload,
+} from "./core/guideContent.ts";
+import {
   beginForget,
   buildForgetCancelledText,
   buildForgetDoneText,
@@ -677,86 +684,6 @@ async function handleAdminCommand(input: {
     return;
   }
 
-  if (input.command === "/recover_entry") {
-    const entryId = Number(input.args[0]);
-    if (!Number.isSafeInteger(entryId)) {
-      await recordAdminAction({
-        adminTelegramId: input.from.id,
-        adminUsername: input.from.username ?? null,
-        command: input.command,
-        targetChatId: input.chatId,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId: input.chatId,
-          text: "Use: /recover_entry &lt;id&gt;.",
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-        },
-        input.logger,
-      );
-      return;
-    }
-    const entry = await getArchiveEntryById(entryId);
-    if (!entry) {
-      await recordAdminAction({
-        adminTelegramId: input.from.id,
-        adminUsername: input.from.username ?? null,
-        command: input.command,
-        targetChatId: input.chatId,
-        entryId,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId: input.chatId,
-          text: `Entry #${entryId} not found.`,
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-        },
-        input.logger,
-      );
-      return;
-    }
-    if (entry.status !== "publishing") {
-      await recordAdminAction({
-        adminTelegramId: input.from.id,
-        adminUsername: input.from.username ?? null,
-        command: input.command,
-        targetChatId: input.chatId,
-        entryId,
-        reason: `wrong status: ${entry.status}`,
-        denied: true,
-      });
-      await sendTelegramMessage(
-        {
-          chatId: input.chatId,
-          text: `Entry #${entryId} is in status="${entry.status}", no recovery needed.`,
-          ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-        },
-        input.logger,
-      );
-      return;
-    }
-    await setArchiveEntryStatus(entryId, "pending");
-    await recordAdminAction({
-      adminTelegramId: input.from.id,
-      adminUsername: input.from.username ?? null,
-      command: input.command,
-      targetChatId: input.chatId,
-      entryId,
-      denied: false,
-    });
-    await sendTelegramMessage(
-      {
-        chatId: input.chatId,
-        text: `Entry #${entryId} reset to pending.`,
-        ...buildReplyOptions(input.replyToMessageId, input.disableNotification, input.messageThreadId),
-      },
-      input.logger,
-    );
-    return;
-  }
-
   if (input.command === "/pause" || input.command === "/unpause") {
     await setChatPaused({
       chatId: input.chatId,
@@ -1154,6 +1081,24 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
         return;
       }
     }
+    // /guide deep-link. "guide" lands on root; "guide_<id>" lands on a
+    // specific page (unknown ids fall back to root per parser). Anyone
+    // can hit this — no rate-limit, no admin gate.
+    if (command === "/start" && payload && (payload === "guide" || payload.startsWith("guide_"))) {
+      const target = parseGuideStartPayload(payload) ?? "root";
+      const page = buildGuidePage(target) ?? buildGuideRoot();
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: page.text,
+          parseMode: "HTML",
+          replyMarkup: page.replyMarkup,
+          linkPreviewOptions: { isDisabled: true },
+        },
+        logger,
+      );
+      return;
+    }
     // NEG deep-link from group "See N NEG in DM" button. Visible to
     // members + admins per owner directive (NEGs are community-visible).
     if (command === "/start" && payload && payload.startsWith("neg_")) {
@@ -1193,6 +1138,21 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
       {
         chatId,
         text: buildPolicyText(),
+        linkPreviewOptions: { isDisabled: true },
+      },
+      logger,
+    );
+    return;
+  }
+
+  if (command === "/guide") {
+    const root = buildGuideRoot();
+    await sendTelegramMessage(
+      {
+        chatId,
+        text: root.text,
+        parseMode: "HTML",
+        replyMarkup: root.replyMarkup,
         linkPreviewOptions: { isDisabled: true },
       },
       logger,
@@ -1409,7 +1369,6 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
     command === "/unfreeze" ||
     command === "/remove_entry" ||
     command === "/frozen_list" ||
-    command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
     command === "/admin_help" ||
@@ -1550,6 +1509,48 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
       },
       logger,
     );
+    return;
+  }
+
+  if (command === "/guide") {
+    // Group reply is one button → open the bot DM at the guide root.
+    // The detail surface is always private; rendering the 4-button menu
+    // inside the group would just spam.
+    let botUsername: string | null = null;
+    try {
+      botUsername = await getTelegramBotUsername(logger);
+    } catch (err) {
+      logger?.warn?.({ err }, "[/guide] bot-username resolve failed");
+    }
+    if (botUsername) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "DM the bot for the safety guide.",
+          replyMarkup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "📖 Open guide",
+                  url: `https://t.me/${encodeURIComponent(botUsername)}?start=guide`,
+                },
+              ],
+            ],
+          },
+          ...buildReplyOptions(message.message_id, true, messageThreadId),
+        },
+        logger,
+      );
+    } else {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: "DM me with /guide for safety basics.",
+          ...buildReplyOptions(message.message_id, true, messageThreadId),
+        },
+        logger,
+      );
+    }
     return;
   }
 
@@ -1766,7 +1767,6 @@ async function handleGroupMessage(message: any, logger?: LoggerLike) {
     command === "/unfreeze" ||
     command === "/remove_entry" ||
     command === "/frozen_list" ||
-    command === "/recover_entry" ||
     command === "/pause" ||
     command === "/unpause" ||
     command === "/admin_help" ||
@@ -2010,6 +2010,92 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
       : null;
   const callbackFromGroup = chatType === "group" || chatType === "supergroup";
   const data = typeof callbackQuery.data === "string" ? callbackQuery.data : "";
+
+  // /guide page navigation — open to everyone, no admin gate, no rate
+  // limit beyond the global memberCallbackLimiter (which still applies
+  // to non-admins). Edits the message in place when possible; falls back
+  // to sending a fresh message if the edit fails (e.g. the message is
+  // too old per Bot API rules).
+  const guidePageId = parseGuidePageCallback(data);
+  if (guidePageId && typeof chatId === "number") {
+    const fromId = callbackQuery.from?.id;
+    if (typeof fromId === "number" && !isAdmin(fromId)) {
+      const limited = memberCallbackLimiter.tryConsume(fromId);
+      if (!limited.allowed) {
+        if (callbackQuery.id) {
+          await answerTelegramCallbackQuery(
+            { callbackQueryId: callbackQuery.id, chatId, text: "Slow down." },
+            logger,
+          );
+        }
+        return;
+      }
+    }
+    const page = buildGuidePage(guidePageId);
+    if (!page) {
+      if (callbackQuery.id) {
+        await answerTelegramCallbackQuery(
+          {
+            callbackQueryId: callbackQuery.id,
+            chatId,
+            text: "Page gone — open /guide again.",
+            showAlert: true,
+          },
+          logger,
+        );
+      }
+      return;
+    }
+    const messageId = callbackQuery.message?.message_id;
+    let edited = false;
+    if (typeof messageId === "number") {
+      try {
+        await editTelegramMessage(
+          {
+            chatId,
+            messageId,
+            text: page.text,
+            parseMode: "HTML",
+            replyMarkup: page.replyMarkup,
+            linkPreviewOptions: { isDisabled: true },
+          },
+          logger,
+        );
+        edited = true;
+      } catch (err) {
+        const desc =
+          err instanceof TelegramApiError ? err.description.toLowerCase() : "";
+        if (desc.includes("message is not modified")) {
+          // Double-tap on the same button — silently swallow.
+          edited = true;
+        } else {
+          logger?.warn?.(
+            { err, guidePageId, messageId },
+            "[/guide] edit-in-place failed, falling back to send",
+          );
+        }
+      }
+    }
+    if (!edited) {
+      await sendTelegramMessage(
+        {
+          chatId,
+          text: page.text,
+          parseMode: "HTML",
+          replyMarkup: page.replyMarkup,
+          linkPreviewOptions: { isDisabled: true },
+        },
+        logger,
+      );
+    }
+    if (callbackQuery.id) {
+      await answerTelegramCallbackQuery(
+        { callbackQueryId: callbackQuery.id, chatId },
+        logger,
+      );
+    }
+    return;
+  }
 
   // /learned Remove button — admin-only soft-delete of a learned phrase.
   const learnedRemoveId = parseLearnedRemoveCallback(data);

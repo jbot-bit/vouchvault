@@ -17,11 +17,13 @@ import { recordAdminAction } from "./adminAuditStore.ts";
 import {
   deleteTelegramMessage,
   getChatMember,
+  getTelegramBotUsername,
   sendTelegramMessage,
 } from "./tools/telegramTools.ts";
 import {
   MODERATION_GROUP_WARN_TTL_MS,
   buildModerationGroupWarnText,
+  buildModerationWarnReplyMarkup,
   buildModerationWarnText,
 } from "./archive.ts";
 import {
@@ -73,14 +75,15 @@ export async function runChatModeration(
   // Skip messages relayed via inline bots — let the inline bot's content
   // be the inline bot's problem.
   if (message.via_bot != null) return { deleted: false };
-  // V3.5.4 channel-relay: auto-forwarded posts from the discussion-
-  // linked channel arrive in the supergroup with `is_automatic_forward:
-  // true` (Bot API reference). For these, `message.from` is typically
-  // the channel itself or "Telegram" — neither is_bot is true, so the
-  // self-skip above doesn't fire. Skip moderation explicitly so the
-  // bot doesn't delete its own published vouches if the prose body
-  // happens to contain a lexicon match (e.g. a member legitimately
-  // wrote "pm me about the timing" in their vouch).
+  // Auto-forwarded posts from a discussion-linked channel arrive in the
+  // supergroup with `is_automatic_forward: true` (Bot API reference).
+  // For these, `message.from` is typically the channel itself or
+  // "Telegram" — neither is_bot is true, so the self-skip above doesn't
+  // fire. Skip moderation explicitly so the bot doesn't delete forwarded
+  // archive content (the v9 mirror is one-way to a backup channel and
+  // doesn't loop back, but if a future channel is discussion-linked,
+  // member prose containing a lexicon hit would otherwise get deleted
+  // on its second appearance via the auto-forward).
   if (message.is_automatic_forward === true) return { deleted: false };
   // Belt-and-braces: anything originating from a channel (sender_chat
   // is the channel) is also exempt — covers manual reposts of
@@ -178,7 +181,21 @@ export async function runChatModeration(
     hitSource: hit.source,
     adminBotUsername,
   });
-  await safeSendDm(fromId, dmText, logger);
+  // Resolve our own @username (cached after first call) so the DM warn
+  // can include a "Why? →" deep-link to the /guide grp_posts page. If
+  // resolution fails we just send the plain text — never let the deep-
+  // link concern break the moderation hot path.
+  let warnReplyMarkup: ReturnType<typeof buildModerationWarnReplyMarkup> = null;
+  try {
+    const botUsername = await getTelegramBotUsername(logger);
+    warnReplyMarkup = buildModerationWarnReplyMarkup({ botUsername });
+  } catch (error) {
+    logger?.info?.(
+      { error },
+      "chatModeration: bot-username resolve failed, skipping warn deep-link",
+    );
+  }
+  await safeSendDm(fromId, dmText, warnReplyMarkup, logger);
 
   return { deleted: true };
 }
@@ -231,10 +248,18 @@ function postGroupWarnAndAutoDelete(
 async function safeSendDm(
   telegramId: number,
   htmlText: string,
+  replyMarkup: { inline_keyboard: Array<Array<{ text: string; url: string }>> } | null,
   logger?: Logger,
 ): Promise<void> {
   try {
-    await sendTelegramMessage({ chatId: telegramId, text: htmlText }, logger);
+    await sendTelegramMessage(
+      {
+        chatId: telegramId,
+        text: htmlText,
+        ...(replyMarkup ? { replyMarkup } : {}),
+      },
+      logger,
+    );
   } catch (error) {
     logger?.info?.(
       { error, telegramId },

@@ -64,7 +64,7 @@ After launch, the SC45 bot's responsibilities collapse to:
 - **`/forgetme`** — two-step YES, deletes vouches you authored + your account record.
 - **v9 mirror** — every group message → backup channel via `forwardMessage`. Idempotent via `mirror_log`.
 - **Custom lexicon moderation** — deletes commercial-shape posts that Group Help's generic anti-spam misses. Boot log shows admin-rights status.
-- **Admin commands** — `/freeze`, `/unfreeze`, `/frozen_list`, `/remove_entry`, `/recover_entry`, `/pause`, `/unpause`, `/admin_help`. Audit-logged.
+- **Admin commands** — `/freeze`, `/unfreeze`, `/frozen_list`, `/remove_entry`, `/pause`, `/unpause`, `/admin_help`. Audit-logged.
 
 Set-and-forget once deployed. No new features needed for ongoing operation.
 

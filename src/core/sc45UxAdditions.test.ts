@@ -74,7 +74,7 @@ test("buildLookupText short-circuits reserved targets (bot self / telegram-reser
     counts: { total: 0, positive: 0, mixed: 0, negative: 0 },
     entries: [],
   });
-  assert.match(text, /Can't vouch the bot/);
+  assert.match(text, /Reserved handle — no lookup/);
   // Empty-state copy must not bleed through.
   assert.equal(text.includes("Nothing on"), false);
 });
