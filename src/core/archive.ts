@@ -674,7 +674,6 @@ export function buildLookupText(input: {
     createdAt: Date;
     source?: EntrySource;
     privateNote?: string | null;
-    bodyText?: string | null;
   }>;
   // "preview" → summary card only (counts + freshness); detail rows live
   //              behind the "View full" button (DM callback or group → DM
@@ -809,10 +808,11 @@ export function buildLookupText(input: {
   // into one line, and skip the "by @x about other members" prose since
   // the heading already names the target.
   if (mode === "preview") {
-    const lines = [heading];
-    if (input.isFrozen) lines.push(statusLine);
-    lines.push(summaryLine);
-    const compactFreshness: string[] = [];
+    // Tight one-liner under the heading: counts + breakdown + last-seen,
+    // all folded into a single line so the group post stays small. The
+    // inline-keyboard buttons are the affordance for drill-down — no
+    // need for a "Tap below" footer.
+    const tail: string[] = [];
     if (input.counts.lastAt) {
       const days = Math.floor(
         (Date.now() - input.counts.lastAt.getTime()) / (24 * 60 * 60 * 1000),
@@ -825,31 +825,12 @@ export function buildLookupText(input: {
           : days < 60
           ? `${days}d ago`
           : `${Math.floor(days / 30)}mo ago`;
-      compactFreshness.push(`Last ${ago}`);
+      tail.push(`last ${ago}`);
     }
-    if (
-      typeof input.counts.distinctReviewers === "number" &&
-      input.counts.distinctReviewers > 0
-    ) {
-      const d = input.counts.distinctReviewers;
-      compactFreshness.push(`${d} reviewer${d === 1 ? "" : "s"}`);
-    }
-    if (compactFreshness.length > 0) {
-      lines.push(compactFreshness.join(" · "));
-    }
-    if (
-      typeof input.counts.authoredCount === "number" &&
-      input.counts.authoredCount > 0
-    ) {
-      // Newbie-friendly: "Wrote N vouches about others" reads naturally
-      // for someone who's never used the bot. "Authored" is jargon.
-      const noun = input.counts.authoredCount === 1 ? "vouch" : "vouches";
-      lines.push(
-        `<i>Wrote ${input.counts.authoredCount} ${noun} about other members</i>`,
-      );
-    }
-    lines.push("");
-    lines.push("Tap below for full details.");
+    const oneLine = tail.length > 0 ? `${summaryLine} · ${tail.join(" · ")}` : summaryLine;
+    const lines = [heading];
+    if (input.isFrozen) lines.push(statusLine);
+    lines.push(oneLine);
     return lines.join("\n");
   }
 
@@ -865,9 +846,6 @@ export function buildLookupText(input: {
     const sourceTag = entry.source === "legacy_import" ? " [Legacy]" : "";
     lines.push(`<b>#${entry.id}</b>${escapeHtml(sourceTag)} — ${fmtResult(entry.result)}`);
     lines.push(`By ${fmtUser(entry.reviewerUsername)} • ${fmtDate(entry.createdAt)}`);
-    if (entry.bodyText && entry.bodyText.trim().length > 0) {
-      lines.push(`<i>${escapeHtml(truncateBody(entry.bodyText))}</i>`);
-    }
     if (entry.tags.length > 0) {
       lines.push(`<b>Tags:</b> ${fmtTags(entry.tags)}`);
     }
@@ -946,7 +924,7 @@ export function buildLookupReplyMarkup(input: {
     if (inGroup) {
       buttons.push([
         {
-          text: `📋 See all ${input.totalAvailable} in DM`,
+          text: `📋 See all ${input.totalAvailable} vouches`,
           url: buildSearchDeepLinkUrl(input.inGroupBotUsername!, input.targetUsername),
         },
       ]);
@@ -973,7 +951,7 @@ export function buildLookupReplyMarkup(input: {
     if (inGroup) {
       buttons.push([
         {
-          text: `⚠️ See ${input.negCount} ${noun} in DM`,
+          text: `⚠️ See ${input.negCount} ${noun}`,
           url: buildNegDeepLinkUrl(input.inGroupBotUsername!, input.targetUsername),
         },
       ]);

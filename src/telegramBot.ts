@@ -315,7 +315,6 @@ async function handleLookupCommand(input: {
       createdAt: entry.createdAt,
       source: entry.source as EntrySource,
       privateNote: input.viewerScope === "admin" ? entry.privateNote ?? null : null,
-      bodyText: entry.bodyText ?? null,
     })),
   });
 

@@ -381,7 +381,6 @@ test("buildLookupText preview mode is summary-only — no entry rows ever", () =
     result: "positive" as const,
     tags: [],
     createdAt: new Date(Date.UTC(2026, 3, 5)),
-    bodyText: "Long detail that belongs behind the View-full button.",
   }));
   const text = buildLookupText({
     targetUsername: "bobbiz",
@@ -392,12 +391,10 @@ test("buildLookupText preview mode is summary-only — no entry rows ever", () =
     mode: "preview",
   });
   assert.match(text, /<b>8 vouches<\/b>/);
-  assert.match(text, /Tap below for full details\./);
   for (let i = 1; i <= 8; i += 1) {
     assert.equal(text.includes(`<b>#${i}</b>`), false, `#${i} should not appear in preview`);
   }
   assert.equal(text.includes("By @r0"), false);
-  assert.equal(text.includes("Long detail"), false);
 });
 
 test("buildLookupText preview includes a compact Last-Xd-ago freshness line when lastAt is given", () => {
@@ -419,9 +416,7 @@ test("buildLookupText preview includes a compact Last-Xd-ago freshness line when
     mode: "preview",
   });
   assert.match(text, /<b><u>@bobbiz<\/u><\/b>/);
-  assert.match(text, /<b>3 vouches<\/b>/);
-  assert.match(text, /Last 5d ago · 2 reviewers/);
-  assert.match(text, /Tap below for full details\./);
+  assert.match(text, /<b>3 vouches<\/b> — ✅ 3 POS · last 5d ago/);
   // No "Status: Active" filler in the common case.
   assert.equal(text.includes("Status: Active"), false);
 });
@@ -451,7 +446,7 @@ test("buildLookupReplyMarkup: group surface shows DM deep-link button for any no
   });
   assert.ok(m, "should return markup");
   const btn = m!.inline_keyboard[0]![0]! as { url: string; text: string };
-  assert.match(btn.text, /See all 1 in DM/);
+  assert.match(btn.text, /See all 1 vouches/);
   assert.equal(btn.url, "https://t.me/sc45_bot?start=search_bobbiz");
 });
 
@@ -541,7 +536,7 @@ test("buildLookupReplyMarkup: in-group context replaces See-all callback with DM
   assert.ok(m);
   assert.equal(m!.inline_keyboard.length, 1);
   const btn = m!.inline_keyboard[0]![0]! as { url: string; text: string };
-  assert.match(btn.text, /📋 See all 73 in DM/);
+  assert.match(btn.text, /📋 See all 73 vouches/);
   assert.equal(btn.url, "https://t.me/sc45_bot?start=search_coastcontra");
 });
 
@@ -626,7 +621,7 @@ test("buildLookupText (mode=all) surfaces rich freshness: tenure + recent window
   assert.match(text, /28 distinct reviewers \(3 in last 12mo\)/);
 });
 
-test("buildLookupText surfaces authored count as a compact footnote in preview, verbose in detail", () => {
+test("buildLookupText: authored count omitted from preview, verbose in detail", () => {
   const preview = buildLookupText({
     targetUsername: "coastcontra",
     isFrozen: false,
@@ -640,7 +635,9 @@ test("buildLookupText surfaces authored count as a compact footnote in preview, 
     },
     entries: [],
   });
-  assert.match(preview, /<i>Wrote 35 vouches about other members<\/i>/);
+  // Preview is the tight one-liner — authored count is detail-only now.
+  assert.equal(preview.includes("Wrote"), false);
+  assert.equal(preview.includes("Authored"), false);
 
   const detail = buildLookupText({
     targetUsername: "coastcontra",
@@ -701,31 +698,6 @@ test("buildLookupText omits freshness line when no aggregate stats given", () =>
   assert.equal(text.includes("Last:"), false);
   assert.equal(text.includes("Recent ("), false);
   assert.equal(text.includes("distinct reviewer"), false);
-});
-
-test("buildLookupText renders truncated body text when present", () => {
-  const longBody = "x".repeat(500);
-  const text = buildLookupText({
-    targetUsername: "bobbiz",
-    isFrozen: false,
-    freezeReason: null,
-    counts: { total: 1, positive: 1, mixed: 0, negative: 0 },
-    mode: "all",
-    entries: [
-      {
-        id: 1,
-        reviewerUsername: "alice",
-        result: "positive",
-        tags: [],
-        createdAt: new Date(Date.UTC(2026, 3, 5)),
-        bodyText: `Bobbiz did a great job. ${longBody}`,
-      },
-    ],
-  });
-  assert.match(text, /Bobbiz did a great job/);
-  assert.match(text, /…/);
-  // Body line is rendered as <i>...</i>
-  assert.match(text, /<i>Bobbiz did a great job/);
 });
 
 test("fmtDate renders dd/mm/yyyy in UTC", () => {
