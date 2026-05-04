@@ -36,9 +36,9 @@ test("welcome menu: 3×2 grid of direct topical buttons", () => {
   assert.match(r2b.text, /Why posts get deleted/);
   assert.equal(r2b.callback_data, "gd:p:grp_posts");
 
-  // Row 3: More help (full /guide) + My data (account sub-menu)
+  // Row 3: Rules & safety (full /guide) + My data (account sub-menu)
   const r3a = markup.inline_keyboard[2]![0]! as { text: string; callback_data: string };
-  assert.match(r3a.text, /More help/);
+  assert.match(r3a.text, /Rules & safety/);
   assert.equal(r3a.callback_data, "wc:guide");
   const r3b = markup.inline_keyboard[2]![1]! as { text: string; callback_data: string };
   assert.match(r3b.text, /My data/);

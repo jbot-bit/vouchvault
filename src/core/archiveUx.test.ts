@@ -30,12 +30,17 @@ import { buildThreadedGroupReplyOptions } from "./telegramUx.ts";
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text is short, SC45-branded, info-bot style — leans on buttons for navigation", () => {
+test("welcome text is short, SC45-branded, leads with safety + ToS framing", () => {
   const text = buildWelcomeText();
-  // Brand line + read-only OPSEC anchor + one-sentence what-the-bot-does
-  // + in-group vouch hint. Buttons cover the rest.
+  // Brand line + load-bearing OPSEC anchors (read-only, no DM-first,
+  // ToS-compliant) + in-group vouch instruction + tap-below CTA.
+  // T&S reviewers landing on the bot DM after a hostile report read
+  // these anchors first.
   assert.match(text, /<b>SC45 lookup bot<\/b>/);
   assert.match(text, /Automated read-only lookup/);
+  assert.match(text, /don't write vouches/);
+  assert.match(text, /DM first/);
+  assert.match(text, /Telegram's Terms of Service/);
   assert.match(text, /Vouches go in the group/);
   assert.match(text, /tag the @/i);
   assert.match(text, /pos \/ neg \/ neutral/);
@@ -62,13 +67,16 @@ test("pinned guide is terse and points at the DM commands", () => {
   assert.ok(text.length <= 700, `pinned guide is ${text.length} chars`);
 });
 
-test("bot description is short and human, ≤512 chars", () => {
+test("bot description is short, human, ToS-anchored, ≤512 chars", () => {
   const desc = buildBotDescriptionText();
-  assert.match(desc, /^Look up vouches in SC45\./);
+  assert.match(desc, /^SC45 community lookup \+ safety bot\./);
+  assert.match(desc, /Read-only/);
+  assert.match(desc, /member-initiated/i);
+  assert.match(desc, /Telegram's Terms of Service/);
+  assert.match(desc, /don't write vouches/);
   assert.match(desc, /\/search @user/);
   assert.match(desc, /\/me/);
   assert.match(desc, /\/forgetme/);
-  assert.match(desc, /Automated read-only/);
   assert.match(desc, /\/policy/);
   assert.match(desc, /\/guide/);
   assert.match(desc, /Telegram ToS applies/);
@@ -77,8 +85,11 @@ test("bot description is short and human, ≤512 chars", () => {
   assert.ok(desc.length <= 512, `bot description is ${desc.length} chars`);
 
   const short = buildBotShortDescription();
-  assert.equal(short, "Look up SC45 vouches. DM /search @user. Type /guide for help.");
-  assert.ok(short.length <= 120);
+  assert.equal(
+    short,
+    "SC45 community lookup + safety bot. Read-only, ToS-compliant. /guide for help.",
+  );
+  assert.ok(short.length <= 120, `short is ${short.length} chars`);
 });
 
 test("rules line is one short sentence, no header, no bullets", () => {

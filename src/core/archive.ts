@@ -487,11 +487,11 @@ function envOverride(key: string): string | null {
 
 const DEFAULT_WELCOME_TEXT = [
   "<b>SC45 lookup bot</b>",
-  "<i>Automated read-only lookup. I don't write vouches or DM first.</i>",
+  "<i>Automated read-only lookup. I don't write vouches, post on your behalf, or DM first. Operates within Telegram's Terms of Service.</i>",
   "",
-  "Vouches go in the group as plain messages — tag the @, say what happened, mark <b>pos / neg / neutral</b>.",
+  "<b>Vouches go in the group</b> as plain messages, member-written. Tag the @, say what happened, mark <b>pos / neg / neutral</b>.",
   "",
-  "Use me to look people up, check your own stats, or read the group rules. Tap a question below.",
+  "Look people up, check your own stats, or read the group rules. Tap a question below.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
@@ -543,7 +543,7 @@ export function buildWelcomeReplyMarkup(): {
         { text: "🛡 Why posts get deleted", callback_data: "gd:p:grp_posts" },
       ],
       [
-        { text: "📖 More help", callback_data: "wc:guide" },
+        { text: "📜 Rules & safety", callback_data: "wc:guide" },
         { text: "🔒 My data", callback_data: "wc:account" },
       ],
     ],
@@ -671,21 +671,22 @@ export function buildPinnedGuideText(): string {
 
 export function buildBotDescriptionText(): string {
   return [
-    "Look up vouches in SC45.",
-    "Automated read-only tool — member-initiated only.",
+    "SC45 community lookup + safety bot.",
+    "Read-only, member-initiated. Operates within Telegram's Terms of Service.",
+    "I don't write vouches, post on your behalf, or DM first.",
     "",
-    "/search @user — search.",
-    "/me — your own.",
-    "/forgetme — wipe yours.",
-    "/policy — data + Telegram rules.",
-    "/guide — short safety + how-to cards.",
+    "/search @user — look someone up.",
+    "/me — your own stats.",
+    "/guide — safety + group rules.",
+    "/policy — data handling + Telegram ToS.",
+    "/forgetme — wipe vouches you wrote.",
     "",
-    "Members write the vouches. Telegram ToS applies.",
+    "Members write vouches in the group. Telegram ToS applies to all content.",
   ].join("\n");
 }
 
 export function buildBotShortDescription(): string {
-  return "Look up SC45 vouches. DM /search @user. Type /guide for help.";
+  return "SC45 community lookup + safety bot. Read-only, ToS-compliant. /guide for help.";
 }
 
 const SAFE_LIMIT = 3900;
