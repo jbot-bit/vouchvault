@@ -1,6 +1,9 @@
 import {
+  buildAccountSubpageMarkup,
+  buildAccountSubpageText,
   buildAdminHelpText,
   buildAdminOnlyText,
+  buildBackToMenuMarkup,
   buildDbStatsText,
   buildFrozenListText,
   buildInlineLookupResult,
@@ -10,6 +13,7 @@ import {
   buildMeText,
   buildMirrorStatsText,
   buildModStatsText,
+  buildPolicyReplyMarkup,
   buildPolicyText,
   buildRemoveEntryConfirmMarkup,
   buildRemoveEntryConfirmText,
@@ -1139,6 +1143,7 @@ async function handlePrivateMessage(message: any, logger?: LoggerLike) {
         chatId,
         text: buildPolicyText(),
         linkPreviewOptions: { isDisabled: true },
+        replyMarkup: buildPolicyReplyMarkup(),
       },
       logger,
     );
@@ -2503,9 +2508,12 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
     return;
   }
 
-  // Welcome-keyboard callbacks (wc:me / wc:policy / wc:forget) — DM
-  // discoverability shortcuts that route to the existing handlers.
-  // Same rate-limit rules as direct DM commands.
+  // Welcome-menu callbacks. Six actions, all keyed off the welcome
+  // keyboard or a sub-page rendered from it. Most edit the source
+  // message in place so the chat doesn't accumulate stacked replies
+  // (the user navigates one canonical message). Forget is the
+  // exception — destructive flow keeps its own message context for
+  // the YES/cancel confirm UI.
   const welcomeAction = isWelcomeCallback(data);
   if (welcomeAction && typeof chatId === "number") {
     if (callbackQuery.id) {
@@ -2522,39 +2530,104 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
 
     // Hardening: per-non-admin callback rate limit. Closes the
     // hammer-the-button DoS vector (each tap fires a DB query +
-    // sendMessage call). Admins bypass; the bucket is independent
+    // edit/send call). Admins bypass; the bucket is independent
     // from /search so a user rate-limited on search can still tap
-    // through their own welcome buttons.
+    // through their own menu buttons.
     if (typeof fromId === "number" && !isAdmin(fromId)) {
       const limited = memberCallbackLimiter.tryConsume(fromId);
       if (!limited.allowed) return;
     }
 
-    if (welcomeAction === "policy") {
+    const sourceMessageId = callbackQuery.message?.message_id;
+    const editTarget =
+      typeof sourceMessageId === "number" ? sourceMessageId : null;
+
+    // Edit-in-place helper. Falls back to a fresh send if Telegram
+    // refuses (message too old, deleted, etc.). Silently swallows
+    // "message is not modified" — that's a double-tap race.
+    const renderInPlace = async (
+      text: string,
+      replyMarkup: Record<string, unknown>,
+      opts?: { disableLinkPreview?: boolean },
+    ): Promise<void> => {
+      if (editTarget != null) {
+        try {
+          await editTelegramMessage(
+            {
+              chatId,
+              messageId: editTarget,
+              text,
+              parseMode: "HTML",
+              replyMarkup,
+              ...(opts?.disableLinkPreview
+                ? { linkPreviewOptions: { isDisabled: true } }
+                : {}),
+            },
+            logger,
+          );
+          return;
+        } catch (err) {
+          const desc =
+            err instanceof TelegramApiError ? err.description.toLowerCase() : "";
+          if (desc.includes("message is not modified")) return;
+          logger?.warn?.(
+            { err, action: welcomeAction, editTarget },
+            "[welcome] edit-in-place failed, falling back to send",
+          );
+        }
+      }
       await sendTelegramMessage(
         {
           chatId,
-          text: buildPolicyText(),
-          linkPreviewOptions: { isDisabled: true },
+          text,
+          parseMode: "HTML",
+          replyMarkup,
+          ...(opts?.disableLinkPreview
+            ? { linkPreviewOptions: { isDisabled: true } }
+            : {}),
         },
         logger,
       );
+    };
+
+    if (welcomeAction === "back") {
+      await renderInPlace(buildWelcomeText(), buildWelcomeReplyMarkup());
+      return;
+    }
+
+    if (welcomeAction === "guide") {
+      const root = buildGuideRoot();
+      await renderInPlace(root.text, root.replyMarkup, {
+        disableLinkPreview: true,
+      });
+      return;
+    }
+
+    if (welcomeAction === "account") {
+      await renderInPlace(buildAccountSubpageText(), buildAccountSubpageMarkup());
+      return;
+    }
+
+    if (welcomeAction === "policy") {
+      await renderInPlace(buildPolicyText(), buildPolicyReplyMarkup(), {
+        disableLinkPreview: true,
+      });
       return;
     }
 
     if (welcomeAction === "me") {
       if (!fromUsername) {
-        await sendTelegramMessage(
-          { chatId, text: "Set a Telegram @username on your profile to use /me." },
-          logger,
+        await renderInPlace(
+          "Set a Telegram @username on your profile to use My stats.",
+          buildBackToMenuMarkup(),
         );
         return;
       }
       const normalized = normalizeUsername(fromUsername);
       if (!normalized) {
-        await sendTelegramMessage(
-          { chatId, text: "Your @username isn't supported by /me." },
-          logger,
+        await renderInPlace(
+          "Your @username isn't supported by My stats.",
+          buildBackToMenuMarkup(),
         );
         return;
       }
@@ -2563,36 +2636,34 @@ async function handleCallbackQuery(callbackQuery: any, logger?: LoggerLike) {
           getArchiveCountsForTarget(normalized),
           getAuthoredCountForReviewer(normalized),
         ]);
-        await sendTelegramMessage(
-          {
-            chatId,
-            text: buildMeText({
-              username: normalized,
-              counts: {
-                total: counts.positive + counts.mixed + counts.negative,
-                positive: counts.positive,
-                mixed: counts.mixed,
-                negative: counts.negative,
-                firstAt: counts.firstAt,
-                lastAt: counts.lastAt,
-              },
-              authoredCount,
-            }),
-            replyMarkup: buildMeReplyMarkup(),
-          },
-          logger,
+        await renderInPlace(
+          buildMeText({
+            username: normalized,
+            counts: {
+              total: counts.positive + counts.mixed + counts.negative,
+              positive: counts.positive,
+              mixed: counts.mixed,
+              negative: counts.negative,
+              firstAt: counts.firstAt,
+              lastAt: counts.lastAt,
+            },
+            authoredCount,
+          }),
+          buildBackToMenuMarkup(),
         );
       } catch (err) {
         logger?.error?.({ err, fromId }, "/me callback failed");
-        await sendTelegramMessage(
-          { chatId, text: "Couldn't load your stats right now. Try again in a moment." },
-          logger,
+        await renderInPlace(
+          "Couldn't load your stats right now. Try again in a moment.",
+          buildBackToMenuMarkup(),
         );
       }
       return;
     }
 
     if (welcomeAction === "forget") {
+      // Destructive flow — fresh message so the YES/cancel confirm UI
+      // doesn't replace the menu the user navigated from.
       if (typeof fromId !== "number") {
         await sendTelegramMessage(
           { chatId, text: buildForgetGroupRedirectText() },

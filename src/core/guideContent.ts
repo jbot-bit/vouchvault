@@ -292,6 +292,10 @@ export function buildGuideRoot(): RenderedPage {
     }
     rows.push(row);
   }
+  // Bottom row: route out of /guide back to the bot's main welcome
+  // menu. Reachable from any /guide entry point (typed /guide, welcome
+  // "How it works" tap, or deep-link /start guide).
+  rows.push([{ text: "← Bot menu", callback_data: "wc:back" }]);
   return {
     text: `<b>${escapeHtml(ROOT_TITLE)}</b>\n\n${ROOT_BODY}`,
     replyMarkup: { inline_keyboard: rows },

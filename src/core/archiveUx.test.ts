@@ -30,15 +30,19 @@ import { buildThreadedGroupReplyOptions } from "./telegramUx.ts";
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text is terse, SC45-branded, points at /search /me /forgetme /policy /guide", () => {
+test("welcome text is terse, SC45-branded, points at /search /me /guide /policy /forgetme", () => {
   const text = buildWelcomeText();
   assert.match(text, /<b>SC45<\/b>/);
-  assert.match(text, /<code>\/search @username<\/code>/);
-  assert.match(text, /<code>\/me<\/code>/);
-  assert.match(text, /<code>\/forgetme<\/code>/);
-  assert.match(text, /<code>\/policy<\/code>/);
-  assert.match(text, /<code>\/guide<\/code>/);
+  // Action-led summary first; then the in-group vouch instruction;
+  // then a list of typeable shortcuts (the buttons cover the same set).
+  assert.match(text, /Look up other members/);
+  assert.match(text, /post vouches as plain messages/);
   assert.match(text, /Tag the @, say what happened/);
+  assert.match(text, /<code>\/search<\/code>/);
+  assert.match(text, /<code>\/guide<\/code>/);
+  assert.match(text, /<code>\/me<\/code>/);
+  assert.match(text, /<code>\/policy<\/code>/);
+  assert.match(text, /<code>\/forgetme<\/code>/);
   assert.match(text, /Telegram ToS/);
   assert.match(text, /Automated read-only lookup/);
   // No reporting-channel pointer; no AI-flavoured headers.
@@ -782,7 +786,7 @@ test("env override falls back to default when env is empty / whitespace", () => 
   try {
     const text = buildWelcomeText();
     assert.match(text, /<b>SC45<\/b>/);
-    assert.match(text, /\/search @username/);
+    assert.match(text, /Look up other members/);
   } finally {
     delete process.env.BOT_WELCOME_TEXT;
   }

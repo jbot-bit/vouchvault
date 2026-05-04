@@ -96,18 +96,23 @@ test("parseGuidePageCallback rejects malformed payloads", () => {
   assert.equal(parseGuidePageCallback(""), null);
 });
 
-test("buildGuideRoot returns 2x2 keyboard with all 4 categories", () => {
+test("buildGuideRoot returns 2x2 categories + Bot-menu back row", () => {
   const root = buildGuideRoot();
   assert.ok(root.text.length > 0);
   const rows = root.replyMarkup.inline_keyboard;
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3, "2 category rows + 1 back row");
   assert.equal(rows[0]!.length, 2);
   assert.equal(rows[1]!.length, 2);
-  const buttons = rows.flat();
-  assert.equal(buttons.length, 4);
-  for (const b of buttons) {
+  assert.equal(rows[2]!.length, 1);
+  // Top 4 are categories.
+  const categoryButtons = [...rows[0]!, ...rows[1]!];
+  for (const b of categoryButtons) {
     assert.ok(b.callback_data.startsWith("gd:p:"));
   }
+  // Bottom row routes back to the welcome menu (wc:back).
+  const backBtn = rows[2]![0]!;
+  assert.match(backBtn.text, /Bot menu/);
+  assert.equal(backBtn.callback_data, "wc:back");
 });
 
 test("buildGuidePage(category) lists 4 leaves + Back row", () => {

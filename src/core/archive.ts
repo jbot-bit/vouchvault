@@ -486,15 +486,15 @@ function envOverride(key: string): string | null {
 }
 
 const DEFAULT_WELCOME_TEXT = [
-  "<b>SC45</b>",
-  "<b>Post vouches in the group.</b> Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
+  "<b>SC45</b> · vouch lookup",
   "",
-  "I'm an Automated read-only lookup — DM me to:",
-  "<code>/search @username</code> — see their vouch history before you deal.",
-  "<code>/me</code> — your own summary.",
-  "<code>/guide</code> — how-to + safety basics.",
-  "<code>/forgetme</code> — wipe yours.",
-  "<code>/policy</code> — what's stored.",
+  "Look up other members, see your own stats, or learn how the group works.",
+  "",
+  "<b>In the group:</b> post vouches as plain messages. Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
+  "",
+  "<b>Here:</b> tap below — or type <code>/search</code>, <code>/guide</code>, <code>/me</code>, <code>/policy</code>, <code>/forgetme</code>.",
+  "",
+  "Automated read-only lookup. I don't write vouches or DM first.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
@@ -513,15 +513,12 @@ export function buildWelcomeText(): string {
   return `${body}\n\n${rulesLine()}`;
 }
 
-// Inline keyboard for the welcome / /start surface. Three discoverability
-// shortcuts:
-//   1. switch_inline_query_current_chat — taps into inline-mode in the
-//      current DM with a "@" prefix prefilled, so the member can type
-//      a username and see the trust-headline preview without learning
-//      the inline-mode invocation pattern.
-//   2. callback to /me — surfaces the self-summary path.
-//   3. callback to /policy — surfaces the data-handling page.
-// Buttons stack two-then-one for mobile-friendly tap targets.
+// Inline keyboard for the welcome / /start surface — info-bot style.
+// Four actions in three rows: a wide Search button at top (uses
+// inline-mode for the "type to search" affordance), then How-it-works
+// + My-stats split, then Account & data (sub-menu housing policy +
+// forget). All callback-based actions edit the welcome message in
+// place so the chat doesn't accumulate stacked bot replies.
 export function buildWelcomeReplyMarkup(): {
   inline_keyboard: Array<
     Array<
@@ -532,19 +529,66 @@ export function buildWelcomeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      // Inline-mode tap: prefills "@" so the member starts typing the
-      // handle directly. "Search someone" mirrors the /me-keyboard label
-      // so the affordance reads the same on every surface.
-      [{ text: "🔍 Search someone", switch_inline_query_current_chat: "@" }],
+      [{ text: "🔍 Search a user", switch_inline_query_current_chat: "@" }],
       [
-        { text: "Me", callback_data: "wc:me" },
-        { text: "Policy", callback_data: "wc:policy" },
+        { text: "📖 How it works", callback_data: "wc:guide" },
+        { text: "👤 My stats", callback_data: "wc:me" },
       ],
+      [{ text: "⚙️ Account & data", callback_data: "wc:account" }],
     ],
   };
 }
 
-// Inline keyboard for /me.
+// Account sub-menu: policy + forget + back. Reached from the welcome
+// "Account & data" button. Edit-in-place — replaces the welcome.
+export function buildAccountSubpageText(): string {
+  return [
+    "<b>Account &amp; data</b>",
+    "",
+    "What I store and how to delete it.",
+    "",
+    "<b>📜 Policy</b> — what's kept, why, and the Telegram rules that apply.",
+    "<b>🗑 Forget me</b> — two-step delete: wipes vouches you've written + your bot account record. Vouches others wrote about you stay (their words, not your data).",
+  ].join("\n");
+}
+
+export function buildAccountSubpageMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [
+      [{ text: "📜 Policy", callback_data: "wc:policy" }],
+      [{ text: "🗑 Forget me", callback_data: "wc:forget" }],
+      [{ text: "← Back", callback_data: "wc:back" }],
+    ],
+  };
+}
+
+// Single Back-to-menu button row. Used as the markup for any leaf
+// rendered via edit-in-place from the welcome menu (My stats, Policy)
+// AND when the user types the underlying command directly (/me,
+// /policy) so they always have a clear way back.
+export function buildBackToMenuMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [[{ text: "← Back to menu", callback_data: "wc:back" }]],
+  };
+}
+
+// Markup for the policy surface — single Back-to-menu button. Used
+// both when a member taps "Policy" via the welcome menu and when they
+// type /policy directly so they always have a clear way back.
+export function buildPolicyReplyMarkup(): {
+  inline_keyboard: Array<Array<{ text: string; callback_data: string }>>;
+} {
+  return {
+    inline_keyboard: [[{ text: "← Back to menu", callback_data: "wc:back" }]],
+  };
+}
+
+// Markup for a freshly-typed /me. Keeps the inline-mode "Search a user"
+// affordance + a clear path back to the welcome menu.
 export function buildMeReplyMarkup(): {
   inline_keyboard: Array<
     Array<
@@ -555,8 +599,8 @@ export function buildMeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "Search someone", switch_inline_query_current_chat: "@" }],
-      [{ text: "Forget me", callback_data: "wc:forget" }],
+      [{ text: "🔍 Search a user", switch_inline_query_current_chat: "@" }],
+      [{ text: "← Back to menu", callback_data: "wc:back" }],
     ],
   };
 }
@@ -587,12 +631,25 @@ export function buildSearchPromptReplyMarkup(): {
   };
 }
 
-// Welcome-callback prefixes ("wc:me" / "wc:policy" / "wc:forget"). All
-// fixed-length, well under the 64-byte cap.
-export function isWelcomeCallback(data: string): "me" | "policy" | "forget" | null {
+// Welcome-menu callback prefixes. All fixed-length under the 64-byte
+// cap. Each maps to an edit-in-place action on the welcome message
+// (except "forget" which kicks off a destructive flow with its own
+// confirm UI as a fresh message).
+export type WelcomeCallback =
+  | "me"
+  | "policy"
+  | "forget"
+  | "guide"
+  | "account"
+  | "back";
+
+export function isWelcomeCallback(data: string): WelcomeCallback | null {
   if (data === "wc:me") return "me";
   if (data === "wc:policy") return "policy";
   if (data === "wc:forget") return "forget";
+  if (data === "wc:guide") return "guide";
+  if (data === "wc:account") return "account";
+  if (data === "wc:back") return "back";
   return null;
 }
 
