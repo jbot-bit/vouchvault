@@ -249,26 +249,41 @@ export async function createTelegramInviteLink(
 // cache_time controls how long Telegram caches the response per query.
 // is_personal=true forces per-user caching (we want this since the
 // rate-limit + member-vs-admin scope both depend on the caller).
+//
+// `button` (InlineQueryResultsButton) renders a persistent button at
+// the top of the dropdown — Bot API ≥ 7.0. We use it to surface
+// "Open the bot DM to /search" so members who land in inline mode
+// without context have an obvious escape to the canonical DM flow.
+// (Replaces the deprecated switch_pm_text / switch_pm_parameter pair.)
 export async function answerTelegramInlineQuery(
   input: {
     inlineQueryId: string;
     results: ReadonlyArray<Record<string, unknown>>;
     cacheTime?: number;
     isPersonal?: boolean;
+    button?: {
+      text: string;
+      startParameter?: string;
+    };
   },
   logger?: any,
 ): Promise<unknown> {
+  const payload: Record<string, unknown> = {
+    inline_query_id: input.inlineQueryId,
+    results: input.results,
+    cache_time: input.cacheTime,
+    is_personal: input.isPersonal,
+  };
+  if (input.button) {
+    payload.button = {
+      text: input.button.text,
+      ...(input.button.startParameter
+        ? { start_parameter: input.button.startParameter }
+        : {}),
+    };
+  }
   return withTelegramRetry(() =>
-    callTelegramAPI(
-      "answerInlineQuery",
-      {
-        inline_query_id: input.inlineQueryId,
-        results: input.results,
-        cache_time: input.cacheTime,
-        is_personal: input.isPersonal,
-      },
-      logger,
-    ),
+    callTelegramAPI("answerInlineQuery", payload, logger),
   );
 }
 

@@ -124,9 +124,9 @@ export function clearForget(state: ForgetState, userId: number): void {
   state.pendingByUser.delete(userId);
 }
 
-// DB execute. Deletes vouch_entries (where the user is reviewer or target),
-// vouch_drafts, users_first_seen, users — in that order so FK constraints
-// don't fire. Audit-logged. Returns total rows deleted.
+// DB execute. Deletes vouch_entries the user authored, vouch_drafts,
+// users_first_seen, users — in that order so FK constraints don't fire.
+// Audit-logged. Returns total rows deleted.
 export type ForgetDeps = {
   deleteVouchEntries: (input: { userId: number; username: string | null }) => Promise<number>;
   deleteVouchDrafts: (userId: number) => Promise<number>;

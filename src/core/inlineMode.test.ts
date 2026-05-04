@@ -12,6 +12,7 @@ test("inline summary: empty target gets clear no-vouches copy", () => {
     targetUsername: "newbie",
     positive: 0,
     mixed: 0,
+    negative: 0,
     total: 0,
     lastAt: null,
     isFrozen: false,
@@ -25,6 +26,7 @@ test("inline summary: reserved target short-circuits", () => {
     targetUsername: "notoscam",
     positive: 0,
     mixed: 0,
+    negative: 0,
     total: 0,
     lastAt: null,
     isFrozen: false,
@@ -37,6 +39,7 @@ test("inline summary: includes total + breakdown + last-active", () => {
     targetUsername: "alice",
     positive: 4,
     mixed: 1,
+    negative: 0,
     total: 5,
     lastAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
     isFrozen: false,
@@ -53,6 +56,7 @@ test("inline summary: surfaces frozen as caution-when-transacting", () => {
     targetUsername: "alice",
     positive: 1,
     mixed: 0,
+    negative: 0,
     total: 1,
     lastAt: new Date(),
     isFrozen: true,
@@ -61,19 +65,20 @@ test("inline summary: surfaces frozen as caution-when-transacting", () => {
   assert.match(text, /caution/);
 });
 
-test("inline summary: never surfaces NEG", () => {
-  // The builder's API doesn't even accept negative counts; defense in
-  // depth — what gets rendered must not contain NEG-related text even
-  // for high vouch counts.
+test("inline summary surfaces NEG count when present (community visibility)", () => {
+  // Owner directive: NEGs are not admin-only — members must see the count
+  // alongside POS/MIX so the trust headline is honest.
   const text = buildInlineSummaryText({
     targetUsername: "alice",
     positive: 10,
     mixed: 2,
-    total: 12,
+    negative: 3,
+    total: 15,
     lastAt: new Date(),
     isFrozen: false,
   });
-  assert.equal(text.includes("NEG"), false);
+  assert.match(text, /15 vouches/);
+  assert.match(text, /3 NEG/);
 });
 
 test("buildInlineSummaryTitle for reserved/empty/populated", () => {
@@ -82,6 +87,7 @@ test("buildInlineSummaryTitle for reserved/empty/populated", () => {
       targetUsername: "telegram",
       positive: 0,
       mixed: 0,
+      negative: 0,
       total: 0,
       isFrozen: false,
     }),
@@ -92,6 +98,7 @@ test("buildInlineSummaryTitle for reserved/empty/populated", () => {
       targetUsername: "newbie",
       positive: 0,
       mixed: 0,
+      negative: 0,
       total: 0,
       isFrozen: false,
     }),
@@ -102,6 +109,7 @@ test("buildInlineSummaryTitle for reserved/empty/populated", () => {
       targetUsername: "alice",
       positive: 3,
       mixed: 0,
+      negative: 0,
       total: 3,
       isFrozen: true,
     }),
@@ -114,6 +122,7 @@ test("buildInlineLookupResult shape: article, id ≤ 64 bytes, HTML disabled lin
     targetUsername: "alice",
     positive: 1,
     mixed: 0,
+    negative: 0,
     total: 1,
     lastAt: null,
     isFrozen: false,

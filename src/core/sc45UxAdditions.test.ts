@@ -115,22 +115,25 @@ test("buildMeText shows received + authored counts when present", () => {
   assert.match(text, /Wrote 3 vouches/);
 });
 
-test("buildMeText never surfaces NEG counts to the caller", () => {
-  // Member view forces negative=0 but defense-in-depth: even if a
-  // caller passes a non-zero negative, /me must not render it.
+test("buildMeText surfaces NEG counts to the caller (community-visible)", () => {
+  // Owner directive: NEGs are not admin-only. /me shows your own NEGs
+  // alongside POS/MIX so the user has a true picture of their own record.
   const text = buildMeText({
     username: "alice",
     counts: {
-      total: 1,
-      positive: 1,
-      mixed: 0,
-      negative: 0,
+      total: 4,
+      positive: 2,
+      mixed: 1,
+      negative: 1,
       firstAt: null,
       lastAt: null,
     },
     authoredCount: 0,
   });
-  assert.equal(text.includes("NEG"), false);
+  assert.match(text, /4 vouches/);
+  assert.match(text, /2 POS/);
+  assert.match(text, /1 MIX/);
+  assert.match(text, /1 NEG/);
 });
 
 test("buildMirrorStatsText health states", () => {

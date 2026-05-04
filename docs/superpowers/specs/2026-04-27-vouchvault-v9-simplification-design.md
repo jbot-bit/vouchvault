@@ -87,15 +87,29 @@ Estimated diff: ~30% reduction in `telegramBot.ts`; ~50% reduction in `archive.t
 
 ---
 
-## §5 What gets unlocked — DM `/lookup` for members
+## §5 What gets unlocked — `/search` for members (v9.x amendment)
 
-Currently `/lookup @user` is admin-only in both group and DM (CLAUDE.md "unified search archive" section). v9 unlocks the DM path:
+> **v9.x amendment (2026-05-04):** Group `/search` (and its alias `/lookup`)
+> opens to members alongside DM. NEG counts and entries are visible to all
+> viewers — only `private_note` (admin-attached note) stays admin-only.
+> The group reply is summary-only; the "View full" expansion always
+> renders in the bot DM via a `t.me/<bot>?start=…` deep-link, so detail
+> never lands in the group chat. Original v9 spec said group stayed
+> admin-only and members were filtered out of NEG visibility — that
+> shape is superseded by this amendment.
 
-- **Group `/lookup`** — stays admin-only. Includes private NEGs and `private_note` column. No change.
-- **DM `/lookup`** — opens to all users. Returns:
-  - All published vouches for the target (POS, MIX, NEG public-flagged)
+- **Group `/search`** — opens to members. Member-scope view (private_note
+  hidden); admins keep the full audit when they hit the same surface.
+  Reply is summary-only; expansion buttons are URL deep-links into the
+  bot DM, so detail (POS / MIX / NEG rows) never appears in the group.
+  If the bot username can't be resolved (transient lookup failure), the
+  expansion button is omitted entirely — never a callback fallback.
+- **DM `/search`** — opens to all users. Reply is also summary-only by
+  default; the "View full N vouches" callback button expands to the full
+  list inside the same DM. Returns:
+  - All published vouches for the target (POS, MIX, NEG)
   - Tags, sentiment, reviewer @handle, date
-  - **Excludes** `private_note` and admin-only NEGs
+  - **Excludes** `private_note` (admin-only)
 - Member rate-limit: 1 lookup per 5 seconds per user (token-bucket already exists in tooling). Prevents scraping spikes; not a hard wall.
 
 The DB rows backing this are the legacy V3 import (already correct: `status='published'`, `published_message_id IS NULL`). As the new group fills with native member posts, group native search (top-of-group bar) covers the new content; `/lookup` covers legacy + cross-references.
