@@ -274,7 +274,7 @@ function renderBody(page: GuidePage): string {
 }
 
 const BACK_LABEL = "← Back";
-const MENU_LABEL = "🏠 Menu";
+const MENU_LABEL = "🏠 Bot menu";
 const ROOT_TITLE = "How can we help?";
 const ROOT_BODY = "Tap a topic.";
 
@@ -312,7 +312,9 @@ export function buildGuidePage(id: string): RenderedPage | null {
   const rows: GuideButton[][] = [];
 
   if (isCategory) {
-    // 1-per-row leaf buttons, then [← Back].
+    // 1-per-row leaf buttons, then [← Back] (to guide root, where
+    // the user can pick a different category) and [🏠 Bot menu] for
+    // a one-tap escape all the way home.
     for (const child of children) {
       rows.push([
         { text: child.title, callback_data: buildGuidePageCallback(child.id) },
@@ -320,12 +322,15 @@ export function buildGuidePage(id: string): RenderedPage | null {
     }
     rows.push([
       { text: BACK_LABEL, callback_data: buildGuidePageCallback("root") },
+      { text: MENU_LABEL, callback_data: "wc:back" },
     ]);
   } else {
-    // Leaf: [← Back] [🏠 Menu]
+    // Leaf: [← Back] (parent category) + [🏠 Bot menu] (welcome).
+    // Escape is always one tap regardless of how the leaf was reached
+    // (welcome shortcut button OR /guide → category → leaf).
     rows.push([
       { text: BACK_LABEL, callback_data: buildGuidePageCallback(page.parent) },
-      { text: MENU_LABEL, callback_data: buildGuidePageCallback("root") },
+      { text: MENU_LABEL, callback_data: "wc:back" },
     ]);
   }
 

@@ -30,26 +30,22 @@ import { buildThreadedGroupReplyOptions } from "./telegramUx.ts";
 // DM /lookup @user searches the legacy archive. Drift in any of these
 // requires a v9 spec amendment first.
 
-test("welcome text is terse, SC45-branded, points at /search /me /guide /policy /forgetme", () => {
+test("welcome text is short, SC45-branded, info-bot style — leans on buttons for navigation", () => {
   const text = buildWelcomeText();
-  assert.match(text, /<b>SC45<\/b>/);
-  // Action-led summary first; then the in-group vouch instruction;
-  // then a list of typeable shortcuts (the buttons cover the same set).
-  assert.match(text, /Look up other members/);
-  assert.match(text, /post vouches as plain messages/);
-  assert.match(text, /Tag the @, say what happened/);
-  assert.match(text, /<code>\/search<\/code>/);
-  assert.match(text, /<code>\/guide<\/code>/);
-  assert.match(text, /<code>\/me<\/code>/);
-  assert.match(text, /<code>\/policy<\/code>/);
-  assert.match(text, /<code>\/forgetme<\/code>/);
-  assert.match(text, /Telegram ToS/);
+  // Brand line + read-only OPSEC anchor + one-sentence what-the-bot-does
+  // + in-group vouch hint. Buttons cover the rest.
+  assert.match(text, /<b>SC45 lookup bot<\/b>/);
   assert.match(text, /Automated read-only lookup/);
+  assert.match(text, /Vouches go in the group/);
+  assert.match(text, /tag the @/i);
+  assert.match(text, /pos \/ neg \/ neutral/);
+  assert.match(text, /Tap a question below/);
+  assert.match(text, /Telegram ToS/);
   // No reporting-channel pointer; no AI-flavoured headers.
   assert.equal(text.includes("@notoscam"), false);
   assert.equal(text.includes("Vouch Hub"), false);
   assert.equal(text.includes("Submit Vouch"), false);
-  // Length sanity — full output incl. rules line should stay compact.
+  // Length sanity — info-bot welcome should be tight.
   assert.ok(text.length <= 700, `welcome is ${text.length} chars`);
 });
 
@@ -785,8 +781,8 @@ test("env override falls back to default when env is empty / whitespace", () => 
   process.env.BOT_WELCOME_TEXT = "   ";
   try {
     const text = buildWelcomeText();
-    assert.match(text, /<b>SC45<\/b>/);
-    assert.match(text, /Look up other members/);
+    assert.match(text, /<b>SC45 lookup bot<\/b>/);
+    assert.match(text, /Vouches go in the group/);
   } finally {
     delete process.env.BOT_WELCOME_TEXT;
   }

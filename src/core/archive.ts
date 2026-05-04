@@ -486,15 +486,12 @@ function envOverride(key: string): string | null {
 }
 
 const DEFAULT_WELCOME_TEXT = [
-  "<b>SC45</b> · vouch lookup",
+  "<b>SC45 lookup bot</b>",
+  "<i>Automated read-only lookup. I don't write vouches or DM first.</i>",
   "",
-  "Look up other members, see your own stats, or learn how the group works.",
+  "Vouches go in the group as plain messages — tag the @, say what happened, mark <b>pos / neg / neutral</b>.",
   "",
-  "<b>In the group:</b> post vouches as plain messages. Tag the @, say what happened, mark <b>pos / neg / neutral</b>. Vouch back is expected.",
-  "",
-  "<b>Here:</b> tap below — or type <code>/search</code>, <code>/guide</code>, <code>/me</code>, <code>/policy</code>, <code>/forgetme</code>.",
-  "",
-  "Automated read-only lookup. I don't write vouches or DM first.",
+  "Use me to look people up, check your own stats, or read the group rules. Tap a question below.",
 ].join("\n");
 
 const DEFAULT_PINNED_GUIDE_TEXT = [
@@ -514,11 +511,19 @@ export function buildWelcomeText(): string {
 }
 
 // Inline keyboard for the welcome / /start surface — info-bot style.
-// Four actions in three rows: a wide Search button at top (uses
-// inline-mode for the "type to search" affordance), then How-it-works
-// + My-stats split, then Account & data (sub-menu housing policy +
-// forget). All callback-based actions edit the welcome message in
-// place so the chat doesn't accumulate stacked bot replies.
+// Each button is a question or action; tap routes DIRECTLY to the
+// answer (no "tap a category then tap a leaf" double-step). Layout
+// is a 3×2 grid for mobile fit. All callback-based actions edit the
+// welcome message in place so the chat doesn't accumulate stacked
+// replies as the user navigates.
+//
+// Routes:
+// - "Find a vouch"   → switch_inline_query_current_chat (inline mode)
+// - "My stats"       → wc:me (renders /me + Back-to-menu)
+// - "How to vouch"   → gd:p:new_vouch (direct to the /guide leaf)
+// - "Why posts get deleted" → gd:p:grp_posts (direct to the /guide leaf)
+// - "More help"      → wc:guide (opens /guide root for full discovery)
+// - "My data"        → wc:account (policy + forget sub-menu)
 export function buildWelcomeReplyMarkup(): {
   inline_keyboard: Array<
     Array<
@@ -529,12 +534,18 @@ export function buildWelcomeReplyMarkup(): {
 } {
   return {
     inline_keyboard: [
-      [{ text: "🔍 Search a user", switch_inline_query_current_chat: "@" }],
       [
-        { text: "📖 How it works", callback_data: "wc:guide" },
+        { text: "🔍 Find a vouch", switch_inline_query_current_chat: "@" },
         { text: "👤 My stats", callback_data: "wc:me" },
       ],
-      [{ text: "⚙️ Account & data", callback_data: "wc:account" }],
+      [
+        { text: "💬 How to vouch", callback_data: "gd:p:new_vouch" },
+        { text: "🛡 Why posts get deleted", callback_data: "gd:p:grp_posts" },
+      ],
+      [
+        { text: "📖 More help", callback_data: "wc:guide" },
+        { text: "🔒 My data", callback_data: "wc:account" },
+      ],
     ],
   };
 }
